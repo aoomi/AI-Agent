@@ -1,0 +1,40 @@
+plugin_id: short_drama
+name: Short Drama
+version: 1.0.0
+platform_version_range: ">=0.1.0 <1.0.0"
+provider: AI Agent
+source: builtin
+capabilities:
+  - short_drama.pipeline
+  - short_drama.export
+permissions:
+  - filesystem.read
+  - filesystem.write
+  - network.request
+  - model.invoke
+  - queue.publish
+  - queue.consume
+  - tenant_data.read
+  - tenant_data.write
+dependencies:
+  - capability: model.text.generate
+    kind: required
+  - capability: model.image.generate
+    kind: replaceable_input
+  - capability: model.video.generate
+    kind: replaceable_input
+  - capability: model.audio.generate
+    kind: optional_enhancement
+data_scopes:
+  - project.requirements
+  - project.narrative
+  - project.assets
+  - project.exports
+frontend_slots:
+  - navigation
+  - canvas
+backend_entry: backend/main.py
+migration_entry: migrations/main.py
+uninstall_policy: retain
+integrity_hash: sha256:e8dfc0cf621fa7f94a313636b1b28e9b39921f435cac939a19fa1f27612a3e8d
+contract_version: "1.0"

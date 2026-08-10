@@ -1,0 +1,7 @@
+groups:
+  - name: ai-agent-critical
+    rules:
+      - {alert: AIAgentUnavailable, expr: "up{job='ai-agent'} == 0", for: 2m, severity: critical}
+      - {alert: ProviderFailureRateHigh, expr: "rate(provider_requests_failed_total[5m]) / rate(provider_requests_total[5m]) > 0.10", for: 5m, severity: high}
+      - {alert: QueueBacklogHigh, expr: "ai_agent_queue_pending > 100", for: 10m, severity: high}
+      - {alert: BackupStale, expr: "time() - ai_agent_last_backup_success_timestamp > 86400", for: 15m, severity: critical}

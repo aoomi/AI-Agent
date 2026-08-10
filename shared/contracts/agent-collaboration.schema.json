@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yingxu.local/contracts/agent-collaboration.schema.json",
+  "$defs": {
+    "identifier": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "version": { "const": "1.0" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "safeReference": { "type": "string", "minLength": 1, "maxLength": 2048, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*[\\u0000-\\u001f]).+$" },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evidence_id", "kind", "reference", "metadata"],
+      "properties": {
+        "evidence_id": { "$ref": "#/$defs/identifier" },
+        "kind": { "enum": ["file", "test", "log", "artifact"] },
+        "reference": { "$ref": "#/$defs/safeReference" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "metadata": { "type": "object" }
+      }
+    },
+    "session": {
+      "type": "object", "additionalProperties": false,
+      "required": ["session_id", "tenant_id", "project_id", "root_task_id", "developer_agent_id", "inspector_agent_id", "status", "remediation_round", "max_remediation_rounds", "created_at", "updated_at", "contract_version"],
+      "properties": {
+        "session_id": { "$ref": "#/$defs/identifier" }, "tenant_id": { "$ref": "#/$defs/identifier" },
+        "project_id": { "$ref": "#/$defs/identifier" }, "root_task_id": { "$ref": "#/$defs/identifier" },
+        "developer_agent_id": { "$ref": "#/$defs/identifier" }, "inspector_agent_id": { "$ref": "#/$defs/identifier" },
+        "status": { "enum": ["active", "paused", "waiting_inspection", "waiting_remediation", "waiting_human", "completed", "failed", "cancelled"] },
+        "remediation_round": { "type": "integer", "minimum": 0 }, "max_remediation_rounds": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "created_at": { "$ref": "#/$defs/timestamp" }, "updated_at": { "$ref": "#/$defs/timestamp" }, "contract_version": { "$ref": "#/$defs/version" }
+      }
+    },
+    "handoff": {
+      "type": "object", "additionalProperties": false,
+      "required": ["handoff_id", "session_id", "task_id", "source_agent_id", "target_agent_id", "handoff_type", "status", "context_reference", "evidence", "created_at", "contract_version"],
+      "properties": {
+        "handoff_id": { "$ref": "#/$defs/identifier" }, "session_id": { "$ref": "#/$defs/identifier" }, "task_id": { "$ref": "#/$defs/identifier" },
+        "source_agent_id": { "$ref": "#/$defs/identifier" }, "target_agent_id": { "$ref": "#/$defs/identifier" },
+        "handoff_type": { "enum": ["submit_for_inspection", "remediation_assigned", "resubmit_for_inspection", "manual_takeover"] },
+        "status": { "enum": ["pending", "accepted", "completed", "failed", "cancelled"] },
+        "context_reference": { "$ref": "#/$defs/safeReference" },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+        "created_at": { "$ref": "#/$defs/timestamp" }, "contract_version": { "$ref": "#/$defs/version" }
+      }
+    },
+    "issue": {
+      "type": "object", "additionalProperties": false,
+      "required": ["issue_id", "code", "title", "description", "severity", "evidence_ids"],
+      "properties": {
+        "issue_id": { "$ref": "#/$defs/identifier" }, "code": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 500 }, "description": { "type": "string", "minLength": 1, "maxLength": 10000 },
+        "severity": { "enum": ["blocker", "high", "medium", "low"] }, "file_reference": { "$ref": "#/$defs/safeReference" },
+        "evidence_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/identifier" } }
+      }
+    },
+    "report": {
+      "type": "object", "additionalProperties": false,
+      "required": ["report_id", "session_id", "handoff_id", "inspector_agent_id", "read_only", "verdict", "issues", "evidence", "created_at", "contract_version"],
+      "properties": {
+        "report_id": { "$ref": "#/$defs/identifier" }, "session_id": { "$ref": "#/$defs/identifier" }, "handoff_id": { "$ref": "#/$defs/identifier" },
+        "inspector_agent_id": { "$ref": "#/$defs/identifier" }, "read_only": { "const": true },
+        "verdict": { "enum": ["passed", "changes_required", "blocked"] },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/issue" } },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+        "created_at": { "$ref": "#/$defs/timestamp" }, "contract_version": { "$ref": "#/$defs/version" }
+      },
+      "allOf": [
+        { "if": { "properties": { "verdict": { "enum": ["changes_required", "blocked"] } }, "required": ["verdict"] }, "then": { "properties": { "issues": { "minItems": 1 } } } },
+        { "if": { "properties": { "verdict": { "const": "passed" } }, "required": ["verdict"] }, "then": { "properties": { "issues": { "maxItems": 0 } } } }
+      ]
+    },
+    "remediationInstruction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["instruction_id", "session_id", "report_id", "developer_agent_id", "root_task_id", "issue_ids", "remediation_round", "status", "created_at", "contract_version"],
+      "properties": {
+        "instruction_id": { "$ref": "#/$defs/identifier" }, "session_id": { "$ref": "#/$defs/identifier" }, "report_id": { "$ref": "#/$defs/identifier" },
+        "developer_agent_id": { "$ref": "#/$defs/identifier" }, "root_task_id": { "$ref": "#/$defs/identifier" },
+        "issue_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/identifier" } },
+        "remediation_round": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["pending", "running", "completed", "failed", "cancelled"] },
+        "created_at": { "$ref": "#/$defs/timestamp" }, "contract_version": { "$ref": "#/$defs/version" }
+      }
+    }
+  }
+}

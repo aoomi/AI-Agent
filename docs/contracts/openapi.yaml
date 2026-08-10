@@ -1,0 +1,243 @@
+openapi: 3.1.0
+info:
+  title: AI Agent Platform API
+  version: 0.1.0
+  description: >-
+    新平台运行基线。健康检查、智能体注册/查询和任务查询/转换路径已通过真实 HTTP 测试。
+x-contract-status: verified
+servers: []
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      responses:
+        '200': {description: healthy, content: {application/json: {schema: {$ref: '#/components/schemas/HealthResponse'}}}}
+  /api/v1/agents/register:
+    post:
+      operationId: registerAgentForSkill
+      parameters:
+        - {$ref: '#/components/parameters/RequestId'}
+        - {$ref: '#/components/parameters/TraceId'}
+        - {$ref: '#/components/parameters/IdentityId'}
+        - {$ref: '#/components/parameters/IdentityKind'}
+        - {$ref: '#/components/parameters/TenantId'}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, additionalProperties: false, required: [skill_id], properties: {skill_id: {type: string, minLength: 1}}}}}
+      responses:
+        '200': {description: registered, content: {application/json: {schema: {$ref: '#/components/schemas/AgentResponse'}}}}
+        '400': {description: invalid registration, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /api/v1/agents/{agent_id}:
+    get:
+      operationId: getAgent
+      parameters:
+        - {$ref: '#/components/parameters/RequestId'}
+        - {$ref: '#/components/parameters/TraceId'}
+        - {$ref: '#/components/parameters/IdentityId'}
+        - {$ref: '#/components/parameters/IdentityKind'}
+        - {$ref: '#/components/parameters/TenantId'}
+        - {name: agent_id, in: path, required: true, schema: {type: string, minLength: 1}}
+      responses:
+        '200': {description: agent, content: {application/json: {schema: {$ref: '#/components/schemas/AgentResponse'}}}}
+        '404': {description: missing, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /api/v1/tasks:
+    parameters: &identity_headers
+      - {$ref: '#/components/parameters/RequestId'}
+      - {$ref: '#/components/parameters/TraceId'}
+      - {$ref: '#/components/parameters/IdentityId'}
+      - {$ref: '#/components/parameters/IdentityKind'}
+      - {$ref: '#/components/parameters/TenantId'}
+    get:
+      operationId: listTasks
+      parameters: [{name: project_id, in: query, required: false, schema: {type: string, minLength: 1}}]
+      responses:
+        '200': {description: tasks, content: {application/json: {schema: {$ref: '#/components/schemas/TaskListResponse'}}}}
+  /api/v1/tasks/{task_id}:
+    parameters: *identity_headers
+    get:
+      operationId: getTask
+      parameters: [{name: task_id, in: path, required: true, schema: {type: string, minLength: 1}}]
+      responses:
+        '200': {description: task, content: {application/json: {schema: {$ref: '#/components/schemas/TaskResponse'}}}}
+        '404': {description: missing, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /api/v1/tasks/{task_id}/cancel:
+    parameters: *identity_headers
+    post:
+      operationId: cancelTask
+      parameters: [{name: task_id, in: path, required: true, schema: {type: string, minLength: 1}}]
+      responses:
+        '200': {description: cancelled, content: {application/json: {schema: {$ref: '#/components/schemas/TaskResponse'}}}}
+        '409': {description: rejected, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /api/v1/tasks/{task_id}/resume:
+    parameters: *identity_headers
+    post:
+      operationId: resumeTask
+      parameters: [{name: task_id, in: path, required: true, schema: {type: string, minLength: 1}}]
+      responses:
+        '200': {description: resumed, content: {application/json: {schema: {$ref: '#/components/schemas/TaskResponse'}}}}
+        '409': {description: rejected, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /api/v1/models:
+    parameters: *identity_headers
+    get:
+      operationId: listModels
+      responses: {'200': {description: models, content: {application/json: {schema: {$ref: '#/components/schemas/SuccessEnvelope'}}}}}
+  /api/v1/models/register:
+    parameters: *identity_headers
+    post:
+      operationId: registerModel
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ModelRegistration'}}}}
+      responses: {'200': {description: registered, content: {application/json: {schema: {$ref: '#/components/schemas/SuccessEnvelope'}}}}, '400': {description: invalid, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}}
+  /api/v1/agent-configurations:
+    parameters: *identity_headers
+    post:
+      operationId: createAgentConfiguration
+      responses: {'200': {description: configuration, content: {application/json: {schema: {$ref: '#/components/schemas/SuccessEnvelope'}}}}, '409': {description: rejected, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}}
+  /api/v1/agent-configurations/{agent_id}:
+    parameters: *identity_headers
+    get:
+      operationId: getAgentConfiguration
+      parameters: [{name: agent_id, in: path, required: true, schema: {type: string}}, {name: version, in: query, required: false, schema: {type: integer, minimum: 1}}]
+      responses: {'200': {description: configuration, content: {application/json: {schema: {$ref: '#/components/schemas/SuccessEnvelope'}}}}, '404': {description: missing, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}}
+  /api/v1/agent-configurations/{agent_id}/update:
+    parameters: *identity_headers
+    post:
+      operationId: updateAgentConfiguration
+      parameters: [{name: agent_id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: updated, content: {application/json: {schema: {$ref: '#/components/schemas/SuccessEnvelope'}}}}, '409': {description: conflict, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}}
+  /api/v1/agent-configurations/{agent_id}/history:
+    parameters: *identity_headers
+    get:
+      operationId: listAgentConfigurationHistory
+      parameters: [{name: agent_id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: history, content: {application/json: {schema: {$ref: '#/components/schemas/SuccessEnvelope'}}}}}
+  /api/v1/agent-conversations:
+    parameters: *identity_headers
+    post:
+      operationId: openAgentConversation
+      responses: {'200': {description: session, content: {application/json: {schema: {$ref: '#/components/schemas/SuccessEnvelope'}}}}}
+  /api/v1/agent-conversations/{session_id}:
+    parameters: *identity_headers
+    get:
+      operationId: getAgentConversation
+      parameters: [{name: session_id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: conversation, content: {application/json: {schema: {$ref: '#/components/schemas/SuccessEnvelope'}}}}, '404': {description: missing, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}}
+  /api/v1/agent-conversations/{session_id}/messages:
+    parameters: *identity_headers
+    post:
+      operationId: sendAgentConversationMessage
+      parameters: [{name: session_id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: model response and proposal, content: {application/json: {schema: {$ref: '#/components/schemas/SuccessEnvelope'}}}}, '409': {description: model unavailable or rejected, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}}
+  /api/v1/agent-proposals/{proposal_id}/confirm:
+    parameters: *identity_headers
+    post:
+      operationId: confirmAgentProposal
+      parameters: [{name: proposal_id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: applied, content: {application/json: {schema: {$ref: '#/components/schemas/SuccessEnvelope'}}}}, '409': {description: rejected, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}}
+  /api/v1/agent-proposals/{proposal_id}/reject:
+    parameters: *identity_headers
+    post:
+      operationId: rejectAgentProposal
+      parameters: [{name: proposal_id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: rejected, content: {application/json: {schema: {$ref: '#/components/schemas/SuccessEnvelope'}}}}}
+components:
+  parameters:
+    RequestId: {name: X-Request-Id, in: header, required: true, schema: {type: string, minLength: 1}}
+    TraceId: {name: X-Trace-Id, in: header, required: true, schema: {type: string, minLength: 1}}
+    IdentityId: {name: X-Identity-Id, in: header, required: true, schema: {type: string, minLength: 1}}
+    IdentityKind: {name: X-Identity-Kind, in: header, required: true, schema: {enum: [user, service, agent]}}
+    TenantId: {name: X-Tenant-Id, in: header, required: true, schema: {type: string, minLength: 1}}
+  schemas:
+    HealthResponse:
+      allOf: [{$ref: '#/components/schemas/SuccessEnvelope'}, {type: object, properties: {data: {type: object, required: [status, service, environment], properties: {status: {const: healthy}, service: {const: ai-agent-platform}, environment: {type: string}}}}}]
+    AgentResponse:
+      allOf: [{$ref: '#/components/schemas/SuccessEnvelope'}, {type: object, properties: {data: {$ref: '#/components/schemas/Agent'}}}]
+    TaskResponse:
+      allOf: [{$ref: '#/components/schemas/SuccessEnvelope'}, {type: object, properties: {data: {$ref: '#/components/schemas/Task'}}}]
+    TaskListResponse:
+      allOf: [{$ref: '#/components/schemas/SuccessEnvelope'}, {type: object, properties: {data: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/Task'}}}}}}]
+    SuccessEnvelope:
+      type: object
+      required: [code, msg, data, timestamp]
+      properties: {code: {const: 200}, msg: {const: success}, data: {type: object}, timestamp: {type: integer, minimum: 0}}
+    Agent:
+      type: object
+      additionalProperties: false
+      required: [agent_id, skill_id, name, status]
+      properties: {agent_id: {type: string}, skill_id: {type: string}, name: {type: string}, status: {enum: [idle, loading, running, waiting_human, completed, failed]}}
+    Task:
+      type: object
+      additionalProperties: false
+      required: [task_id, tenant_id, project_id, operation_key, task_type, status, payload]
+      properties:
+        task_id: {type: string}
+        tenant_id: {type: string}
+        project_id: {type: string}
+        operation_key: {type: string}
+        task_type: {type: string}
+        status: {enum: [queued, running, waiting_human, paused, completed, failed, cancelled]}
+        payload: {type: object, additionalProperties: true}
+    ModelRegistration:
+      type: object
+      additionalProperties: false
+      required: [model_id, provider_id, display_name, capabilities, context_window]
+      properties:
+        model_id: {type: string, minLength: 1}
+        provider_id: {type: string, minLength: 1}
+        display_name: {type: string, minLength: 1}
+        capabilities: {type: array, uniqueItems: true, items: {enum: [chat, reasoning, tool_calling, vision, structured_output]}}
+        context_window: {type: integer, minimum: 1}
+        enabled: {type: boolean}
+        settings: {type: object, additionalProperties: true}
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [code, msg, data, timestamp]
+      properties:
+        code:
+          type: integer
+          enum: [400, 401, 403, 404, 409, 500]
+        msg:
+          type: string
+          minLength: 1
+        data:
+          $ref: '#/components/schemas/ErrorData'
+        timestamp:
+          type: integer
+          minimum: 0
+    ErrorData:
+      type: object
+      additionalProperties: false
+      required: [request_id, error_code, details]
+      properties:
+        request_id:
+          type: string
+          minLength: 1
+        error_code:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        details:
+          type: object
+          additionalProperties: true
+    TaskReference:
+      type: object
+      additionalProperties: false
+      required: [task_id, tenant_id, project_id, operation_key, status, contract_version]
+      properties:
+        task_id:
+          type: string
+          minLength: 1
+        tenant_id:
+          type: string
+          minLength: 1
+        project_id:
+          type: string
+          minLength: 1
+        operation_key:
+          type: string
+          minLength: 1
+        status:
+          type: string
+          enum: [queued, running, waiting_human, paused, completed, failed, cancelled]
+        contract_version:
+          type: string
+          const: '1.0'

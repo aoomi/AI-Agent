@@ -1,0 +1,16 @@
+skill_id: system_inspector
+name: 稽查 AI
+version: 1.2.0
+entry_point: skill.py
+system_prompt_file: system_prompt.md
+agent_role: inspector
+collaboration_role: read_only_gate
+permissions:
+  - workspace.read
+  - report.create
+required_model_capabilities:
+  - chat
+  - reasoning
+  - tool_calling
+  - structured_output
+system_prompt_version: "1.2"

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent.local/schemas/short-drama-v1.json",
+  "$defs": {
+    "node_type": {"enum": ["requirements", "outline", "script", "storyboard", "assets", "image", "video", "audio", "subtitle", "composition", "review_export"]},
+    "run_status": {"enum": ["pending", "running", "waiting_human", "completed", "failed", "cancelled"]},
+    "node_execution":{"type":"object","additionalProperties":false,"required":["node_type","status","dependencies","input_artifact_ids","output_artifact_ids","attempt","max_attempts","error_code"],"properties":{"node_type":{"$ref":"#/$defs/node_type"},"status":{"$ref":"#/$defs/run_status"},"dependencies":{"type":"array","uniqueItems":true,"items":{"$ref":"#/$defs/node_type"}},"input_artifact_ids":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"output_artifact_ids":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"attempt":{"type":"integer","minimum":0},"max_attempts":{"type":"integer","minimum":1,"maximum":20},"error_code":{"type":["string","null"]}}},
+    "checkpoint":{"type":"object","additionalProperties":false,"required":["checkpoint_id","thread_id","run_id","current_nodes","next_nodes","node_executions","created_at","updated_at","contract_version"],"properties":{"checkpoint_id":{"type":"string","minLength":1},"thread_id":{"type":"string","minLength":1},"run_id":{"type":"string","minLength":1},"current_nodes":{"type":"array","uniqueItems":true,"items":{"$ref":"#/$defs/node_type"}},"next_nodes":{"type":"array","uniqueItems":true,"items":{"$ref":"#/$defs/node_type"}},"node_executions":{"type":"array","minItems":11,"maxItems":11,"items":{"$ref":"#/$defs/node_execution"}},"created_at":{"type":"string","format":"date-time"},"updated_at":{"type":"string","format":"date-time"},"contract_version":{"const":"1.0"}}},
+    "lora_selection":{"type":"object","additionalProperties":false,"required":["mode","drama_genre","selected_lora_id","selected_lora_version","locked","match_reason","exploration_seed","contract_version"],"properties":{"mode":{"enum":["automatic","fixed","manual","exploration"]},"drama_genre":{"type":"string","minLength":1},"selected_lora_id":{"type":"string","minLength":1},"selected_lora_version":{"type":"string","minLength":1},"locked":{"type":"boolean"},"match_reason":{"type":"string","minLength":1},"exploration_seed":{"type":["integer","null"],"minimum":0},"contract_version":{"const":"1.0"}},"allOf":[{"if":{"properties":{"mode":{"const":"exploration"}},"required":["mode"]},"then":{"properties":{"exploration_seed":{"type":"integer"}}},"else":{"properties":{"exploration_seed":{"type":"null"},"locked":{"const":true}}}}]},
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifact_id", "artifact_version", "node_type", "storage_key", "media_type", "checksum_sha256"],
+      "properties": {
+        "artifact_id": {"type": "string", "minLength": 1},
+        "artifact_version": {"type": "integer", "minimum": 1},
+        "node_type": {"$ref": "#/$defs/node_type"},
+        "storage_key": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*\\.\\.).+$"},
+        "media_type": {"type": "string", "minLength": 1},
+        "checksum_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "pipeline_run": {
+      "type": "object", "additionalProperties": false,
+      "required": ["run_id", "tenant_id", "project_id", "task_id", "operation_key", "status", "current_node", "completed_nodes", "artifacts", "contract_version"],
+      "properties": {
+        "run_id": {"type": "string", "minLength": 1},
+        "tenant_id": {"type": "string", "minLength": 1},
+        "project_id": {"type": "string", "minLength": 1},
+        "task_id": {"type": "string", "minLength": 1},
+        "operation_key": {"type": "string", "minLength": 1},
+        "status": {"$ref": "#/$defs/run_status"},
+        "current_node": {"$ref": "#/$defs/node_type"},
+        "completed_nodes": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/node_type"}},
+        "artifacts": {"type": "array", "items": {"$ref": "#/$defs/artifact"}},
+        "contract_version": {"const": "1.0"}
+      }
+    }
+  }
+}

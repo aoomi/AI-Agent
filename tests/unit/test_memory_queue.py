@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+import unittest
+
+from ai_agent_queue import InMemoryTaskQueue, QueueConflictError, QueuedTask
+from ai_agent_tenant import IdentityContext, IdentityContextError
+
+
+def task(task_id: str = "task-1", operation_key: str = "operation-1", tenant_id: str = "tenant-a") -> QueuedTask:
+    return QueuedTask(
+        task_id=task_id,
+        project_id="project-1",
+        operation_key=operation_key,
+        task_type="contract_test",
+        context=IdentityContext("request-1", "trace-1", "identity-1", "user", tenant_id),
+        payload={"input": "value"},
+    )
+
+
+class InMemoryTaskQueueTest(unittest.TestCase):
+    def test_enqueue_claim_and_complete(self) -> None:
+        queue = InMemoryTaskQueue()
+        queued, replayed = queue.enqueue(task())
+        self.assertFalse(replayed)
+        self.assertEqual(queued.status, "queued")
+        claimed = queue.claim("tenant-a")
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.status, "running")
+        self.assertEqual(queue.finish("task-1", "completed").status, "completed")
+
+    def test_same_operation_is_replayed(self) -> None:
+        queue = InMemoryTaskQueue()
+        first, _ = queue.enqueue(task())
+        replay, replayed = queue.enqueue(task(task_id="task-2"))
+        self.assertTrue(replayed)
+        self.assertEqual(replay.task_id, first.task_id)
+
+    def test_conflicting_operation_is_rejected(self) -> None:
+        queue = InMemoryTaskQueue()
+        queue.enqueue(task())
+        conflicting = QueuedTask(
+            "task-2", "project-1", "operation-1", "different", task().context, {"input": "value"}
+        )
+        with self.assertRaisesRegex(QueueConflictError, "conflicts"):
+            queue.enqueue(conflicting)
+
+    def test_claim_and_read_are_tenant_scoped(self) -> None:
+        queue = InMemoryTaskQueue()
+        queue.enqueue(task())
+        self.assertIsNone(queue.claim("tenant-b"))
+        with self.assertRaises(IdentityContextError):
+            queue.get("task-1", "tenant-b")
+
+    def test_terminal_task_cannot_be_cancelled(self) -> None:
+        queue = InMemoryTaskQueue()
+        queue.enqueue(task())
+        queue.claim("tenant-a")
+        queue.finish("task-1", "completed")
+        with self.assertRaisesRegex(QueueConflictError, "terminal"):
+            queue.cancel("task-1")
+
+    def test_failed_and_paused_tasks_can_return_to_queue(self) -> None:
+        queue = InMemoryTaskQueue(); queue.enqueue(task()); queue.claim("tenant-a")
+        queue.finish("task-1", "failed")
+        self.assertEqual(queue.resume("task-1").status, "queued")
+        queue.claim("tenant-a"); queue.pause("task-1")
+        self.assertEqual(queue.resume("task-1").status, "queued")
+
+
+if __name__ == "__main__":
+    unittest.main()

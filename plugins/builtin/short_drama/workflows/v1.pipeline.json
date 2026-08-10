@@ -1,0 +1,18 @@
+{
+  "workflow_key": "short_drama.production.v1",
+  "version": "1.0.0",
+  "state_namespace": "plugins.short_drama",
+  "stages": [
+    { "stage": "requirements", "skill_key": "short_drama.project_requirement", "optional": false },
+    { "stage": "outline", "skill_key": "short_drama.story_outline", "optional": false },
+    { "stage": "script", "skill_key": "short_drama.script_generation", "optional": false },
+    { "stage": "storyboard", "skill_key": "short_drama.storyboard_script", "optional": false },
+    { "stage": "assets", "skill_key": "short_drama.character_scene_assets", "optional": false },
+    { "stage": "image", "skill_key": "short_drama.shot_images", "optional": false },
+    { "stage": "video", "skill_key": "short_drama.shot_videos", "optional": false },
+    { "stage": "audio", "skill_key": "short_drama.audio", "optional": false },
+    { "stage": "subtitle", "skill_key": "short_drama.subtitle", "optional": false },
+    { "stage": "composition", "skill_key": "short_drama.final_compose", "optional": false },
+    { "stage": "review_export", "skill_key": "short_drama.final_review_export", "optional": false }
+  ]
+}

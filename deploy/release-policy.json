@@ -1,0 +1,1 @@
+{"version_format":"semver","maximum_major_jump":1,"require_backup":true,"require_health_check":true,"automatic_rollback_on_health_failure":true}

@@ -1,0 +1,17 @@
+skill_id: system_software_tester
+name: 软件测试 AI
+version: 1.0.0
+entry_point: skill.py
+system_prompt_file: system_prompt.md
+agent_role: tester
+collaboration_role: incremental_test_gate
+permissions:
+  - workspace.read
+  - test.execute
+  - report.create
+required_model_capabilities:
+  - chat
+  - reasoning
+  - tool_calling
+  - structured_output
+system_prompt_version: "1.0"

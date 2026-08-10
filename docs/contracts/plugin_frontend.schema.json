@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent.local/schemas/plugin-frontend-v1.json",
+  "title": "Plugin Frontend Extension V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "entry", "slots"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "entry": { "type": "string", "pattern": "^(?!/)(?!.*\\.\\.).+$" },
+    "slots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slot", "component"],
+        "properties": {
+          "slot": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]*$" },
+          "component": { "type": "string", "pattern": "^(?!/)(?!.*\\.\\.).+$" },
+          "capability": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]*$" }
+        }
+      }
+    }
+  }
+}

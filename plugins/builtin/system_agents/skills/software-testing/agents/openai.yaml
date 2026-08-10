@@ -1,0 +1,6 @@
+interface:
+  display_name: "软件测试"
+  short_description: "独立执行本次增量单元、接口、边界及异常测试并输出报告"
+  default_prompt: "Use $software-testing to test the current incremental change and record the full report in the linked BUG entry."
+policy:
+  allow_implicit_invocation: true

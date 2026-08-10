@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent.local/schemas/license-v1.json",
+  "title": "AI Agent License V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "license_id", "customer_id", "deployment_id", "issued_at", "expires_at", "capabilities", "signature"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "license_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "customer_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "deployment_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]*$" },
+      "uniqueItems": true
+    },
+    "device_fingerprint": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "signature_algorithm": { "type": "string", "enum": ["Ed25519"] },
+    "signature": { "type": "string", "minLength": 1 }
+  }
+}

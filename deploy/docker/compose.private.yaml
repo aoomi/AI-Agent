@@ -1,0 +1,11 @@
+services:
+  ai-agent:
+    build: {context: ../.., dockerfile: deploy/docker/Dockerfile}
+    env_file: ../environments/private-production.env
+    ports: ["8080:8080"]
+    volumes: ["ai-agent-data:/var/lib/ai-agent"]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+volumes: {ai-agent-data: {}}

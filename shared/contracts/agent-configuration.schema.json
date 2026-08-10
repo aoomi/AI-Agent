@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yingxu.local/contracts/agent-configuration.schema.json",
+  "$defs": {
+    "identifier": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "version": { "const": "1.0" },
+    "model": {
+      "type": "object", "additionalProperties": false,
+      "required": ["model_id", "provider_id", "display_name", "capabilities", "enabled", "context_window", "contract_version"],
+      "properties": {
+        "model_id": { "$ref": "#/$defs/identifier" }, "provider_id": { "$ref": "#/$defs/identifier" },
+        "display_name": { "type": "string", "minLength": 1 },
+        "capabilities": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["chat", "reasoning", "tool_calling", "vision", "structured_output"] } },
+        "enabled": { "type": "boolean" }, "context_window": { "type": "integer", "minimum": 1 },
+        "contract_version": { "$ref": "#/$defs/version" }
+      }
+    },
+    "configuration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["configuration_id", "configuration_version", "agent_id", "skill_id", "role", "model_id", "system_prompt_version", "settings", "writable", "updated_by_identity_id", "updated_at", "contract_version"],
+      "properties": {
+        "configuration_id": { "$ref": "#/$defs/identifier" }, "configuration_version": { "type": "integer", "minimum": 1 },
+        "agent_id": { "$ref": "#/$defs/identifier" }, "skill_id": { "$ref": "#/$defs/identifier" },
+        "role": { "enum": ["developer", "inspector"] }, "model_id": { "$ref": "#/$defs/identifier" },
+        "system_prompt_version": { "type": "string", "minLength": 1 }, "settings": { "type": "object" },
+        "writable": { "type": "boolean" }, "updated_by_identity_id": { "$ref": "#/$defs/identifier" },
+        "updated_at": { "type": "string", "format": "date-time" }, "contract_version": { "$ref": "#/$defs/version" }
+      },
+      "allOf": [{ "if": { "properties": { "role": { "const": "inspector" } } }, "then": { "properties": { "writable": { "const": false } } } }]
+    },
+    "message": {
+      "type": "object", "additionalProperties": false,
+      "required": ["message_id", "session_id", "agent_id", "role", "content", "created_at", "contract_version"],
+      "properties": {
+        "message_id": { "$ref": "#/$defs/identifier" }, "session_id": { "$ref": "#/$defs/identifier" }, "agent_id": { "$ref": "#/$defs/identifier" },
+        "role": { "enum": ["user", "assistant", "system", "tool"] }, "content": { "type": "string", "minLength": 1, "maxLength": 100000 },
+        "created_at": { "type": "string", "format": "date-time" }, "contract_version": { "$ref": "#/$defs/version" }
+      }
+    },
+    "proposal": {
+      "type": "object", "additionalProperties": false,
+      "required": ["proposal_id", "session_id", "agent_id", "proposal_type", "status", "requested_changes", "requires_confirmation", "created_at", "contract_version"],
+      "properties": {
+        "proposal_id": { "$ref": "#/$defs/identifier" }, "session_id": { "$ref": "#/$defs/identifier" }, "agent_id": { "$ref": "#/$defs/identifier" },
+        "proposal_type": { "enum": ["configuration_change", "task_execution", "industry_workflow"] },
+        "status": { "enum": ["draft", "pending_confirmation", "applied", "rejected", "failed"] },
+        "requested_changes": { "type": "object", "minProperties": 1 }, "requires_confirmation": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" }, "contract_version": { "$ref": "#/$defs/version" }
+      }
+    }
+  }
+}

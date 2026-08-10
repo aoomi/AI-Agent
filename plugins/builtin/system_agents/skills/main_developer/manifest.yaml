@@ -1,0 +1,17 @@
+skill_id: system_main_developer
+name: 主线开发 AI
+version: 1.2.0
+entry_point: skill.py
+system_prompt_file: system_prompt.md
+agent_role: developer
+collaboration_role: implementation_owner
+permissions:
+  - workspace.read
+  - workspace.write
+  - task.execute
+required_model_capabilities:
+  - chat
+  - reasoning
+  - tool_calling
+  - structured_output
+system_prompt_version: "1.2"

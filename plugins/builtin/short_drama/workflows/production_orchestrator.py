@@ -1,0 +1,227 @@
+"""Durable LangGraph control plane for short-drama production."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+import operator
+from pathlib import Path
+import sqlite3
+from threading import RLock
+from dataclasses import dataclass
+from typing import Annotated, Any, Callable, Mapping, TypedDict
+
+from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.graph import END, START, StateGraph
+
+from .production_ledger import CANONICAL_STAGES, LIFECYCLES, canonical_stage
+
+
+Director = Callable[[Mapping[str, Any]], Mapping[str, Any]]
+StageExecutor = Callable[[Mapping[str, Any]], Mapping[str, Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class StageDefinition:
+    stage: str
+    provider_id: str
+    enabled: bool
+
+
+class ProductionControlState(TypedDict, total=False):
+    tenant_id: str
+    user_id: str
+    project_id: str
+    event: dict[str, Any]
+    stages: Annotated[dict[str, str], operator.or_]
+    projection_revisions: Annotated[dict[str, int], operator.or_]
+    current_stage: str
+    next_stage: str
+    status: str
+    decision: dict[str, Any]
+    updated_at: str
+
+
+class ProductionOrchestrator:
+    """Authoritative state transition planner backed by LangGraph checkpoints."""
+
+    def __init__(self, database: Path, director: Director | None = None) -> None:
+        self.database = database.resolve()
+        self.database.parent.mkdir(parents=True, exist_ok=True)
+        self.connection = sqlite3.connect(self.database, check_same_thread=False)
+        self.checkpointer = SqliteSaver(self.connection)
+        self.director = director
+        self._executors: dict[str, tuple[StageDefinition, StageExecutor]] = {}
+        self._lock = RLock()
+        self.graph = self._compile()
+
+    def register_stage(self, stage: str, executor: StageExecutor, *, provider_id: str = "local", enabled: bool = True, replace: bool = False) -> None:
+        canonical = canonical_stage(stage)
+        provider = provider_id.strip()
+        if not callable(executor) or not provider:
+            raise ValueError("stage executor and provider are required")
+        with self._lock:
+            if canonical in self._executors and not replace:
+                raise ValueError(f"stage executor already registered: {canonical}")
+            self._executors[canonical] = (StageDefinition(canonical, provider, enabled), executor)
+
+    def unregister_stage(self, stage: str) -> bool:
+        with self._lock:
+            return self._executors.pop(canonical_stage(stage), None) is not None
+
+    def enable_stage(self, stage: str, enabled: bool) -> StageDefinition:
+        canonical = canonical_stage(stage)
+        with self._lock:
+            try:
+                definition, executor = self._executors[canonical]
+            except KeyError as error:
+                raise ValueError(f"stage executor is not installed: {canonical}") from error
+            updated = StageDefinition(canonical, definition.provider_id, enabled)
+            self._executors[canonical] = (updated, executor)
+            return updated
+
+    def stages(self) -> tuple[StageDefinition, ...]:
+        with self._lock:
+            return tuple(self._executors[stage][0] for stage in CANONICAL_STAGES if stage in self._executors)
+
+    def execute(self, identity: Mapping[str, Any], stage: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
+        """Execute one registered production node under the durable LangGraph state machine."""
+        canonical = canonical_stage(stage)
+        state = self.state(identity)
+        if state.get("status") == "cancelled":
+            raise ValueError("workflow is cancelled")
+        index = CANONICAL_STAGES.index(canonical)
+        if index and state["stages"].get(CANONICAL_STAGES[index - 1]) != "completed":
+            raise ValueError(f"previous stage is not completed: {CANONICAL_STAGES[index - 1]}")
+        with self._lock:
+            try:
+                definition, executor = self._executors[canonical]
+            except KeyError as error:
+                raise ValueError(f"stage executor is not installed: {canonical}") from error
+        if not definition.enabled:
+            raise ValueError(f"stage executor is disabled: {canonical}")
+        self.report(identity, canonical, "running")
+        try:
+            try:
+                output = executor(dict(inputs))
+            except ConnectionError:
+                output = executor(dict(inputs))
+            if not isinstance(output, Mapping):
+                raise ValueError("stage executor returned invalid output")
+        except Exception as error:
+            failed = self.report(identity, canonical, "failed", error=str(error))
+            return {**failed, "output": None, "error": str(error)}
+        waiting = self.report(identity, canonical, "pending_confirmation", evidence=dict(output))
+        return {**waiting, "output": dict(output), "error": ""}
+
+    def begin(self, identity: Mapping[str, Any], stage: str) -> dict[str, Any]:
+        """Authorize a legacy endpoint through the same dependency gate."""
+        canonical = canonical_stage(stage)
+        state = self.state(identity)
+        if state.get("status") == "cancelled":
+            raise ValueError("workflow is cancelled")
+        if state.get("stages", {}).get(canonical) == "running":
+            raise ValueError(f"production stage is already running: {canonical}")
+        index = CANONICAL_STAGES.index(canonical)
+        if index and state["stages"].get(CANONICAL_STAGES[index - 1]) != "completed":
+            raise ValueError(f"previous stage is not completed: {CANONICAL_STAGES[index - 1]}")
+        return self.report(identity, canonical, "running")
+
+    def _compile(self):
+        builder = StateGraph(ProductionControlState)
+
+        def apply_event(state: ProductionControlState) -> dict[str, Any]:
+            event = dict(state.get("event") or {})
+            stage = canonical_stage(event.get("stage"))
+            lifecycle = str(event.get("lifecycle") or "idle")
+            if lifecycle not in LIFECYCLES:
+                raise ValueError(f"invalid production lifecycle: {lifecycle}")
+            incoming_revision = max(0, int(event.get("projection_revision") or 0))
+            current_revision = int((state.get("projection_revisions") or {}).get(stage) or 0)
+            if incoming_revision and incoming_revision <= current_revision:
+                return {"projection_revisions": {}, "updated_at": datetime.now(UTC).isoformat()}
+            return {
+                "stages": {stage: lifecycle}, "current_stage": stage,
+                "projection_revisions": {stage:incoming_revision} if incoming_revision else {},
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+
+        def plan(state: ProductionControlState) -> dict[str, Any]:
+            stages = dict(state.get("stages") or {})
+            current = canonical_stage(state.get("current_stage"))
+            lifecycle = stages.get(current, "idle")
+            decision: dict[str, Any] = {"action": "wait", "stage": current, "reason": lifecycle}
+            next_stage = ""
+            status = "running"
+            if lifecycle == "completed":
+                index = CANONICAL_STAGES.index(current)
+                if index == len(CANONICAL_STAGES) - 1:
+                    status = "completed"; decision = {"action": "complete", "stage": current, "reason": "workflow_complete"}
+                else:
+                    next_stage = CANONICAL_STAGES[index + 1]
+                    decision = {"action": "advance", "stage": next_stage, "reason": f"{current}_completed"}
+            elif lifecycle == "pending_confirmation":
+                status = "waiting_human"; decision = {"action": "human_approval", "stage": current, "reason": "confirmation_required"}
+            elif lifecycle in {"failed", "stale"}:
+                status = "failed"; decision = {"action": "repair", "stage": current, "reason": lifecycle}
+                if self.director is not None:
+                    raw = self.director({"role": "short_drama_global_director", "current_stage": current, "lifecycle": lifecycle, "stages": stages, "event": state.get("event", {})})
+                    if isinstance(raw, Mapping) and raw.get("action") in {"repair", "manual", "cancel"}:
+                        decision = {"action": str(raw["action"]), "stage": canonical_stage(raw.get("stage") or current), "reason": str(raw.get("reason") or lifecycle)}
+            elif lifecycle in {"paused", "cancelled"}:
+                status = lifecycle; decision = {"action": lifecycle, "stage": current, "reason": lifecycle}
+            return {"next_stage": next_stage, "status": status, "decision": decision, "updated_at": datetime.now(UTC).isoformat()}
+
+        builder.add_node("apply_event", apply_event)
+        builder.add_node("global_director", plan)
+        builder.add_edge(START, "apply_event")
+        builder.add_edge("apply_event", "global_director")
+        builder.add_edge("global_director", END)
+        return builder.compile(checkpointer=self.checkpointer)
+
+    @staticmethod
+    def thread_id(tenant_id: str, user_id: str, project_id: str) -> str:
+        values = tuple(str(value).strip() for value in (tenant_id, user_id, project_id))
+        if not all(values):
+            raise ValueError("tenant_id, user_id and project_id are required")
+        return ":".join(values)
+
+    def report(self, identity: Mapping[str, Any], stage: str, lifecycle: str, *, trusted: bool = False, **evidence: Any) -> dict[str, Any]:
+        tenant_id, user_id, project_id = (str(identity.get(key, "")).strip() for key in ("tenant_id", "user_id", "project_id"))
+        thread_id = self.thread_id(tenant_id, user_id, project_id)
+        canonical = canonical_stage(stage)
+        if lifecycle == "completed":
+            self.validate_completion(identity, canonical, trusted=trusted, confirmation=evidence.get("confirmation"))
+        event = {"stage": canonical, "lifecycle": lifecycle, **evidence}
+        config = {"configurable": {"thread_id": thread_id}}
+        with self._lock:
+            result = self.graph.invoke({"tenant_id": tenant_id, "user_id": user_id, "project_id": project_id, "event": event}, config=config)
+        return self._public(result, thread_id)
+
+    def validate_completion(self, identity: Mapping[str, Any], stage: str, *, trusted: bool = False, confirmation: Any = None) -> None:
+        canonical = canonical_stage(stage); current = self.state(identity); index = CANONICAL_STAGES.index(canonical)
+        if index and current["stages"].get(CANONICAL_STAGES[index - 1]) != "completed":
+            raise ValueError(f"previous stage is not completed: {CANONICAL_STAGES[index - 1]}")
+        if not trusted and not (isinstance(confirmation, Mapping) and confirmation.get("confirmed_at")):
+            raise ValueError(f"completed stage requires durable confirmation: {canonical}")
+
+    def state(self, identity: Mapping[str, Any]) -> dict[str, Any]:
+        tenant_id, user_id, project_id = (str(identity.get(key, "")).strip() for key in ("tenant_id", "user_id", "project_id"))
+        thread_id = self.thread_id(tenant_id, user_id, project_id)
+        with self._lock:
+            snapshot = self.graph.get_state({"configurable": {"thread_id": thread_id}})
+        return self._public(snapshot.values or {}, thread_id)
+
+    @staticmethod
+    def _public(state: Mapping[str, Any], thread_id: str) -> dict[str, Any]:
+        return {
+            "thread_id": thread_id,
+            "status": str(state.get("status") or "idle"),
+            "current_stage": str(state.get("current_stage") or ""),
+            "next_stage": str(state.get("next_stage") or ""),
+            "stages": dict(state.get("stages") or {}),
+            "decision": dict(state.get("decision") or {}),
+            "projection_revisions": {str(key):int(value) for key, value in dict(state.get("projection_revisions") or {}).items()},
+            "updated_at": str(state.get("updated_at") or ""),
+            "orchestrator": "langgraph",
+            "director_model": "mlx-community/Qwen3.5-122B-A10B-mxfp4",
+        }

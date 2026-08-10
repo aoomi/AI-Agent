@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+frontend/node_modules/
+frontend/dist/
+.DS_Store
+.env
+.env.*
+!.env.example
+data/*
+!data/.gitkeep
+
+# Local runtimes, downloaded model weights, and generated artifacts
+.venv/
+.kernel/
+models/
+output/
+runs/
+work/

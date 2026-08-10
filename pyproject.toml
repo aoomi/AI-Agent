@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-agent-platform"
+version = "0.1.0"
+description = "Runnable platform baseline for AI Agent"
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6,<7", "langgraph>=1.0,<2", "langgraph-checkpoint-sqlite>=3,<4"]
+
+[project.optional-dependencies]
+test = [
+  "jsonschema>=4.18,<5",
+]
+
+[project.scripts]
+ai-agent-api = "ai_agent_bootstrap.cli:main"
+
+[tool.setuptools]
+package-dir = { ai_agent_adapters = "platform/adapters", ai_agent_circuit_breaker = "platform/circuit_breaker", ai_agent_security = "platform/security", ai_agent_bootstrap = "platform/bootstrap", ai_agent_core = "platform/core", ai_agent_discovery = "platform/discovery", ai_agent_events = "platform/events", ai_agent_llm_gateway = "platform/llm_gateway", ai_agent_queue = "platform/queue", ai_agent_tenant = "platform/tenant", short_drama_backend = "plugins/builtin/short_drama/backend", short_drama_workflows = "plugins/builtin/short_drama/workflows" }
+packages = ["ai_agent_adapters", "ai_agent_circuit_breaker", "ai_agent_security", "ai_agent_bootstrap", "ai_agent_core", "ai_agent_discovery", "ai_agent_events", "ai_agent_llm_gateway", "ai_agent_queue", "ai_agent_tenant", "short_drama_backend", "short_drama_workflows"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

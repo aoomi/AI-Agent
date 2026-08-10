@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unittest
+
+from ai_agent_core import AgentConfigurationStore, AgentConversationService, ConversationError, ConversationMemoryStore
+from ai_agent_discovery import AgentRegistry, SkillRegistry
+from ai_agent_llm_gateway import ModelDefinition, ModelRegistry
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+class ModelClient:
+    def __init__(self, response): self.response = response; self.calls = 0
+    def complete(self, model, messages, response_schema): self.calls += 1; return self.response
+
+
+class TaskExecutor:
+    def __init__(self): self.calls = []
+    def execute(self, configuration, requested_changes, confirmed_by_identity_id):
+        self.calls.append((configuration, dict(requested_changes), confirmed_by_identity_id))
+        return {"task_id": "task-1"}
+
+
+class AgentConversationServiceTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.skills = {skill.skill_id: skill for skill in SkillRegistry(ROOT / "plugins/builtin").scan()}
+        self.agents = AgentRegistry(); self.models = ModelRegistry()
+        self.models.register(ModelDefinition.create(model_id="model-full", provider_id="provider", display_name="Full", capabilities={"chat", "reasoning", "tool_calling", "structured_output"}, context_window=32768))
+        self.configurations = AgentConfigurationStore(self.models)
+
+    def configured(self, skill_id="system_main_developer"):
+        skill = self.skills[skill_id]; agent, _ = self.agents.register(skill)
+        self.configurations.create(agent=agent, skill=skill, model_id="model-full", updated_by_identity_id="owner")
+        return skill, agent
+
+    def test_configuration_proposal_requires_confirmation_and_versions_update(self) -> None:
+        skill, agent = self.configured()
+        client = ModelClient({"reply": "请确认配置", "proposal": {"proposal_type": "configuration_change", "requested_changes": {"settings": {"approval": "strict"}}}})
+        service = AgentConversationService(self.models, self.configurations, client); service.bind(agent, skill)
+        session = service.open_session(agent.agent_id, "owner")
+        _, proposal = service.send(session.session_id, "将审批改为严格")
+        self.assertIsNotNone(proposal); self.assertEqual(self.configurations.get(agent.agent_id).configuration_version, 1)
+        applied = service.confirm(proposal.proposal_id, "owner")
+        self.assertEqual(applied.status, "applied"); self.assertEqual(self.configurations.get(agent.agent_id).configuration_version, 2)
+        self.assertEqual(len(service.messages(session.session_id)), 3)
+
+    def test_complex_task_executes_only_after_confirmation(self) -> None:
+        skill, agent = self.configured(); executor = TaskExecutor()
+        client = ModelClient({"reply": "任务已规划", "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "实现复杂功能"}}})
+        service = AgentConversationService(self.models, self.configurations, client, executor); service.bind(agent, skill)
+        _, proposal = service.send(service.open_session(agent.agent_id, "owner").session_id, "执行复杂任务")
+        self.assertEqual(executor.calls, [])
+        applied = service.confirm(proposal.proposal_id, "owner")
+        self.assertEqual(applied.applied_result["task_id"], "task-1"); self.assertEqual(len(executor.calls), 1)
+
+    def test_inspector_cannot_propose_writable_task(self) -> None:
+        skill, agent = self.configured("system_inspector")
+        client = ModelClient({"reply": "提案", "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "修改代码"}}})
+        service = AgentConversationService(self.models, self.configurations, client); service.bind(agent, skill)
+        with self.assertRaisesRegex(ConversationError, "read-only"):
+            service.send(service.open_session(agent.agent_id, "owner").session_id, "修改代码")
+
+    def test_missing_real_model_client_fails_explicitly(self) -> None:
+        skill, agent = self.configured()
+        service = AgentConversationService(self.models, self.configurations, None); service.bind(agent, skill)
+        with self.assertRaisesRegex(ConversationError, "not configured"):
+            service.send(service.open_session(agent.agent_id, "owner").session_id, "你好")
+
+    def test_rejected_proposal_cannot_be_confirmed(self) -> None:
+        skill, agent = self.configured()
+        client = ModelClient({"reply": "提案", "proposal": {"proposal_type": "configuration_change", "requested_changes": {"settings": {"x": 1}}}})
+        service = AgentConversationService(self.models, self.configurations, client); service.bind(agent, skill)
+        _, proposal = service.send(service.open_session(agent.agent_id, "owner").session_id, "更改")
+        service.reject(proposal.proposal_id)
+        with self.assertRaisesRegex(ConversationError, "not pending"):
+            service.confirm(proposal.proposal_id, "owner")
+
+    def test_session_injects_skill_project_context_and_reuses_memory(self) -> None:
+        skill, agent = self.configured()
+        client = ModelClient({"reply": "已记住", "memory_updates": {"answer_style": "精简", "goal": "完成视频工作流"}})
+        service = AgentConversationService(self.models, self.configurations, client); service.bind(agent, skill)
+        first = service.open_session(agent.agent_id, "owner", {"project_id": "project-1", "task_id": "task-1"})
+        service.send(first.session_id, "以后回答精简")
+        second = service.open_session(agent.agent_id, "owner", {"project_id": "project-1"})
+        system = service.messages(second.session_id)[0].content
+        self.assertIn("skill_id=system_main_developer", system)
+        self.assertIn("完成视频工作流", system)
+        self.assertEqual(second.context["project_id"], "project-1")
+
+    def test_memory_survives_service_restart(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "memory.json"
+            first = ConversationMemoryStore(path); first.update("owner", "project-1", {"style": "精简"})
+            self.assertEqual(ConversationMemoryStore(path).read("owner", "project-1")["style"], "精简")
+            self.assertEqual(ConversationMemoryStore(path).read("other", "project-1"), {})
+
+    def test_clarification_cannot_create_execution_proposal(self) -> None:
+        skill, agent = self.configured()
+        client = ModelClient({"reply": "需要确认目标平台", "needs_clarification": True, "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "执行"}}})
+        service = AgentConversationService(self.models, self.configurations, client); service.bind(agent, skill)
+        with self.assertRaisesRegex(ConversationError, "clarification response"):
+            service.send(service.open_session(agent.agent_id, "owner").session_id, "开始")
+
+    def test_selected_skill_and_plan_are_enforced(self) -> None:
+        skill, agent = self.configured(); executor = TaskExecutor()
+        client = ModelClient({"reply": "计划待确认", "selected_skill_id": skill.skill_id, "plan": ["读取上下文", "执行任务"], "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "执行"}}})
+        service = AgentConversationService(self.models, self.configurations, client, executor); service.bind(agent, skill)
+        _, proposal = service.send(service.open_session(agent.agent_id, "owner").session_id, "开始")
+        self.assertEqual(proposal.requested_changes["plan"], ["读取上下文", "执行任务"])
+
+
+if __name__ == "__main__": unittest.main()

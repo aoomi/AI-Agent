@@ -1,0 +1,14 @@
+industry_id: short_drama
+template_version: 1.0.0
+skills:
+  - {skill_id: duanju.xiangmu_xuqiu, name: 项目需求机器人, process_id: requirements, entrypoint: workflows/text_pipeline.py, required_capabilities: [chat], permissions: [workspace.read]}
+  - {skill_id: duanju.gushi_dagang, name: 故事大纲机器人, process_id: outline, entrypoint: workflows/text_pipeline.py, required_capabilities: [chat, structured_output], permissions: [workspace.read]}
+  - {skill_id: duanju.juben, name: 剧本机器人, process_id: script, entrypoint: workflows/text_pipeline.py, required_capabilities: [chat, structured_output], permissions: [workspace.read]}
+  - {skill_id: duanju.fenjing_jiaoben, name: 分镜脚本机器人, process_id: storyboard, entrypoint: workflows/text_pipeline.py, required_capabilities: [chat, structured_output], permissions: [workspace.read]}
+  - {skill_id: duanju.shijue_zichan, name: 视觉资产机器人, process_id: assets, entrypoint: workflows/media_pipeline.py, required_capabilities: [vision], permissions: [workspace.read]}
+  - {skill_id: duanju.fenjing_huamian, name: 分镜画面机器人, process_id: image, entrypoint: workflows/media_pipeline.py, required_capabilities: [vision], permissions: [workspace.read]}
+  - {skill_id: duanju.fenjing_shipin, name: 分镜视频机器人, process_id: video, entrypoint: workflows/media_pipeline.py, required_capabilities: [vision], permissions: [workspace.read]}
+  - {skill_id: duanju.yinpin, name: 音频机器人, process_id: audio, entrypoint: workflows/media_pipeline.py, required_capabilities: [tool_calling], permissions: [workspace.read]}
+  - {skill_id: duanju.zimu, name: 字幕机器人, process_id: subtitle, entrypoint: workflows/media_pipeline.py, required_capabilities: [tool_calling], permissions: [workspace.read]}
+  - {skill_id: duanju.hepian, name: 合片机器人, process_id: composition, entrypoint: workflows/delivery_pipeline.py, required_capabilities: [tool_calling], permissions: [workspace.read]}
+  - {skill_id: duanju.jicha_daochu, name: 稽查导出机器人, process_id: review_export, entrypoint: workflows/delivery_pipeline.py, required_capabilities: [vision, structured_output], permissions: [workspace.read]}
