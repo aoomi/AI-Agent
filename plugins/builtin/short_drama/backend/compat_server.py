@@ -376,9 +376,16 @@ def _drain_durable_task_projections(task_class: str, job_file: Path) -> int:
 
 
 def _replay_durable_task_projections() -> int:
-    return sum(_drain_durable_task_projections(task_class, job_file) for task_class, job_file in (
-        ("text", TEXT_JOBS_FILE), ("image", IMAGE_JOBS_FILE), ("video", VIDEO_JOBS_FILE),
-    ))
+    acknowledged = 0
+    for task_class, job_file in (("text", TEXT_JOBS_FILE), ("image", IMAGE_JOBS_FILE), ("video", VIDEO_JOBS_FILE)):
+        try:
+            acknowledged += _drain_durable_task_projections(task_class, job_file)
+        except Exception:
+            # Projection is an outbox-backed compatibility operation. A busy or
+            # temporarily unavailable store must leave the event pending for the
+            # next heartbeat, never terminate the worker heartbeat itself.
+            continue
+    return acknowledged
 
 
 def _merge_durable_tasks(task_class: str, job_file: Path, store: dict) -> dict:

@@ -183,8 +183,14 @@ class DurableTaskRepository:
             yield lease
         finally:
             stop.set(); renewal.join(timeout=1)
-            with self._lock, self._connection() as connection:
-                connection.execute("DELETE FROM task_projection_locks WHERE scope_key=? AND owner_id=?", (key, owner))
+            try:
+                with self._lock, self._connection() as connection:
+                    connection.execute("DELETE FROM task_projection_locks WHERE scope_key=? AND owner_id=?", (key, owner))
+            except sqlite3.Error:
+                # Release is best effort. The row is owner fenced and its TTL
+                # guarantees recovery; a transient busy database must not tear
+                # down the worker heartbeat or projection drain.
+                pass
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         with self._lock, self._connection() as connection:

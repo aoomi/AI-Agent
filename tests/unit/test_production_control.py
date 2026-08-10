@@ -1,7 +1,9 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from contextlib import contextmanager
 import importlib.util
 import json
+import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import threading
 import time
@@ -566,6 +568,39 @@ class ProductionControlTests(unittest.TestCase):
             time.sleep(.1); release.set()
             for thread in threads: thread.join(2)
             self.assertEqual(sorted(outcomes), [False, True])
+
+    def test_projection_lock_release_busy_does_not_escape(self):
+        with TemporaryDirectory() as temporary:
+            repository = DurableTaskRepository(Path(temporary) / "tasks.sqlite")
+            original_connection = repository._connection
+            entered = False
+            @contextmanager
+            def busy_on_release():
+                nonlocal entered
+                if entered:
+                    raise sqlite3.OperationalError("database is locked")
+                entered = True
+                with original_connection() as connection:
+                    yield connection
+            with repository.projection_lock("t:u:p:outline", ttl=5) as lease:
+                self.assertTrue(lease.owns())
+                repository._connection = busy_on_release
+            self.assertTrue(entered)
+
+    def test_projection_replay_store_failure_does_not_stop_other_stores(self):
+        root = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location("compat_projection_resilient_replay_test", root / "plugins/builtin/short_drama/backend/compat_server.py")
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        calls = []
+        module.TEXT_JOBS_FILE = Path("text.json"); module.IMAGE_JOBS_FILE = Path("image.json"); module.VIDEO_JOBS_FILE = Path("video.json")
+        def drain(task_class, _job_file):
+            calls.append(task_class)
+            if task_class == "text":
+                raise sqlite3.OperationalError("database is locked")
+            return 1
+        module._drain_durable_task_projections = drain
+        self.assertEqual(module._replay_durable_task_projections(), 2)
+        self.assertEqual(calls, ["text", "image", "video"])
 
     def test_waiting_memory_is_preserved_in_tasks_and_projected_as_graph_queued(self):
         root = Path(__file__).resolve().parents[2]

@@ -25,7 +25,7 @@
 
 ### BUG-20260811-013：M9.169任务批提交与LangGraph投影仍非原子边界
 
-- 状态：第四轮稽查退回，失租围栏整改完成，待软件测试复测
+- 状态：待处理
 - 关联任务：M9.169
 - 来源：M9.169首轮最终稽查退回。
 - 阻断一：多job store逐条独立upsert，第N条失败会留下前N-1条部分提交。
@@ -61,7 +61,21 @@
 - 第四轮稽查退回：续租线程更新失败或数据库异常只会退出，未向执行体暴露失租；旧owner可能在新owner完成并ack后继续提交旧checkpoint。并发首次抢锁的SQLite busy也可能向heartbeat抛出异常。
 - 失租围栏整改：`ProjectionLease`显式维护`lost/owns`；续租异常、owner变化或过期立即失效。投影在Graph report前后验证租约，report途中失租或shutdown时从SQLite权威任务重建更高revision outbox事件，禁止旧owner确认新事件并保证后续重放修复。抢锁改为`BEGIN IMMEDIATE`原子判定，busy按未取得返回。
 - 开发验证：旧rev1 report阻塞期间模拟租约接管、rev2完成并ack，旧report恢复后产生rev3权威修复事件，重放后图保持pending_confirmation且revision>2；两个Repository并发抢空锁仅一个成功。专项`57 passed`及三文件Python编译通过。
+- 失租围栏首轮软件测试退回：租约退出删除锁行遇SQLite busy仍向drain/heartbeat抛出`OperationalError`。
+- 释放整改：owner条件删除改为best-effort；瞬时SQLite异常不外抛，锁行由TTL自动回收。新增释放busy故障注入，专项`58 passed`及Python编译通过。
+- 心跳容错：重放按text/image/video逐库隔离异常；单库busy保留outbox到下次心跳并继续其他库，禁止异常终止heartbeat。专项更新为`59 passed`。
+- 失租围栏功能复测：release busy `2/2`、双进程空锁争抢`5/5`、续租异常lost `3/3`、失租晚到重建高revision 2项均通过；关联`137 passed, 3 subtests passed`及Python编译通过。正式8787与Ollama空闲；ComfyUI存在用户合法H3任务，未干预，待自然结束后补正式空闲验收。
 - 下一状态：待软件测试复测
+- 失租围栏软件复测：不通过；发现首个失败后立即停止，未启动重模型。
+- 失败项：`DurableTaskRepository.projection_lock`仅在获取、续租和`owns()`路径捕获SQLite异常，但`finally`中的租约删除没有异常保护。释放阶段遇到`sqlite3.OperationalError: database is locked`会直接逃逸出上下文，能够中断`_drain_durable_task_projections`并终止worker heartbeat循环。
+- 动态复现：成功取得`t:u:p:outline`租约后，在退出阶段注入SQLite busy；`cm.__exit__()`稳定抛出`OperationalError: database is locked`。这违反“SQLite busy不抛出且不得终止heartbeat”的明确验收边界。
+- 预期行为：释放租约的SQLite busy/IO异常不得从context manager逃逸；应安全标记失租并由TTL回收，drain返回且heartbeat继续。仍需覆盖续租失败/owner接管后旧执行体不ack、旧report晚到重建更高revision事件及两进程空锁抢占。
+- 下一状态：待处理
+- 释放busy整改软件复测：增量功能通过。释放busy best-effort故障注入`2/2`；两独立进程/两Repository空锁争抢`5/5`，仅1方成功且无SQLite异常；续租异常置lost并禁止旧owner继续持有`3/3`。
+- 失租与权威修复：精确回归`test_lost_projection_lease_requeues_authoritative_state`和`test_projection_lock_concurrent_acquire_has_one_owner`均通过；覆盖旧rev1 report阻塞、接管后rev2确认、旧report晚到重建更高revision事件并最终修复Graph。旧有shutdown不ack、CAS、跨进程续租/过期接管证据保持有效。
+- 关联回归：`137 passed, 3 subtests passed`；DurableTaskRepository、ProductionOrchestrator与compat_server Python编译通过。
+- 本轮正式验收：不通过，未启动任何测试重模型。8787 PID 44757、cwd正确、health healthy，worker active 0、三池queued 0，Ollama模型0；但ComfyUI 8194存在`queue_running=1`的MiniMaxH3FL2VAPromptAgentOpenAIAPI任务，不符合本轮“正式服务与资源空闲”验收前提；未停止或干预该任务。
+- 下一状态：待ComfyUI自然空闲后补正式验收。
 
 ### BUG-20260811-012：M9.167正式8787未加载分层背压资源池配置
 

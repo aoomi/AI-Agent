@@ -13,6 +13,7 @@
 - outbox事件使用SQLite全局单调revision；确认删除必须匹配job_id+revision。LangGraph按stage保存最新投影revision并拒绝旧版本，保证并发drain不会误删新事件或用旧queued覆盖新completed。
 - 多服务实例投影前必须取得SQLite中的tenant/user/project/stage级租约；租约自动续期、进程失联后过期。持锁后重新读取最新outbox，跨实例禁止同时写同一阶段checkpoint。
 - 续租失败、租约被接管或数据库异常必须立即标记`lost`；Graph提交前后及ack前均复核所有权。提交途中失租时，从SQLite权威任务重新生成更高revision事件，禁止旧持有者确认新事件，并由后续投影自动修复可能的旧checkpoint。
+- 租约释放与单个任务库重放遇到SQLite busy时保留TTL/outbox并等待下次心跳；异常不得逃逸并终止worker heartbeat，其他任务库仍须继续重放。
 
 ### M9.170：服装独立道具资产与镜头级换装链（最终稽查通过，已关闭）
 
