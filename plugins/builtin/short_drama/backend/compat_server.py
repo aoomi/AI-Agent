@@ -2202,8 +2202,7 @@ def _run_image_validation(
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            RESOURCE_SCHEDULER.cancel_job(job_id)
-            _terminate_ollama_model("llava:latest")
+            _cancel_image_validation_work(job_id)
             completed.wait(5)
             raise RuntimeError(f"图片后验收超时（{int(timeout_seconds)}秒）：{phase}")
         if completed.wait(min(heartbeat_seconds, remaining)):
@@ -2211,8 +2210,7 @@ def _run_image_validation(
         try:
             _assert_image_job_runnable(job_id)
         except Exception:
-            RESOURCE_SCHEDULER.cancel_job(job_id)
-            _terminate_ollama_model("llava:latest")
+            _cancel_image_validation_work(job_id)
             completed.wait(5)
             raise
         _update_image_job(job_id, status="processing", phase=phase, heartbeat_at=_iso_now(), pid=None, process_group=None)
@@ -2224,6 +2222,18 @@ def _run_image_validation(
     if not isinstance(result, tuple) or len(result) != 2:
         raise RuntimeError(f"图片后验收返回无效结果：{phase}")
     return bool(result[0]), str(result[1])
+
+
+def _cancel_image_validation_work(job_id: str) -> None:
+    """Cancel every owned validation resource before the image job reaches a terminal state."""
+    RESOURCE_SCHEDULER.cancel_job(job_id)
+    with IMAGE_JOB_LOCK:
+        process = ACTIVE_IMAGE_PROCESSES.get(job_id)
+        job = _load_image_jobs().get("jobs", {}).get(job_id, {})
+    if process is not None:
+        _terminate_process_tree(process)
+    _cancel_job_comfy_prompts(job)
+    _terminate_ollama_model("llava:latest")
 
 
 def _image_job_identity(job_id: str) -> dict[str, str]:
@@ -2307,7 +2317,55 @@ def _validate_scene_asset(image: dict, *, job_id: str = "") -> tuple[bool, str]:
     return all(verdict.get(key) is True for key in required), json.dumps(verdict, ensure_ascii=False)
 
 
-def _face_pose_angles(image_path: Path) -> tuple[float, float, float] | None:
+def _validation_remaining(job_id: str, deadline: float | None, maximum: float) -> float:
+    if job_id:
+        _assert_image_job_runnable(job_id)
+    if deadline is None:
+        return maximum
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise RuntimeError("人物图片后验收已超时")
+    return min(maximum, remaining)
+
+
+def _run_image_validation_subprocess(
+    command: list[str], *, job_id: str = "", deadline: float | None = None, maximum: float,
+) -> str:
+    """Run one deterministic validator as an owned, cancellable image-job subprocess."""
+    _validation_remaining(job_id, deadline, maximum)
+    process = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
+    )
+    if job_id:
+        with IMAGE_JOB_LOCK:
+            ACTIVE_IMAGE_PROCESSES[job_id] = process
+        _update_image_job(job_id, pid=process.pid, process_group=process.pid, heartbeat_at=_iso_now())
+    try:
+        while process.poll() is None:
+            try:
+                _validation_remaining(job_id, deadline, maximum)
+            except Exception:
+                _terminate_process_tree(process)
+                raise
+            time.sleep(0.2)
+        stdout, stderr = process.communicate()
+        if process.returncode != 0:
+            raise RuntimeError((stderr or stdout or "人物确定性验收子进程失败").strip()[-2000:])
+        if job_id:
+            _assert_image_job_runnable(job_id)
+        return stdout
+    finally:
+        if process.poll() is None:
+            _terminate_process_tree(process)
+        if job_id:
+            with IMAGE_JOB_LOCK:
+                if ACTIVE_IMAGE_PROCESSES.get(job_id) is process:
+                    ACTIVE_IMAGE_PROCESSES.pop(job_id, None)
+
+
+def _face_pose_angles(
+    image_path: Path, *, job_id: str = "", deadline: float | None = None,
+) -> tuple[float, float, float] | None:
     """Return InsightFace pitch/yaw/roll so orientation gates do not rely on VLM judgment alone."""
     script = """import json,sys,cv2
 from insightface.app import FaceAnalysis
@@ -2319,17 +2377,17 @@ else:
  face=max(faces,key=lambda item:float((item.bbox[2]-item.bbox[0])*(item.bbox[3]-item.bbox[1])))
  print(json.dumps([float(value) for value in face.pose]))
 """
-    result = subprocess.run(
+    stdout = _run_image_validation_subprocess(
         [str(COMFY_PYTHON), "-c", script, str(image_path), "/Users/aoo/AI/Models/Vision/InsightFace"],
-        check=True, capture_output=True, text=True, timeout=120,
+        job_id=job_id, deadline=deadline, maximum=120,
     )
-    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    payload = json.loads(stdout.strip().splitlines()[-1])
     return tuple(payload) if isinstance(payload, list) and len(payload) == 3 else None
 
 
 def _mirror_character_candidate_for_target(candidate: Path, target_pose: str) -> bool:
     """Correct a pure left/right semantic inversion without regenerating identity or clothing."""
-    pose = _face_pose_angles(candidate)
+    pose = _face_pose_angles(candidate, job_id=job_id, deadline=deadline)
     if pose is None:
         return False
     yaw = float(pose[1])
@@ -2343,7 +2401,9 @@ def _mirror_character_candidate_for_target(candidate: Path, target_pose: str) ->
     return True
 
 
-def _face_embedding_similarity(reference: Path, candidate: Path) -> float | None:
+def _face_embedding_similarity(
+    reference: Path, candidate: Path, *, job_id: str = "", deadline: float | None = None,
+) -> float | None:
     """Return normalized InsightFace embedding similarity for machine admission."""
     script = r'''import json,sys,cv2,numpy as np
 from insightface.app import FaceAnalysis
@@ -2358,11 +2418,11 @@ for path in sys.argv[1:3]:
     vectors.append(vector/max(float(np.linalg.norm(vector)),1e-8))
 print(json.dumps(float(np.dot(vectors[0],vectors[1]))))
 '''
-    result = subprocess.run(
+    stdout = _run_image_validation_subprocess(
         [str(COMFY_PYTHON), "-c", script, str(reference), str(candidate), "/Users/aoo/AI/Models/Vision/InsightFace"],
-        check=True, capture_output=True, text=True, timeout=180,
+        job_id=job_id, deadline=deadline, maximum=180,
     )
-    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    payload = json.loads(stdout.strip().splitlines()[-1])
     return float(payload) if isinstance(payload, (int, float)) else None
 
 
@@ -2420,7 +2480,9 @@ def _write_ipadapter_attention_masks(face_target: Path, clothing_target: Path, w
     write_mask(clothing_target, 0.17, 0.91, 0.18, 0.82)
 
 
-def _pose_proportion_metrics(candidate: Path) -> dict[str, float] | None:
+def _pose_proportion_metrics(
+    candidate: Path, *, job_id: str = "", deadline: float | None = None,
+) -> dict[str, float] | None:
     """Measure body segments from OpenPose coordinates instead of VLM estimates."""
     input_name = f"short_drama_pose_metrics/{uuid4().hex}{candidate.suffix.lower()}"
     input_path = COMFY_INPUT / input_name
@@ -2433,17 +2495,27 @@ def _pose_proportion_metrics(candidate: Path) -> dict[str, float] | None:
         "3":{"class_type":"SavePoseKpsAsJsonFile","inputs":{"pose_kps":["2",1],"filename_prefix":prefix}},
     }
     prompt_id = ""
+    prompt_finished = False
     try:
+        request_timeout = max(0.1, _validation_remaining(job_id, deadline, 30))
         request = Request(f"{COMFY_API}/prompt", data=json.dumps({"prompt":graph}).encode(), headers={"Content-Type":"application/json"}, method="POST")
-        with urlopen(request, timeout=30) as response: prompt_id = json.loads(response.read())["prompt_id"]
-        deadline = time.time() + 300
-        while time.time() < deadline:
+        with urlopen(request, timeout=request_timeout) as response: prompt_id = json.loads(response.read())["prompt_id"]
+        _validation_remaining(job_id, deadline, 300)
+        if job_id:
+            _update_image_job(job_id, validation_prompt_id=prompt_id, heartbeat_at=_iso_now())
+        poll_deadline = time.monotonic() + _validation_remaining(job_id, deadline, 300)
+        while time.monotonic() < poll_deadline:
+            _validation_remaining(job_id, deadline, 300)
             time.sleep(1)
-            with urlopen(f"{COMFY_API}/history/{prompt_id}", timeout=30) as response: history = json.loads(response.read())
+            history_timeout = max(0.1, _validation_remaining(job_id, deadline, 30))
+            with urlopen(f"{COMFY_API}/history/{prompt_id}", timeout=history_timeout) as response: history = json.loads(response.read())
             if prompt_id not in history: continue
             record = history[prompt_id]
+            prompt_finished = True
             if record.get("status", {}).get("status_str") != "success": return None
             break
+        if not prompt_finished:
+            raise RuntimeError("人物OpenPose比例验收超时")
         matches = sorted(COMFY_OUTPUT.glob(f"{prefix}_*.json"), key=lambda path:path.stat().st_mtime, reverse=True)
         if not matches: return None
         payload = json.loads(matches[0].read_text(encoding="utf-8"))[0]
@@ -2472,11 +2544,21 @@ def _pose_proportion_metrics(candidate: Path) -> dict[str, float] | None:
         torso_ratio=abs(hip_y-shoulder_y)/max(abs(ankle_y-hip_y),1e-6)*100
         return {"upper_lower_arm_length_difference_percent":arm_difference,"thigh_calf_length_difference_percent":leg_difference,"torso_to_lower_limb_ratio_percent":torso_ratio}
     finally:
+        if prompt_id and not prompt_finished:
+            _cancel_comfy_prompt(prompt_id)
+        if job_id:
+            try:
+                _assert_image_job_runnable(job_id)
+                _update_image_job(job_id, validation_prompt_id="", heartbeat_at=_iso_now())
+            except Exception:
+                pass
         input_path.unlink(missing_ok=True)
         for match in COMFY_OUTPUT.glob(f"{prefix}_*.json"): match.unlink(missing_ok=True)
 
 
-def _head_body_ratio(candidate: Path) -> float | None:
+def _head_body_ratio(
+    candidate: Path, *, job_id: str = "", deadline: float | None = None,
+) -> float | None:
     script = r'''import json,sys,cv2
 from insightface.app import FaceAnalysis
 from ultralytics import YOLO
@@ -2488,8 +2570,11 @@ else:
  face=max(faces,key=lambda item:float((item.bbox[2]-item.bbox[0])*(item.bbox[3]-item.bbox[1]))); person=people[0]
  face_h=float(face.bbox[3]-face.bbox[1])*0.5*1.45; body_h=float(person[3]-person[1]); print(json.dumps(body_h/max(face_h,1.0)))
 '''
-    result = subprocess.run([str(COMFY_PYTHON), "-c", script, str(candidate), "/Users/aoo/AI/Models/Vision/InsightFace"], check=True, capture_output=True, text=True, timeout=180)
-    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    stdout = _run_image_validation_subprocess(
+        [str(COMFY_PYTHON), "-c", script, str(candidate), "/Users/aoo/AI/Models/Vision/InsightFace"],
+        job_id=job_id, deadline=deadline, maximum=180,
+    )
+    payload = json.loads(stdout.strip().splitlines()[-1])
     return float(payload) if isinstance(payload, (int,float)) else None
 
 
@@ -3124,14 +3209,14 @@ def _validate_character_variant(
     )
     if target_pose in {"front_full", "front_half"}:
         try:
-            face_similarity = _face_embedding_similarity(reference, candidate)
+            face_similarity = _face_embedding_similarity(reference, candidate, job_id=job_id, deadline=deadline)
         except Exception:
             face_similarity = None
         verdict["face_embedding_similarity"] = face_similarity
         verdict["face_similarity_calibrated_front"] = face_similarity is not None and face_similarity >= 0.35
     try:
-        pose_metrics = _pose_proportion_metrics(candidate) or {}
-        head_ratio = _head_body_ratio(candidate)
+        pose_metrics = _pose_proportion_metrics(candidate, job_id=job_id, deadline=deadline) or {}
+        head_ratio = _head_body_ratio(candidate, job_id=job_id, deadline=deadline)
     except Exception:
         pose_metrics = {}
         head_ratio = None
@@ -3391,7 +3476,7 @@ def _cancel_comfy_prompt(prompt_id: object, *, confirm_seconds: float = 10.0) ->
 
 def _cancel_job_comfy_prompts(job: dict, *, confirm_seconds: float = 10.0) -> bool:
     confirmed = True
-    for key in ("schnell_prompt_id", "qwen_prompt_id", "context_ir_prompt_id", "comfy_prompt_id"):
+    for key in ("schnell_prompt_id", "qwen_prompt_id", "context_ir_prompt_id", "comfy_prompt_id", "validation_prompt_id"):
         prompt_id = str(job.get(key) or "").strip()
         if prompt_id and not _cancel_comfy_prompt(prompt_id, confirm_seconds=confirm_seconds):
             confirmed = False

@@ -6,6 +6,7 @@ import re
 import sys
 import tempfile
 import threading
+import time
 import types
 from pathlib import Path
 from urllib.error import HTTPError
@@ -175,6 +176,95 @@ def test_image_validation_worker_recovers_explicit_job_identity(monkeypatch, tmp
         "user_id": "user-a",
         "project_id": "project-a",
     }
+
+
+def test_character_validation_subprocess_stops_with_owning_job(tmp_path: Path) -> None:
+    module = load_backend_for_character_http()
+    module.IMAGE_JOBS_FILE = tmp_path / "image-jobs.json"
+    module._save_image_jobs({"jobs": {"job-process": {
+        "job_id": "job-process", "status": "processing", "request": {},
+    }}})
+    outcome: dict[str, object] = {}
+
+    def run() -> None:
+        try:
+            module._run_image_validation_subprocess(
+                [sys.executable, "-c", "import time; time.sleep(10)"],
+                job_id="job-process", deadline=time.monotonic() + 5, maximum=5,
+            )
+        except Exception as error:
+            outcome["error"] = error
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    deadline = time.monotonic() + 2
+    while "job-process" not in module.ACTIVE_IMAGE_PROCESSES and time.monotonic() < deadline:
+        time.sleep(0.01)
+    process = module.ACTIVE_IMAGE_PROCESSES["job-process"]
+    module._update_image_job("job-process", status="failed", error="stopped")
+    worker.join(2)
+
+    assert not worker.is_alive()
+    assert isinstance(outcome.get("error"), RuntimeError)
+    assert "job-process" not in module.ACTIVE_IMAGE_PROCESSES
+    assert process.poll() is not None
+
+
+def test_character_openpose_prompt_is_owned_and_cancelled_with_image_job(monkeypatch, tmp_path: Path) -> None:
+    module = load_backend_for_character_http()
+    module.IMAGE_JOBS_FILE = tmp_path / "image-jobs.json"
+    module._save_image_jobs({"jobs": {"job-prompt": {
+        "job_id": "job-prompt", "status": "processing", "validation_prompt_id": "prompt-owned", "request": {},
+    }}})
+    cancelled: list[str] = []
+    monkeypatch.setattr(module, "_cancel_comfy_prompt", lambda prompt_id, **_kwargs: cancelled.append(str(prompt_id)) or True)
+    monkeypatch.setattr(module, "_terminate_ollama_model", lambda _model: True)
+
+    module._cancel_image_validation_work("job-prompt")
+
+    assert cancelled == ["prompt-owned"]
+    backend = BACKEND.read_text(encoding="utf-8")
+    pose = backend[backend.index("def _pose_proportion_metrics"):backend.index("def _head_body_ratio")]
+    assert "validation_prompt_id=prompt_id" in pose
+    assert "_cancel_comfy_prompt(prompt_id)" in pose
+    assert "_validation_remaining(job_id, deadline" in pose
+
+
+def test_character_openpose_timeout_cancels_exact_persisted_prompt(monkeypatch, tmp_path: Path) -> None:
+    module = load_backend_for_character_http()
+    module.IMAGE_JOBS_FILE = tmp_path / "image-jobs.json"
+    module.COMFY_INPUT = tmp_path / "input"
+    module.COMFY_OUTPUT = tmp_path / "output"
+    module.COMFY_INPUT.mkdir(); module.COMFY_OUTPUT.mkdir()
+    candidate = tmp_path / "candidate.png"
+    candidate.write_bytes(b"candidate")
+    module._save_image_jobs({"jobs": {"job-timeout-prompt": {
+        "job_id": "job-timeout-prompt", "status": "processing", "request": {},
+    }}})
+    cancelled: list[str] = []
+
+    class Response:
+        def __init__(self, payload: bytes): self.payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+        def read(self): return self.payload
+
+    def open_request(request, **_kwargs):
+        url = str(getattr(request, "full_url", request))
+        return Response(b'{"prompt_id":"prompt-timeout"}' if url.endswith("/prompt") else b"{}")
+
+    monkeypatch.setattr(module, "urlopen", open_request)
+    monkeypatch.setattr(module, "_cancel_comfy_prompt", lambda prompt_id, **_kwargs: cancelled.append(str(prompt_id)) or True)
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(RuntimeError, match="OpenPose.*超时|后验收已超时"):
+        module._pose_proportion_metrics(
+            candidate, job_id="job-timeout-prompt", deadline=time.monotonic() + 0.02,
+        )
+
+    assert cancelled == ["prompt-timeout"]
+    persisted = module._load_image_jobs()["jobs"]["job-timeout-prompt"]
+    assert persisted.get("validation_prompt_id") == ""
 
 
 def test_post_comfy_memory_wait_is_bounded_and_keeps_job_cancellable(monkeypatch) -> None:
