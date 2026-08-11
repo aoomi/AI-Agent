@@ -61,3 +61,12 @@ def test_video_result_orphan_does_not_publish_terminal_before_prompt_exit():
     assert "job = _commit_video_terminal(" in route
     assert 'stage="cancel_pending"' in route
     assert "target=_recover_terminal_video_prompt" in route
+
+
+def test_h3_incompatible_provider_is_a_persisted_paused_gate_not_fallback():
+    assert 'status="model_blocked", stage="model_blocked"' in BACKEND
+    assert '"model_blocked":"paused"' in BACKEND
+    assert 'if video_result.get("status") == "model_blocked"' in BACKEND
+    assert 'except ModelBlockedError as error:' in BACKEND
+    assert 'body, stage, "paused"' in BACKEND
+    assert 'blocked_provider="comfy-local"' in BACKEND

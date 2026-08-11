@@ -6,6 +6,7 @@
 
 - 安装项目：`JerryZRic/comfyui-minimax-h3-context-ir-agent`，固定提交`771cb3cb01af9543b4f424518bb19b7fa0cf31d8`，MIT许可。
 - 本节点是H3提示词翻译/结构化预处理器，不生成视频，不是MiniMax云端官方Context-IR端点，也不替代MiniMax H3模型。
+- Ref2VA提供方的设备/量化算子兼容门禁必须先于本节点执行；若固定`INT8 ConvRot`制品所在节点仅提供MPS或CPU，任务直接进入`model_blocked`，不得先加载32B Context IR，也不得让量化算子静默回退CPU。
 - 两个已加载节点：`MiniMaxH3FL2VAPromptAgentOpenAIAPI`支持T2VA/I2VA/L2VA/FL2VA；`MiniMaxH3Ref2VAPromptAgentOpenAIAPI`支持最多9张参考图的Ref2VA。
 - 输出固定为`optimized_prompt、selected_skills、raw_json`；`optimized_prompt`接入官方H3 conditioning/video节点的prompt输入。
 - 主`h3-prompt-writing`材料既内联到Agent instructions，也以同名只读工具注册；工具只返回供应链固定目录中已加载的Skill正文与当前mode guide，不访问网络、不接受路径参数。这样本地模型显式选择主Skill时与Agents SDK工具表一致，不能因“tool not found”跳过Context IR或回退原提示词。

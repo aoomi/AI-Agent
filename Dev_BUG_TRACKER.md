@@ -17,6 +17,10 @@
 - 风险：单镜头可能占用加速器数小时至数十小时而没有产出，资源租约、后续镜头和全链永久被占；4小时总超时也不能证明模型在本机可交付。
 - 当前处置：已通过正式停止入口写`cancel_pending`，在量化CPU核不可中断时重启本地Comfy，任务最终`cancelled`且队列归零，无伪成功产物。
 - 整改标准：提供方准入必须声明并动态验证设备/量化算子兼容性；已知不兼容组合在提交重模型前持久为`model_blocked`，禁止静默回退、禁止自动改用其他模型。补充状态投影、恢复、取消、接口和前端显示回归；只有受支持执行节点或显式安装兼容提供方后才允许真实H3。
+- 主线实现：固定H3制品声明受支持设备集合`cuda`；提交Context IR前读取实际Comfy`system_stats.devices`，设备未知或存在非白名单设备均失败关闭。专用`ModelBlockedError`原子提交job`model_blocked/model_blocked`及模型/提供方证据，持久任务投影为`paused`；服务端阶段编排识别该终态并把LangGraph报告为`paused`、HTTP返回409`model_blocked`。恢复可在提供方变更后显式重放原请求，停止、看门狗和重启均把该状态视为无活动执行体；禁止Wan静默回退。
+- 正式验证：同一正式项目以新代际运行video，job`b92ede69-7963-4a9f-af20-6f16e23f89ae`在约2秒内持久`model_blocked`，错误明确当前设备`mps`及禁止CPU回退；`context_ir_prompt_id`和`comfy_prompt_id`均为空，证明任何32B/H3重模型都未提交。阶段接口返回HTTP409`model_blocked`，LangGraph video为`paused`，Comfy队列0/0。
+- 开发验证：MPS阻断、CUDA准入、未知设备失败关闭、job终态、paused投影和服务端编排直接关联`159 passed`。完整unit除用户并行修改中的4项前端断言外`617 passed, 4 deselected, 9 subtests passed`；不排除时精确为`4 failed, 617 passed, 9 subtests passed`，四项均指向当前未提交的前端界面改动，与H3后端调用链无关。Python编译和文档门禁通过。
+- 当前边界：本机没有受支持H3执行节点或兼容制品，BUG057真实静音成品仍不得宣称通过；BUG062代码尚需在并行前端工作收敛后完成无deselect完整回归、独立软件测试和只读稽查。
 
 ### BUG-20260812-061：嵌套结果媒体URL被错误截断为末级目录
 

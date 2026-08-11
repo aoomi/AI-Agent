@@ -77,9 +77,16 @@ H3_REF2VA_MODEL = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
 H3_TEXT_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 H3_VIDEO_VAE = "minimax_h3_video_vae_fp16.safetensors"
 H3_AUDIO_VAE = "minimax_h3_audio_vae_fp32.safetensors"
+H3_REF2VA_SUPPORTED_DEVICE_TYPES = frozenset({"cuda"})
 H3_CONTEXT_IR_MODEL = "qwen3-vl-h3-context-ir:latest"
 H3_CONTEXT_IR_TIMEOUT_SECONDS = int(os.environ.get("SHORT_DRAMA_H3_CONTEXT_IR_TIMEOUT_SECONDS", "900"))
 H3_CONTEXT_IR_OUTPUT_ROOT = OUTPUT_ROOT / "narrative-cache" / "h3-context-ir"
+
+
+class ModelBlockedError(RuntimeError):
+    """The selected production model cannot execute on the resolved provider."""
+
+
 SERVICE_HOST = os.environ.get("SHORT_DRAMA_HOST", "127.0.0.1")
 SERVICE_PORT = int(os.environ.get("SHORT_DRAMA_PORT", "8787"))
 NARRATIVE_MODEL_REVIEW_ENABLED = os.environ.get("SHORT_DRAMA_NARRATIVE_REVIEW", "0").strip().lower() in {"1", "true", "yes"}
@@ -486,7 +493,7 @@ def _durable_task_projection(task_class: str, job: dict) -> tuple[tuple[str, str
     lifecycle_map = {
         "queued":"queued", "waiting_memory":"queued", "generating":"running", "running":"running",
         "retrying":"running", "processing":"running", "completed":"pending_confirmation", "failed":"failed",
-        "paused":"paused", "cancelled":"cancelled",
+        "paused":"paused", "model_blocked":"paused", "cancelled":"cancelled",
     }
     lifecycle = lifecycle_map.get(str(job.get("status") or ""))
     return ((*identity, stage), lifecycle) if all(identity) and stage and lifecycle else None
@@ -4175,7 +4182,7 @@ def _resume_persisted_task(body: dict, operation_key: str) -> tuple[bool, str]:
             candidates.append(job)
     elif stage == "shot_videos" and len(parts) >= 5:
         expected = f"{body.get('tenant_id', '')}:{body.get('user_id', '')}:{project_id}:{parts[3]}:{parts[4]}"
-        candidates = [job for job in _load_video_jobs().get("jobs", {}).values() if job.get("subject_key") == expected and job.get("status") in {"failed", "cancelled"}]
+        candidates = [job for job in _load_video_jobs().get("jobs", {}).values() if job.get("subject_key") == expected and job.get("status") in {"failed", "model_blocked", "cancelled"}]
     if not candidates: return False, "persisted_request_not_found"
     source = max(candidates, key=lambda job:_parse_job_time(job.get("updated_at") or job.get("finished_at") or job.get("queued_at") or job.get("started_at")))
     endpoint = str(source.get("endpoint") or ("/api/videos/generate" if stage == "shot_videos" else ""))
@@ -4419,13 +4426,13 @@ def _run_latentsync(video: Path, audio: Path, target: Path, steps: int) -> Path:
 def _update_video_job(job_id: str, **changes: object) -> dict:
     with VIDEO_JOB_LOCK:
         store = _load_video_jobs(); job = store.setdefault("jobs", {}).setdefault(job_id, {})
-        if job.get("status") in {"completed", "failed", "cancelled"} and changes.get("status") not in {None, job.get("status")}:
+        if job.get("status") in {"completed", "failed", "model_blocked", "cancelled"} and changes.get("status") not in {None, job.get("status")}:
             return dict(job)
         job.update(changes); _save_video_jobs(store); return dict(job)
 
 
 def _video_job_stopping(job: dict) -> bool:
-    return job.get("status") in {"cancelled", "failed"} or bool(job.get("cancel_requested_at"))
+    return job.get("status") in {"cancelled", "failed", "model_blocked"} or bool(job.get("cancel_requested_at"))
 
 
 def _commit_video_terminal(job_id: str, *, status: str, stage: str, **changes: object) -> dict:
@@ -4650,6 +4657,26 @@ def _optimize_h3_ref2va_prompt(job_id: str, body: dict, *, duration: int, prompt
     return result[0]
 
 
+def _h3_ref2va_runtime_blocker() -> str:
+    """Return a stable reason when the fixed H3 artifact cannot run on this provider."""
+    _start_comfy()
+    stats = _comfy_json("/system_stats", timeout=30)
+    devices = stats.get("devices") if isinstance(stats, dict) else []
+    device_types = {
+        str(device.get("type") or "").strip().lower()
+        for device in devices or []
+        if isinstance(device, dict)
+    }
+    quantized_convrot = "int8_convrot" in H3_REF2VA_MODEL.lower()
+    if quantized_convrot and (not device_types or not device_types <= H3_REF2VA_SUPPORTED_DEVICE_TYPES):
+        observed = ",".join(sorted(device_types)) or "unknown"
+        return (
+            "H3 Ref2VA INT8 ConvRot需要具备量化设备内核的受支持执行节点；"
+            f"当前Comfy设备为{observed}，禁止回退CPU执行。请安装兼容提供方后重试"
+        )
+    return ""
+
+
 def _generate_h3_rv2v_video(job_id: str, body: dict, target: Path, *, duration: int, optimized_prompt: str) -> Path:
     """Render one shot with local MiniMax H3 Ref2VA.
 
@@ -4787,6 +4814,9 @@ def _generate_video_job(job_id: str, body: dict) -> None:
                 "flicker, temporal inconsistency, blur, camera shake, abrupt zoom, fast pan, text, watermark"
             )
             if use_h3_rv2v:
+                blocker = _h3_ref2va_runtime_blocker()
+                if blocker:
+                    raise ModelBlockedError(blocker)
                 optimized_prompt = _run_h3_context_then_ref2va(job_id, body, target, duration=duration, instruction=instruction)
                 _commit_video_terminal(job_id, status="completed", stage="completed", engine="minimax-h3-ref2va",
                                   optimized_prompt=optimized_prompt,
@@ -4830,6 +4860,12 @@ shutil.copy2(result,target)
         if current.get("cancel_requested_at") or current.get("status") == "cancelled":
             RESOURCE_SCHEDULER.cancel_job(job_id)
             _commit_video_terminal(job_id, status="cancelled", stage="cancelled", error="视频任务已停止", finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None)
+        elif isinstance(error, ModelBlockedError):
+            _commit_video_terminal(
+                job_id, status="model_blocked", stage="model_blocked", error=str(error)[:500],
+                blocked_model="minimax-h3-ref2va-int8-convrot", blocked_provider="comfy-local",
+                finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None,
+            )
         else:
             engine = "MiniMax H3 Ref2VA" if body.get("source_video_url") and body.get("identity_reference_url") else "Wan2.2"
             _commit_video_terminal(job_id, status="failed", stage="failed", error=f"{engine} 分镜视频生成失败：{str(error)[:500]}", finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None)
@@ -4880,7 +4916,7 @@ def _monitor_waiting_video_jobs() -> None:
             for job_id, job in jobs.get("jobs", {}).items():
                 process = ACTIVE_VIDEO_PROCESSES.get(job_id); running = bool(process and process.poll() is None)
                 status = str(job.get("status")); age = now - _parse_job_time(job.get("heartbeat_at") or job.get("queued_at"))
-                if status in {"completed", "failed", "cancelled"}:
+                if status in {"completed", "failed", "model_blocked", "cancelled"}:
                     prompt_ids = [str(job.get(key) or "").strip() for key in ("context_ir_prompt_id", "comfy_prompt_id")]
                     queued = False
                     for prompt_id in dict.fromkeys(value for value in prompt_ids if value):
@@ -7335,8 +7371,10 @@ def _run_server_production_stage(body: dict) -> dict:
             for _ in range(900):
                 _checkpoint_production_stage(body, stage)
                 video_result = _production_stage_local_get(body, stage, f"/api/videos/result?{urlencode({**identity, 'episode':episode, 'shot_number':shot})}")
-                if video_result.get("status") in {"completed", "failed", "stopped"}: break
+                if video_result.get("status") in {"completed", "failed", "model_blocked", "stopped"}: break
                 time.sleep(2)
+            if video_result.get("status") == "model_blocked":
+                raise ModelBlockedError(str(video_result.get("error") or "所选视频模型在当前执行节点不可用"))
             if video_result.get("status") != "completed": raise RuntimeError(str(video_result.get("error") or "分镜视频生成超时"))
             item = {"episode":episode, "shot_number":shot, "video_url":video_result.get("video", {}).get("url"), "source_video_url":video_result.get("video", {}).get("url"), "status":"waiting_confirmation", "voice_status":"not_applicable", "lip_sync_status":"not_applicable", "subtitle_status":"not_applicable", "audit_evidence":{"speaker":"not_applicable", "emotion":"not_applicable", "lipsync":"not_applicable", "face":"not_applicable", "continuity":"not_applicable"}}
             voice = command.get("voice") if isinstance(command.get("voice"), dict) else None
@@ -8121,6 +8159,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.OK, {"result":result, "workflow":workflow})
             except (ProductionLedgerError, ValueError) as error:
                 return self._json(HTTPStatus.CONFLICT, {"error":"production_gate_blocked", "message":str(error), "stage":stage})
+            except ModelBlockedError as error:
+                event = locals().get("cancel_event")
+                _production_orchestrator().report(
+                    body, stage, "paused", error=str(error),
+                    stage_generation=int(getattr(event, "lease_generation", 0) or 0),
+                    projection_revision=1,
+                )
+                return self._json(HTTPStatus.CONFLICT, {"error":"model_blocked", "message":str(error), "stage":stage})
             except Exception as error:
                 cancelled_stage = "cancelled or lease lost" in str(error)
                 if stage == "assets" and str(body.get("project_id") or "") and not cancelled_stage:
@@ -8523,12 +8569,12 @@ JSON 格式：{{"direction":{{"palette":"≤24字","lighting":"≤24字","camera
 大纲：{body.get('outline', '')}
 剧本：{body.get('scripts', '')}
 画面风格：{body.get('style', '')}
-人物提取硬性规则：characters 必须包含本集实际出场人物 {required_characters}，姓名完全一致；不得加入只在其他集出现的人物。
+人物提取硬性规则：characters 必须包含本集实际出场人物 {required_characters}，姓名完全一致；不得加入只在其他集出现的人物。人物image_prompt只能描述年龄、性别、脸型五官、肤色、妆容、发型、体型、身体特征、服装鞋履和身体配饰；严禁身份、职业、主配角、性格、心理、动机、剧情职责、动作、表情、场景、镜头、景别、构图或画面风格。
 场景提取硬性规则：按可复用的实体地点归并，内外空间必须分开；scene.name只能是地点或空间名称，严禁人物姓名、人物动作、姿态、状态或剧情句子；动作、人物状态、光晕变化不得另算场景。场景image_prompt只能描述空间、建筑、固定陈设和光线，人物数量严格为零。
 道具提取硬性规则：只保留本集由人物持有、使用或推动剧情的可独立绘制实体；树木、花草、山景属于场景环境，金光、光晕、符文光效属于特效。服装是独立道具资产，剧本或分镜出现的日常服、战斗服、礼服、长袍、披风等必须进入props，category固定为“服装”，asset_type固定为“costume”，owner必须指向角色名，并提供稳定costume_id、costume_version、tags；禁止把服装并入人物本体。
 服装基准图固定为45度三分之二完整展示图，清楚展示正面、顶面/肩部结构与侧面层次，纯中性背景、无人、无人体模型、无文字；确认后按道具3D链进入TripoSR和Blender。
 每项必须给出出现集数 episodes；只输出指定集数范围内的完整清单，不得用全剧其他集补足。
-JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/配角/反派","gender":"男性/女性","image_prompt":"年龄、性别、五官、发型、体态和电影画面风格；服装只引用costume_id","status":"pending"}}],"scenes":[{{"name":"场景名","location":"地点","period":"时间","first_episode":1,"episodes":[1],"layout":"空间布局","lighting":"光线","fixed_elements":[],"continuity_rules":"连续性规则","image_prompt":"空间、时间、光线、陈设和电影画面风格，无人物","status":"pending"}}],"props":[{{"name":"道具或服装名","category":"类别或服装","asset_type":"prop或costume","owner":"持有人","costume_id":"服装稳定ID，普通道具留空","costume_version":"v1","tags":[],"first_episode":1,"episodes":[1],"appearance":"外观","continuity_rules":"连续性规则","image_prompt":"材质、形状、颜色和使用痕迹，45度三分之二，中性背景，无人物","status":"pending"}}]}}"""
+JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/配角/反派","gender":"男性/女性","age":"年龄","appearance":"脸型、五官、肤色和身体特征","hair":"发型发色","makeup":"妆容","costume":"服装鞋履和身体配饰","image_prompt":"只合并age、gender、appearance、hair、makeup、costume，不得添加身份性格剧情或摄影文字","status":"pending"}}],"scenes":[{{"name":"场景名","location":"地点","period":"时间","first_episode":1,"episodes":[1],"layout":"空间布局","lighting":"光线","fixed_elements":[],"continuity_rules":"连续性规则","image_prompt":"空间、时间、光线、陈设和电影画面风格，无人物","status":"pending"}}],"props":[{{"name":"道具或服装名","category":"类别或服装","asset_type":"prop或costume","owner":"持有人","costume_id":"服装稳定ID，普通道具留空","costume_version":"v1","tags":[],"first_episode":1,"episodes":[1],"appearance":"外观","continuity_rules":"连续性规则","image_prompt":"材质、形状、颜色和使用痕迹，45度三分之二，中性背景，无人物","status":"pending"}}]}}"""
             try:
                 try:
                     result = _ollama_json(prompt)

@@ -43,6 +43,70 @@ def test_local_media_path_rejects_absolute_and_traversal_inputs(monkeypatch, tmp
         MODULE._local_media_path(url)
 
 
+def test_h3_int8_convrot_blocks_mps_provider_before_model_submission(monkeypatch):
+    started = []
+    monkeypatch.setattr(MODULE, "_start_comfy", lambda: started.append(True))
+    monkeypatch.setattr(
+        MODULE,
+        "_comfy_json",
+        lambda path, timeout=0: {"devices":[{"type":"mps"}]} if path == "/system_stats" else {},
+    )
+    reason = MODULE._h3_ref2va_runtime_blocker()
+    assert started == [True]
+    assert "INT8 ConvRot" in reason
+    assert "禁止回退CPU" in reason
+
+
+def test_h3_int8_convrot_allows_provider_with_quantized_device_kernel(monkeypatch):
+    assert MODULE.H3_REF2VA_SUPPORTED_DEVICE_TYPES == frozenset({"cuda"})
+    monkeypatch.setattr(MODULE, "_start_comfy", lambda: None)
+    monkeypatch.setattr(
+        MODULE,
+        "_comfy_json",
+        lambda path, timeout=0: {"devices":[{"type":"cuda"}]} if path == "/system_stats" else {},
+    )
+    assert MODULE._h3_ref2va_runtime_blocker() == ""
+
+
+def test_h3_int8_convrot_fails_closed_when_provider_device_is_unknown(monkeypatch):
+    monkeypatch.setattr(MODULE, "_start_comfy", lambda: None)
+    monkeypatch.setattr(MODULE, "_comfy_json", lambda path, timeout=0: {"devices":[]})
+    assert "unknown" in MODULE._h3_ref2va_runtime_blocker()
+
+
+def test_h3_incompatible_provider_persists_model_blocked_terminal(monkeypatch, tmp_path):
+    body = {
+        "tenant_id":"tenant", "user_id":"user", "project_id":"project",
+        "episode":1, "shot_number":1, "image_url":"image",
+        "source_video_url":"source", "identity_reference_url":"identity",
+    }
+    state = {"jobs":{"job":{"job_id":"job", "status":"generating", "request":body, "subject_key":MODULE._video_key(body)}}}
+
+    @contextmanager
+    def claim(*_args, **_kwargs):
+        yield
+
+    def commit(job_id, *, status, stage, **changes):
+        state["jobs"][job_id].update(status=status, stage=stage, **changes)
+        return dict(state["jobs"][job_id])
+
+    monkeypatch.setattr(MODULE, "_claim_production_resource", claim)
+    monkeypatch.setattr(MODULE, "_load_video_jobs", lambda: state)
+    monkeypatch.setattr(MODULE, "_local_media_path", lambda _value: tmp_path / "image.png")
+    monkeypatch.setattr(MODULE, "_require_memory", lambda _value: None)
+    monkeypatch.setattr(MODULE, "_h3_ref2va_runtime_blocker", lambda: "incompatible quantized device")
+    monkeypatch.setattr(MODULE, "_wait_for_video_comfy_prompts", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(MODULE, "_commit_video_terminal", commit)
+    monkeypatch.setattr(MODULE, "_free_comfy_memory", lambda: None)
+    MODULE._generate_video_job("job", body)
+    assert state["jobs"]["job"]["status"] == "model_blocked"
+    assert state["jobs"]["job"]["stage"] == "model_blocked"
+    assert state["jobs"]["job"]["blocked_provider"] == "comfy-local"
+    assert "incompatible quantized device" in state["jobs"]["job"]["error"]
+    projection = MODULE._durable_task_projection("video", state["jobs"]["job"])
+    assert projection and projection[1] == "paused"
+
+
 def _runtime(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, history):
     identity = tmp_path / "identity.png"
     identity.write_bytes(b"test-image")
