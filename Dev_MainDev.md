@@ -881,6 +881,11 @@
 
 ## 十五、最终完成标准
 
+### M10.9：现有资源作用域隔离（开发完成，待独立软件测试）
+
+- 修复资源列表可选过滤、跨所有者ID删除、伪项目创建及通用媒体URL绕过；资源读写改为tenant/user/scope/project一致匹配与专用媒体入口。
+- 旧资源列表动态升级安全URL，通用媒体入口拒绝resources目录；关联`114 passed`、编译和Vue类型检查通过。
+
 ### M10.8：可观测Exporter正式生命周期接线（最终复稽查通过，已完成）
 
 - `RuntimeObservability`将正式服务请求与启停事件写入JSONL，并原子发布Prometheus textfile；HTTP活动数、请求数、累计延时以method/status_class有界标签输出。

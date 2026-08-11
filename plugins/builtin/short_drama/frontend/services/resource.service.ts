@@ -24,6 +24,10 @@ export const resourceService = {
   },
   mediaUrl(resource:StoredResource, identity:ResourceIdentity) {
     if (!resource.url.startsWith("/api/resources/media?")) return resource.url;
-    return `${resource.url}&${new URLSearchParams(identity)}`;
+    return `${resource.url}&${new URLSearchParams({
+      ...identity,
+      scope:resource.scope,
+      ...(resource.scope === "tenant_global" ? {} : { project_id:resource.project_id }),
+    })}`;
   },
 };

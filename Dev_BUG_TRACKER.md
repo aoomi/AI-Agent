@@ -8,6 +8,18 @@
 
 `待处理` → `修复中` → `待测试` → `待稽查` → `已关闭`
 
+### BUG-20260812-068：资源库读写与媒体接口可绕过完整所有者作用域
+
+- 状态：开发完成，待独立软件测试
+- 关联任务：M10.9 / V1现有tenant/user/project身份隔离纵深验收；不扩展V2成员/RBAC或认证主体建设。
+- 正式复现：`GET /api/resources`把tenant/user/project都作为可选过滤器，空查询可返回全部资源；删除只按资源ID；创建不验证项目归属；上传媒体返回通用`/api/result-media`，知道文件名即可绕过资源所有者查询。
+- 首个事实：跨租户请求可枚举资源元数据并按ID删除，跨项目可登记伪属资源；资源二进制没有tenant/user/project绑定的读取入口。
+- 风险：当前单机V1已有身份维度在资源元数据、控制和媒体读取链路失效，导致跨租户/用户/项目泄漏或破坏。
+- 整改标准：列表强制tenant/user/scope，项目级scope强制project；创建验证项目精确归属；删除按resource+tenant+user精确匹配；上传媒体只经资源ID及tenant/user/scope/project一致的专用入口读取，受控根失败关闭。
+- 主线实现：资源列表按完整scope过滤；project/project_episode创建必须命中同tenant/user项目；删除拒绝非所有者；新资源URL改为`/api/resources/media?id=`并由前端追加资源自身scope/project与当前tenant/user，后端逐字段匹配且仅允许`OUTPUT_ROOT/resources`直属文件。
+- 兼容迁移：列表读取时把旧资源通用URL投影为专用鉴权URL；通用`/api/result-media`明确拒绝`resources`目录，旧记录也不能绕过所有者门禁。
+- 开发验证：资源隔离、生产控制、媒体增强及文档状态关联`114 passed`，无失败无跳过；Python编译和Vue类型检查通过。
+
 ### BUG-20260812-067：可观测Exporter未接入正式服务生命周期
 
 - 状态：已关闭（最终只读复稽查通过）

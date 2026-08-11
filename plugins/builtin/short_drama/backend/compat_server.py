@@ -8088,8 +8088,46 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(HTTPStatus.OK, {"task":task, "result":{"status":task["status"], "scope_id":task["scope_id"]} if task["has_result"] else None})
         if parsed.path == "/api/resources":
             query = parse_qs(parsed.query)
-            resources = [item for item in _load_resources().get("resources", []) if all(not query.get(key) or str(item.get(key, "")) == query[key][0] for key in ("tenant_id", "user_id", "project_id"))]
+            tenant_id = query.get("tenant_id", [""])[0].strip()
+            user_id = query.get("user_id", [""])[0].strip()
+            scope = query.get("scope", [""])[0].strip()
+            project_id = query.get("project_id", [""])[0].strip()
+            if not tenant_id or not user_id or scope not in {"tenant_global", "project", "project_episode"}:
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_resource_scope"})
+            if scope != "tenant_global" and not project_id:
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_resource_scope"})
+            resources = [{**item, "url":f"/api/resources/media?id={item.get('id')}"} for item in _load_resources().get("resources", []) if
+                         str(item.get("tenant_id") or "") == tenant_id and
+                         str(item.get("user_id") or "") == user_id and
+                         str(item.get("scope") or "") == scope and
+                         (scope == "tenant_global" or str(item.get("project_id") or "") == project_id)]
             return self._json(HTTPStatus.OK, {"resources": resources})
+        if parsed.path == "/api/resources/media":
+            query = parse_qs(parsed.query)
+            resource_id = query.get("id", [""])[0].strip()
+            tenant_id = query.get("tenant_id", [""])[0].strip()
+            user_id = query.get("user_id", [""])[0].strip()
+            project_id = query.get("project_id", [""])[0].strip()
+            scope = query.get("scope", [""])[0].strip()
+            resource = next((item for item in _load_resources().get("resources", []) if
+                             str(item.get("id") or "") == resource_id and
+                             str(item.get("tenant_id") or "") == tenant_id and
+                             str(item.get("user_id") or "") == user_id and
+                             str(item.get("scope") or "") == scope and
+                             (scope == "tenant_global" or (project_id and str(item.get("project_id") or "") == project_id))), None)
+            if not resource:
+                return self._json(HTTPStatus.NOT_FOUND, {"error":"resource_not_found"})
+            target = (OUTPUT_ROOT / str(resource.get("subfolder") or "") / str(resource.get("filename") or "")).resolve()
+            resources_root = (OUTPUT_ROOT / "resources").resolve()
+            if target.parent != resources_root or not target.is_file():
+                return self._json(HTTPStatus.NOT_FOUND, {"error":"resource_media_not_found"})
+            content = target.read_bytes()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", mimetypes.guess_type(target.name)[0] or "application/octet-stream")
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Cache-Control", "private, no-store")
+            self.end_headers(); self.wfile.write(content)
+            return
         if parsed.path == "/api/production/scopes":
             query = parse_qs(parsed.query)
             identity = {key: query.get(key, [""])[0] for key in ("tenant_id", "user_id", "project_id")}
@@ -9345,6 +9383,15 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                     project["archived_at"] = datetime.now(UTC).isoformat() if project["archived"] else None
                 _save_store(store); return self._json(HTTPStatus.OK, {"ok": True, "project": project, "version":version})
         if parsed.path == "/api/resources":
+            tenant_id = str(body.get("tenant_id") or "").strip()
+            user_id = str(body.get("user_id") or "").strip()
+            project_id = str(body.get("project_id") or "").strip()
+            scope = str(body.get("scope") or "").strip()
+            if not tenant_id or not user_id or scope not in {"tenant_global", "project", "project_episode"}:
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_resource_scope"})
+            if scope != "tenant_global":
+                if not project_id or not self._project(project_id, tenant_id, user_id):
+                    return self._json(HTTPStatus.NOT_FOUND, {"error":"project_not_found"})
             data_url = str(body.get("data_url", "")); match = re.match(r"data:([^;]+);base64,(.+)", data_url, re.DOTALL)
             if not match: return self._json(HTTPStatus.BAD_REQUEST, {"error": "invalid_resource_data"})
             suffix = mimetypes.guess_extension(match.group(1)) or ".bin"; resource_id = str(uuid4())
@@ -9352,11 +9399,14 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
             target.write_bytes(base64.b64decode(match.group(2)))
             resource = {key: body.get(key) for key in ("tenant_id", "user_id", "project_id", "plugin_key", "scope", "kind", "name", "metadata")}
             stamp = datetime.now(UTC).isoformat()
-            resource.update({"id": resource_id, "filename": target.name, "subfolder": "resources", "url": f"/api/result-media?filename={target.name}&subfolder=resources", "created_at": stamp, "updated_at": stamp})
+            resource.update({"id": resource_id, "filename": target.name, "subfolder": "resources", "url": f"/api/resources/media?id={resource_id}", "created_at": stamp, "updated_at": stamp})
             store = _load_resources(); store.setdefault("resources", []).append(resource); _save_resources(store)
             return self._json(HTTPStatus.OK, {"resource": resource})
         if parsed.path == "/api/resources/delete":
-            store = _load_resources(); resource_id = str(body.get("id", "")); store["resources"] = [item for item in store.get("resources", []) if item.get("id") != resource_id]; _save_resources(store)
+            store = _load_resources(); resource_id = str(body.get("id", "")); tenant_id = str(body.get("tenant_id") or "").strip(); user_id = str(body.get("user_id") or "").strip()
+            resource = next((item for item in store.get("resources", []) if item.get("id") == resource_id and item.get("tenant_id") == tenant_id and item.get("user_id") == user_id), None)
+            if not resource: return self._json(HTTPStatus.NOT_FOUND, {"error":"resource_not_found"})
+            store["resources"] = [item for item in store.get("resources", []) if item is not resource]; _save_resources(store)
             return self._json(HTTPStatus.OK, {"ok": True})
         if parsed.path == "/api/projects/stage":
             try:
@@ -9427,6 +9477,8 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
         query = parse_qs(parsed.query)
         filename = unquote(query.get("filename", [""])[0]).lstrip("/")
         subfolder = unquote(query.get("subfolder", [""])[0]).strip("/")
+        if Path(subfolder).parts[:1] == ("resources",):
+            return self._json(HTTPStatus.NOT_FOUND, {"error":"media_not_found"})
         relative = Path(subfolder) / filename if subfolder and "/" not in filename else Path(filename)
         target = (OUTPUT_ROOT / relative).resolve()
         if OUTPUT_ROOT not in target.parents or not target.is_file():
