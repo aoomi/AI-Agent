@@ -8,6 +8,16 @@
 
 `待处理` → `修复中` → `待测试` → `待稽查` → `已关闭`
 
+### BUG-20260812-060：H3 Ref2VA Context IR主Skill工具未注册
+
+- 状态：主线开发中
+- 关联任务：M9.198 / BUG057真实静音H3，不扩展处理排队BUG039—041。
+- 正式复现：隔离正式项目`6b2a7774-5543-405d-b4c5-e07420677701`已按用户范围确认大纲、剧本、3镜分镜、资产和image权威台账；通过正式`/api/videos/generate`提交3秒H3 job`d72dfc6f-bdb7-406a-8e51-97b7702f3b4b`。Context IR两次均在节点`MiniMaxH3Ref2VAPromptAgentOpenAIAPI`失败，Comfy历史prompt`d6b3a781-57ba-4c00-8154-31f74d1bfde1`原始错误为`Tool h3-prompt-writing not found in agent MiniMax H3 Ref2VA Prompt Agent`。
+- 首个事实：节点把`h3-prompt-writing`正文内联到system instructions并要求输出selected_skills，但Agent只注册`list_style_skills`和`load_style_skill`。本地Qwen3-VL在Ref2VA多模态请求中合法产生名为`h3-prompt-writing`的工具调用，OpenAI Agents SDK因Agent工具表缺失该名称而在模型结果解析阶段失败；有限重试无法改变确定性契约错误。
+- 风险：FL2VA简单冒烟可以偶然直接输出JSON，但正式Ref2VA一旦选择主Skill工具就必然失败；Context IR无法落盘，H3按失败关闭禁止启动，BUG057和后续视频阶段永久阻塞。
+- 整改标准：供应链固定补丁必须把只读主Skill注册为精确名称`h3-prompt-writing`的工具，返回与内联材料同源的Skill和当前guide；禁止网络加载、路径越界或回退原提示词。更新补丁SHA、安装验证和动态测试，重启Comfy后重跑同一正式H3。
+
+
 ### BUG-20260811-059：人物角度后验收脱离原图片任务生命周期
 
 - 状态：已关闭（最终只读稽查通过）
@@ -67,7 +77,7 @@
 
 ### BUG-20260811-057：H3源视频重复生成无业务用途音轨
 
-- 状态：主线开发中
+- 状态：阻塞
 - 关联任务：M9.198
 - 正式事实：用户明确MiniMax H3视频不使用音频输入；现行Ref2VA graph虽然没有传入参考音频，却仍执行`VAEDecodeAudio`并将H3自生音轨写入MP4，后续独立Qwen TTS与口型链又会覆盖音频。
 - 首个事实：`MiniMaxH3ReferenceToVideo`官方节点要求`audio_vae`参与AV latent构造，不能直接删除必填输入；冗余发生在采样完成后的音频解码与`CreateVideo.audio`封装。
