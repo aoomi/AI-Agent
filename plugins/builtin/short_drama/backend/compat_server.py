@@ -1817,6 +1817,15 @@ def _conversation_key(context: dict) -> str:
     return ":".join(str(context.get(key, "")) for key in ("tenant_id", "user_id", "current_project", "session_id"))
 
 
+def _conversation_messages(store: dict, context: dict) -> list:
+    """Return only the exact project/session conversation projection."""
+    histories = store.get("display_history", {}) if isinstance(store, dict) else {}
+    if not isinstance(histories, dict):
+        return []
+    messages = histories.get(_conversation_key(context))
+    return list(messages) if isinstance(messages, list) else []
+
+
 def _ollama_json_local(
     prompt: str,
     model: str = TEXT_LIGHT_MODEL,
@@ -8379,11 +8388,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": "对话内容不能为空"})
             return self._json(HTTPStatus.OK, _route_system_agent(message, body.get("context", {})))
         if parsed.path == "/api/assistant/history":
-            store = _load_assistant(); key = _conversation_key(body.get("context", {}))
-            messages = store.get("display_history", {}).get(key)
-            if messages is None and len(store.get("display_history", {})) == 1:
-                messages = next(iter(store["display_history"].values()))
-            return self._json(HTTPStatus.OK, {"messages": messages or []})
+            store = _load_assistant()
+            return self._json(HTTPStatus.OK, {"messages": _conversation_messages(store, body.get("context", {}))})
         if parsed.path == "/api/assistant/history/save":
             store = _load_assistant(); key = _conversation_key(body.get("context", {}))
             store.setdefault("display_history", {})[key] = body.get("messages", []); _save_assistant(store)
