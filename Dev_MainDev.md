@@ -98,6 +98,7 @@
 - 正式前序续跑登记BUG059：人物角度Qwen产图后的LLava验收使用随机资源job且不更新原图片job心跳，停止/超时不能精确取消排队票据，并使后续图片内存等待超时。当前只整改人物后验收与原job生命周期的共享边界。
 - BUG059主线整改完成待独立测试：人物baseline/固定角度验收统一进入原图片job后验收监督器，三类审核共用原job资源票据、显式身份、可取消心跳与180秒截止。正式job`ef558c27-c3b3-4bef-ad8d-f662fd6a8579`的`character_validation`心跳持续八分钟并以真实质量失败收敛，资源与Comfy队列归零。关联`175 passed, 3 subtests passed`、完整unit`586 passed, 9 subtests passed`无失败无跳过。
 - BUG059独立软件测试通过：在提交`430397b`上重跑直接关联`175 passed, 3 subtests passed`和完整unit`586 passed, 9 subtests passed`，均无失败无跳过；编译、文档状态、diff与干净工作树门禁通过，待只读稽查。
+- BUG059首轮只读稽查退回：LLava票据边界成立，但后续InsightFace/OpenPose/比例子步骤未共享job deadline，OpenPose Comfy prompt也未持久并精确核销。当前继续同编号整改确定性后验收的停止、超时、晚到隔离和资源释放。
 - M9.193 / BUG038最终只读复稽查通过并关闭：0°基准及左右45°/90°/180°全身图统一强制手、脚和四肢/指趾解剖门禁，失败候选有限重试后物理清理并落明确终态；复稽查关联`117 passed, 3 subtests passed`，0失败0跳过。角度版本化硬基线保持不变。
 
 ### M9.197：可观测性持久导出与告警最小闭环（最终稽查通过，已完成）
