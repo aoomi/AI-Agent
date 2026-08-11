@@ -10,7 +10,7 @@
 
 ### BUG-20260811-059：人物角度后验收脱离原图片任务生命周期
 
-- 状态：开发完成，待独立软件测试
+- 状态：软件测试通过，待只读稽查
 - 关联任务：M9.198 / BUG057正式image前序，不扩展处理BUG039—041。
 - 正式复现：人物固定角度job`93185ea7-6266-4b04-9118-cbeb1e3593b4`的Qwen产图完成后，持久job停在`processing/qwen_variant`且心跳停止；资源池却排队随机job`character-angle-audit-a116c49b-affd-4abc-8983-e26b6e66868e`。同时下一图片job`134a62ce-0124-4e2d-97dd-6ffc5dcfdaa3`在不可观测的后验收占用期内等待内存并超时失败。
 - 首个事实：`_validate_character_variant`两次LLava审核均以随机UUID申请资源，调用方又直接同步执行验收，没有经过已有`_run_image_validation`的原job心跳、180秒超时、停止取消和晚到隔离边界。
@@ -20,6 +20,8 @@
 - 正式验证：服务在资源空闲后重载，同一项目林婉清左45°正式job`ef558c27-c3b3-4bef-ad8d-f662fd6a8579`完成两次Qwen产图与后验收。产图后持久phase明确转为`character_validation`，heartbeat从`15:31:23Z`持续推进至`15:39:48Z`，最终因方向、身份、脚部和比例质量门禁正常failed；Comfy队列回到0/0、资源池回到空闲，无随机audit票据、无无心跳卡死和模型残留。
 - 开发回归：绑定显式Node运行时后验收、图片恢复、生产门禁、取消及H3直接关联`175 passed, 3 subtests passed`；完整unit`586 passed, 9 subtests passed`，均0失败0跳过。Python编译、文档状态与diff门禁通过。
 - 下一状态：待独立软件测试。
+- 独立软件测试：通过。在开发提交`430397b`的干净工作树上，重跑人物后验收、图片恢复、生产投影/取消、阶段覆盖、H3静音图及Context IR直接关联`175 passed, 3 subtests passed`；完整unit`586 passed, 9 subtests passed`，均0失败0跳过。Python编译、文档门禁、diff-check与干净工作树通过。正式job的持续心跳、真实质量失败终态、Comfy与资源归零证据与实现一致；测试身份未修改代码、配置或正式数据。
+- 下一状态：待只读稽查。
 
 ### BUG-20260811-058：人物固定角度串行批次误判为并发内存超限
 
