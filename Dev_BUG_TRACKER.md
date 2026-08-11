@@ -10,7 +10,7 @@
 
 ### BUG-20260811-058：人物固定角度串行批次误判为并发内存超限
 
-- 状态：待稽查
+- 状态：已关闭（最终只读稽查通过）
 - 关联任务：M9.198正式全链的image前序恢复，不扩展处理BUG039—041。
 - 正式复现：用户在正式资产页确认“林婉清”0°基准图后，左45°Qwen任务被拒绝为预计60GB且必须保留99GB；随后右45°、90°、180°和半身依次以90GB/81GB保留量失败，Comfy队列最终为空。
 - 首个事实：人物Qwen共用入口在取得串行image资源后仍直接调用`_require_memory(60GB)`；上一张Comfy任务结束后的`/free`是异步释放，该入口没有使用BUG052已建立的有限、可取消`waiting_memory`握手，于是把同一串行批次的前一模型驻留误算成新的非AI工作集。
@@ -22,10 +22,13 @@
 - 下一状态：待独立软件测试。
 - 独立软件测试：通过。绑定显式Node运行时复跑内存释放窗口、取消、超时、服务重启空闲释放、图片job恢复、生产资源投影及Qwen两入口关联`168 passed`，完整unit`584 passed, 9 subtests passed`，均0失败0跳过。正式林婉清job已由原60GB立即拒绝变为Qwen成功产图后仅视觉质量门禁失败；后续苏璃job自然准入时accelerator严格`active=1/queued=0`、Comfy`running=1/pending=0`，无并发超卖。测试身份未修改代码、配置或正式数据。
 - 下一状态：待只读稽查。
+- 最终只读稽查：通过。两个60GB Qwen公共入口均在共享accelerator claim内复用同一有限释放握手；等待态持久化、LangGraph queued投影、job取消检查、60秒超时失败关闭、空闲Comfy主动释放及非释放窗口立即拒绝边界一致。正式旧失败与新job对比证明只消除内存误拒绝，视觉质量门禁仍独立失败关闭；关联`168 passed`、完整unit`584 passed, 9 subtests passed`均无失败无跳过。
+- 关闭时间：2026-08-11（Asia/Shanghai）。
+- 下一状态：已关闭。
 
 ### BUG-20260811-057：H3源视频重复生成无业务用途音轨
 
-- 状态：阻塞
+- 状态：修复中
 - 关联任务：M9.198
 - 正式事实：用户明确MiniMax H3视频不使用音频输入；现行Ref2VA graph虽然没有传入参考音频，却仍执行`VAEDecodeAudio`并将H3自生音轨写入MP4，后续独立Qwen TTS与口型链又会覆盖音频。
 - 首个事实：`MiniMaxH3ReferenceToVideo`官方节点要求`audio_vae`参与AV latent构造，不能直接删除必填输入；冗余发生在采样完成后的音频解码与`CreateVideo.audio`封装。
@@ -35,6 +38,7 @@
 - 开发自检：Comfy当前`CreateVideo`运行时确认audio为optional；H3、Context IR、媒体、3D及生产门禁关联`81 passed, 1 deselected`，无失败无skip，唯一deselect为用户跳过BUG038静态断言；Python编译和文档门禁通过。
 - 正式阻塞：资源空闲后通过正式`/api/videos/generate`提交隔离H3验证，服务返回409`production_gate_blocked: previous stage is not completed: image`。该项目image阶段完成依赖人物确认/多角度链，属于用户明确要求跳过的BUG038；不得绕过已修复的生产阶段门禁，也不得把未运行真实H3计为通过。
 - 下一状态：阻塞；需要用户允许完成BUG038人物确认链，或提供另一个image阶段已完成且具备已确认3D源视频/人物身份图的正式项目，之后才能真实生成并用ffprobe验证无音轨，再进入独立软件测试。
+- 阻塞解除：用户已授权补齐正式image前序；BUG058串行内存握手最终闭环，正式人物Qwen已可执行。继续完成当前项目image确认并提交真实H3，使用ffprobe证明源视频无音轨。
 
 ### BUG-20260811-056：3D确认混用业务名称与文件安全名
 
