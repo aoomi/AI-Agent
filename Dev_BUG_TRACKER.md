@@ -10,7 +10,7 @@
 
 ### BUG-20260812-062：H3 INT8在MPS静默回退单核CPU且无进度门禁
 
-- 状态：已关闭（最终只读稽查通过）
+- 状态：主线开发中
 - 关联任务：M9.198 / BUG057真实静音H3，不扩展处理排队BUG039—041。
 - 正式复现：BUG061修复后的正式job`e6c8d306-6644-47ad-88bb-e7ff0c01e2c6`成功完成Context IR并提交H3 prompt`a11500f0-ca73-4e9b-a4dc-9eed014e15d3`；模型和文本编码器均完整加载，但采样连续70分钟保持`0/20`。进程持续约100% CPU、24%内存，Comfy无错误且业务心跳持续，用户界面无法区分有效推理与不可交付硬件回退。
 - 首个事实：进程栈稳定落在`at::_ops::_int_mm`→`_int_mm_cpu`，当前`minimax_h3_ref2va_pruned_int8_convrot`依赖的量化矩阵算子在Darwin/MPS没有设备内核；Comfy启动还明确报告AIMDO不支持Darwin。现有能力选择只检查模型文件和可用内存，没有硬件/算子兼容门禁或首步进度截止。
@@ -24,6 +24,10 @@
 - 独立软件测试：通过。冻结提交`f061cbb`的H3设备准入、未知设备失败关闭、job终态、paused持久投影、服务端阶段编排、取消/恢复及原Context IR/Ref2VA关联`159 passed`，无失败无跳过；Python编译、文档状态与正式job/Graph/Comfy终态一致。当前工作树完整unit为`4 failed, 617 passed, 9 subtests passed`，四项失败均逐项定位到用户并行未提交的前端界面改动；排除该四项后`617 passed, 4 deselected, 9 subtests passed`，未把其计作本BUG通过证据。
 - 最终只读稽查：通过。兼容性判断基于固定模型制品的显式设备白名单与运行提供方实际设备声明，未知设备失败关闭；门禁在Context IR和H3提交前，不能产生模型、prompt或媒体副作用。`model_blocked`是持久终态并投影paused，显式重放只在新job中发生，未改用Wan、未绕过生产门禁。正式旧任务取消核销和新任务秒级阻断证据一致。
 - 关闭时间：2026-08-12（Asia/Shanghai）。下一状态：已关闭；BUG057继续阻塞于缺少CUDA兼容H3执行提供方，不属于代码静默回退缺陷。
+- 补充只读复稽查：不通过（P1）。job提交入口虽然秒级阻断MPS，但公共`/api/production/capabilities`仍把`video.shot.h3_ref2va / comfy-minimax-h3-ref2va`发布为`healthy=true`且metadata只有`builtin`。调度器和客户端会在任务前把已知不可执行提供方展示为健康，违反“能力注册状态与运行门禁同一事实”并可能反复准入。
+- 复稽查整改：固定H3注册项在安装能力时读取同一Comfy设备契约；MPS/CPU/未知或健康检查失败均注册`healthy=false`，metadata同步公开`supported_device_types=["cuda"]`和`availability_error`。其他内置能力健康状态不受影响；健康查询只读现有Comfy状态，不启动模型或服务。
+- 整改正式验证：服务重载后`/api/production/capabilities`返回H3 provider `enabled=true, healthy=false`，支持设备为CUDA，错误与正式job的MPS阻断事实一致；不再对外发布伪健康。
+- 整改开发验证：能力注册健康隔离、MPS/CUDA/未知设备、job/Graph状态及原H3关联`160 passed`，Python编译通过。下一状态：待独立软件复测与只读复稽查。
 
 ### BUG-20260812-061：嵌套结果媒体URL被错误截断为末级目录
 

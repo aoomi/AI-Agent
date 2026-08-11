@@ -4657,9 +4657,10 @@ def _optimize_h3_ref2va_prompt(job_id: str, body: dict, *, duration: int, prompt
     return result[0]
 
 
-def _h3_ref2va_runtime_blocker() -> str:
+def _h3_ref2va_runtime_blocker(*, ensure_started: bool = True) -> str:
     """Return a stable reason when the fixed H3 artifact cannot run on this provider."""
-    _start_comfy()
+    if ensure_started:
+        _start_comfy()
     stats = _comfy_json("/system_stats", timeout=30)
     devices = stats.get("devices") if isinstance(stats, dict) else []
     device_types = {
@@ -6838,6 +6839,10 @@ def _install_builtin_production_capabilities() -> None:
     with PRODUCTION_CAPABILITIES_INSTALL_LOCK:
         if BUILTIN_PRODUCTION_CAPABILITIES_INSTALLED:
             return
+        try:
+            h3_blocker = _h3_ref2va_runtime_blocker(ensure_started=False)
+        except Exception as error:
+            h3_blocker = f"H3 Ref2VA提供方健康检查失败：{str(error)[:300]}"
         registrations = (
             ("image.generate", "mlx-flux2-klein", _generate_image),
             ("image.baseline.schnell", "comfy-flux1-schnell-q8", _generate_flux1_schnell_baseline),
@@ -6869,10 +6874,16 @@ def _install_builtin_production_capabilities() -> None:
             ("web.search", "search-provider-router", search_web),
         )
         for capability, provider_id, handler in registrations:
+            h3_provider = capability == "video.shot.h3_ref2va" and provider_id == "comfy-minimax-h3-ref2va"
+            metadata = {
+                "builtin":True,
+                **({"supported_device_types":sorted(H3_REF2VA_SUPPORTED_DEVICE_TYPES), "availability_error":h3_blocker} if h3_provider and h3_blocker else {}),
+            }
+            healthy = not h3_blocker if h3_provider else True
             if not PRODUCTION_CAPABILITIES.has(capability, provider_id):
-                PRODUCTION_CAPABILITIES.register(capability, provider_id, handler, metadata={"builtin": True})
+                PRODUCTION_CAPABILITIES.register(capability, provider_id, handler, metadata=metadata, healthy=healthy)
             elif PRODUCTION_CAPABILITIES.get(capability, provider_id).metadata.get("builtin"):
-                PRODUCTION_CAPABILITIES.register(capability, provider_id, handler, metadata={"builtin": True}, replace_provider=True)
+                PRODUCTION_CAPABILITIES.register(capability, provider_id, handler, metadata=metadata, healthy=healthy, replace_provider=True)
         BUILTIN_PRODUCTION_CAPABILITIES_INSTALLED = True
 
 

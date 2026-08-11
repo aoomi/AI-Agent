@@ -74,6 +74,19 @@ def test_h3_int8_convrot_fails_closed_when_provider_device_is_unknown(monkeypatc
     assert "unknown" in MODULE._h3_ref2va_runtime_blocker()
 
 
+def test_h3_incompatible_provider_is_advertised_unhealthy(monkeypatch):
+    registry = MODULE.production_capability_registry()
+    monkeypatch.setattr(MODULE, "PRODUCTION_CAPABILITIES", registry)
+    monkeypatch.setattr(MODULE, "BUILTIN_PRODUCTION_CAPABILITIES_INSTALLED", False)
+    monkeypatch.setattr(MODULE, "_h3_ref2va_runtime_blocker", lambda **_kwargs: "mps is unsupported")
+    MODULE._install_builtin_production_capabilities()
+    provider = registry.get("video.shot.h3_ref2va", "comfy-minimax-h3-ref2va")
+    assert provider.healthy is False
+    assert provider.metadata["supported_device_types"] == ["cuda"]
+    assert provider.metadata["availability_error"] == "mps is unsupported"
+    assert registry.get("video.shot", "comfy-video-router").healthy is True
+
+
 def test_h3_incompatible_provider_persists_model_blocked_terminal(monkeypatch, tmp_path):
     body = {
         "tenant_id":"tenant", "user_id":"user", "project_id":"project",
