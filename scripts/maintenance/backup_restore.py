@@ -97,6 +97,8 @@ def _fsync_directory(path: Path) -> None:
 
 
 def backup(source: Path, output: Path) -> dict[str, object]:
+    if source.is_symlink() or output.is_symlink():
+        raise SystemExit("INVALID_BACKUP_SOURCE")
     source, output = source.resolve(), output.resolve()
     if not source.is_dir() or source == Path("/") or output == source or source in output.parents:
         raise SystemExit("INVALID_BACKUP_SOURCE")
@@ -171,6 +173,8 @@ def _extract_verified(archive: Path, target: Path, expected_files: list[dict[str
 
 
 def restore(archive: Path, target: Path, manifest: Path) -> None:
+    if archive.is_symlink() or target.is_symlink() or manifest.is_symlink():
+        raise SystemExit("UNSAFE_RESTORE_PATH")
     archive, target, manifest = archive.resolve(), target.resolve(), manifest.resolve()
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     if payload.get("version") != 2 or payload.get("archive") != archive.name or not isinstance(payload.get("files"), list):

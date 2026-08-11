@@ -29,6 +29,8 @@ class BackupRestoreTest(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);source=root/"source";(source/"config").mkdir(parents=True);outside=root/"secret";outside.write_text("secret");os.symlink(outside,source/"config/link")
    with self.assertRaisesRegex(SystemExit,"UNSAFE_BACKUP_SOURCE_ENTRY"):backup(source,root/"backup.tar.gz")
+   linked_root=root/"linked-source";os.symlink(source,linked_root)
+   with self.assertRaisesRegex(SystemExit,"INVALID_BACKUP_SOURCE"):backup(linked_root,root/"linked.tar.gz")
  def test_archive_links_and_manifest_inventory_tampering_are_rejected(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);archive=root/"unsafe.tar.gz"
@@ -40,4 +42,10 @@ class BackupRestoreTest(unittest.TestCase):
    source=root/"source";(source/"audit").mkdir(parents=True);(source/"audit/events.jsonl").write_text("event")
    safe=root/"safe.tar.gz";payload=backup(source,safe);payload["files"][0]["sha256"]="0"*64;safe.with_suffix(".gz.manifest.json").write_text(json.dumps(payload))
    with self.assertRaisesRegex(SystemExit,"RESTORED_CONTENT_MISMATCH"):restore(safe,root/"restored",safe.with_suffix(".gz.manifest.json"))
+ def test_restore_target_symlink_is_rejected(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);source=root/"source";(source/"config").mkdir(parents=True);(source/"config/app.json").write_text("{}")
+   archive=root/"backup.tar.gz";backup(source,archive);outside=root/"outside";outside.mkdir();target=root/"target";os.symlink(outside,target)
+   with self.assertRaisesRegex(SystemExit,"UNSAFE_RESTORE_PATH"):restore(archive,target,archive.with_suffix(".gz.manifest.json"))
+   self.assertEqual(list(outside.iterdir()),[])
 if __name__=="__main__":unittest.main()
