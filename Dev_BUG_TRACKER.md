@@ -10,7 +10,7 @@
 
 ### BUG-20260811-059：人物角度后验收脱离原图片任务生命周期
 
-- 状态：软件测试通过，待只读稽查
+- 状态：已关闭（最终只读稽查通过）
 - 关联任务：M9.198 / BUG057正式image前序，不扩展处理BUG039—041。
 - 正式复现：人物固定角度job`93185ea7-6266-4b04-9118-cbeb1e3593b4`的Qwen产图完成后，持久job停在`processing/qwen_variant`且心跳停止；资源池却排队随机job`character-angle-audit-a116c49b-affd-4abc-8983-e26b6e66868e`。同时下一图片job`134a62ce-0124-4e2d-97dd-6ffc5dcfdaa3`在不可观测的后验收占用期内等待内存并超时失败。
 - 首个事实：`_validate_character_variant`两次LLava审核均以随机UUID申请资源，调用方又直接同步执行验收，没有经过已有`_run_image_validation`的原job心跳、180秒超时、停止取消和晚到隔离边界。
@@ -43,6 +43,9 @@
 - 下一状态：待独立软件测试复测。
 - 三轮整改独立软件复测：通过。在冻结提交`490d2a0`和干净工作树上，重跑通用清理预定终态恢复、资源忙停模隔离、原job身份claim、OpenPose及图片生命周期关联`112 passed, 3 subtests passed`；完整unit`595 passed, 9 subtests passed`，均0失败0跳过。Python编译、文档状态、diff-check和工作树门禁通过；未启动模型、未修改正式数据。
 - 下一状态：待只读复稽查。
+- 最终只读复稽查：通过。OpenPose提交/轮询处于原job完整身份的有限`audit`claim；取消请求、Comfy prompt、LLava、确定性子进程、subject所有权及预定终态形成同一持久生命周期。核销未确认不进入终态，通用清理/恢复/看门狗/关闭持续对账且无损恢复预定结果；LLava重试先重新取得原job accelerator所有权，资源忙时不触碰后续任务。软件复测无skip，代码、状态和证据一致，无阻断项。
+- 关闭时间：2026-08-12（Asia/Shanghai）。
+- 下一状态：已关闭；M9.198恢复BUG057正式静音H3及2—3镜头、总时长不超过15秒的全链验收。
 
 ### BUG-20260811-058：人物固定角度串行批次误判为并发内存超限
 
@@ -64,7 +67,7 @@
 
 ### BUG-20260811-057：H3源视频重复生成无业务用途音轨
 
-- 状态：阻塞
+- 状态：主线开发中
 - 关联任务：M9.198
 - 正式事实：用户明确MiniMax H3视频不使用音频输入；现行Ref2VA graph虽然没有传入参考音频，却仍执行`VAEDecodeAudio`并将H3自生音轨写入MP4，后续独立Qwen TTS与口型链又会覆盖音频。
 - 首个事实：`MiniMaxH3ReferenceToVideo`官方节点要求`audio_vae`参与AV latent构造，不能直接删除必填输入；冗余发生在采样完成后的音频解码与`CreateVideo.audio`封装。
