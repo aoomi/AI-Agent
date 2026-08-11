@@ -10,7 +10,7 @@
 
 ### BUG-20260812-064：新增Stage登记门禁未覆盖启动恢复与业务投影
 
-- 状态：开发完成，待独立软件测试
+- 状态：软件测试通过，待只读稽查
 - 关联任务：M9.198 / 架构v2.2阶段登记门禁，不扩展处理用户并行前端改动或BUG057设备阻塞。
 - 正式复现：现有`test_frontend_and_pipeline_use_one_canonical_stage_contract`只核对pipeline、前端类型和前端流程顺序；启动恢复器`_recover_production_workflows.stage_storage`仅登记outline/script/storyboard/assets/image/video/composition/review_export，缺requirements/audio/subtitle，也没有独立的项目存储投影/继续入口完整集合供CI与11阶段做相等性校验。
 - 首个事实：当前CI证明“阶段名出现在三个文件”，不能证明新增Stage同步登记于启动恢复器、LangGraph阶段映射、项目存储投影和前端继续入口；已有11阶段甚至在恢复映射中只覆盖8项。
@@ -18,6 +18,7 @@
 - 整改标准：建立四个显式可枚举登记表并由同一契约测试与`CANONICAL_STAGES`精确相等校验；每个阶段的恢复存储、图映射、项目投影和前端继续行为必须有明确策略，禁止用隐式fallback掩盖缺登记。
 - 主线实现：新增版本化`stage.registrations.json`，11阶段逐项登记启动恢复策略、LangGraph规范名、项目存储键及真实前端继续函数。后端启动时失败关闭顺序/字段/图名不一致并由恢复器直接消费项目存储映射；前端流程模块编译时校验该表与pipeline顺序精确一致并导出登记事实。requirements/audio/subtitle不再缺席恢复映射。
 - 开发验证：四处登记契约、生产控制面、文档状态与架构关联`109 passed`，无失败无跳过；显式Node运行时Vue类型检查通过。首次从插件子目录执行pnpm因无package失败、随后仓库frontend的pnpm前置检查因既有esbuild脚本未获批准停止，改用已安装`vue-tsc`直接验证通过，未改变依赖授权。
+- 独立软件测试：通过。冻结提交`2522e17`复跑四处登记门禁、生产控制面、文档状态与架构关联`109 passed`，无失败无跳过；显式Node运行时Vue类型检查通过。首次误在frontend目录调用仓库根`.venv`导致命令路径不存在，纠正工作目录后同一测试集合通过，未把环境调用错误计作产品失败。
 
 ### BUG-20260812-063：顶层架构文档停留v2.1并反向陈述生产内核状态
 
