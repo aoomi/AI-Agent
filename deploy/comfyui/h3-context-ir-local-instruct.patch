@@ -1,16 +1,31 @@
 diff --git a/nodes.py b/nodes.py
-index d354724..57a9196 100644
+index d354724..8d88401 100644
 --- a/nodes.py
 +++ b/nodes.py
-@@ -364,10 +364,15 @@ def _run_agent(
+@@ -299,1 +299,10 @@
++def _make_h3_material_tool(skill_text: str, guide_text: str):
++    @function_tool(name_override="h3-prompt-writing")
++    def load_h3_prompt_writing() -> str:
++        """Load the already verified core H3 prompt skill and selected mode guide."""
++        return f"Official H3 prompt skill:\n{skill_text}\n\nSelected H3 guide:\n{guide_text}"
++
++    return load_h3_prompt_writing
++
++
+ def _system_instructions(mode_family: str, mode: str, skill_text: str, guide_text: str) -> str:
+@@ -364,10 +373,18 @@ def _run_agent(
      resolved_reasoning = _resolve_reasoning_effort(reasoning_effort)
      duration = _duration_seconds(length)
-     tools = _make_style_tools(skills_root)
+-    tools = _make_style_tools(skills_root)
 +    model_settings = (
 +        ModelSettings()
 +        if resolved_model == "qwen3-vl-h3-context-ir:latest"
 +        else ModelSettings(reasoning=Reasoning(effort=resolved_reasoning))
 +    )
++    tools = [
++        _make_h3_material_tool(skill_text, guide_text),
++        *_make_style_tools(skills_root),
++    ]
      agent = Agent(
          name=f"MiniMax H3 {mode} Prompt Agent",
          model=resolved_model,

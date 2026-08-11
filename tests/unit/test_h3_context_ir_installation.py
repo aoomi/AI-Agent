@@ -53,7 +53,10 @@ def test_context_ir_supply_chain_is_reproducibly_locked():
     assert manifest["source"]["license"] == "MIT"
     patch = ROOT / manifest["source"]["local_compatibility_patch"]
     assert hashlib.sha256(patch.read_bytes()).hexdigest() == manifest["source"]["local_compatibility_patch_sha256"]
-    assert 'resolved_model == "qwen3-vl-h3-context-ir:latest"' in patch.read_text(encoding="utf-8")
+    patch_text = patch.read_text(encoding="utf-8")
+    assert 'resolved_model == "qwen3-vl-h3-context-ir:latest"' in patch_text
+    assert '@function_tool(name_override="h3-prompt-writing")' in patch_text
+    assert '_make_h3_material_tool(skill_text, guide_text)' in patch_text
 
 
 def test_context_ir_install_script_and_model_use_fixed_digests():
@@ -64,6 +67,8 @@ def test_context_ir_install_script_and_model_use_fixed_digests():
     assert "771cb3cb01af9543b4f424518bb19b7fa0cf31d8" in script
     assert digest in script
     assert "LOCAL_PATCH_SHA" in script
+    assert 'node.name == "_make_h3_material_tool"' in script
+    assert 'keyword.value.value == "h3-prompt-writing"' in script
     assert f"FROM /Users/aoo/.ollama/models/blobs/sha256-{digest}" in modelfile
     assert "FROM qwen3-vl:32b" not in modelfile
     assert "PARAMETER num_predict 2048" in modelfile

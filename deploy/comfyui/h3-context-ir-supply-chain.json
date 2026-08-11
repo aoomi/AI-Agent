@@ -8,7 +8,7 @@
     "license_sha256": "e9da65c5e066e8b1f928c3db22ba71397bf7153ed1daf1c3c838b0a6531e3f87",
     "upstream_requirements_sha256": "4194f9139f715cd433a0de6e37358bf10992372d0ff87eab45895e11879b842f",
     "local_compatibility_patch": "deploy/comfyui/h3-context-ir-local-instruct.patch",
-    "local_compatibility_patch_sha256": "499703d22b4d5598ca543e8634cd6f08472cc45839899c33662eecec48d5de55"
+    "local_compatibility_patch_sha256": "d812e0947a8425f5d407c56ad610705655d13e15fd5ca6a19833d4306dd74105"
   },
   "python_dependencies": {
     "lockfile": "deploy/comfyui/h3-context-ir-requirements.lock",

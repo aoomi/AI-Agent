@@ -109,6 +109,7 @@
 - BUG059三轮整改独立软件复测通过：冻结提交`490d2a0`直接关联`112 passed, 3 subtests passed`、完整unit`595 passed, 9 subtests passed`无失败无跳过；编译、文档、diff与干净工作树门禁通过，待只读复稽查。
 - BUG059最终只读复稽查通过并关闭：原job资源claim、持久`cancel_pending`、Comfy/LLava/子进程核销、预定终态无损恢复及后续job隔离完整闭环；M9.198恢复BUG057正式静音H3与2—3镜头、总时长不超过15秒的全链验收。
 - BUG060正式登记：3镜头隔离项目已完成image权威前序，首个3秒H3任务的Ref2VA Context IR连续两次因`Tool h3-prompt-writing not found in agent`失败。当前只修供应链固定补丁中的主Skill工具注册契约，BUG057保持阻塞。
+- BUG060仓库内整改完成：主Skill以精确`h3-prompt-writing`只读工具注册，补丁SHA、安装AST门禁与规范同步；隔离上游worktree真实apply/编译通过，关联`48 passed`、完整unit`595 passed, 9 subtests passed`。因当前授权范围仅限仓库，需用户允许把固定补丁应用到仓库外Comfy运行节点并重启后才能完成正式复测。
 - 用户将M9.198最终媒体验收范围收敛为2—3个镜头、总时长不超过15秒；仍须跑通大纲至成片的全部阶段、音画字幕/导出和生命周期门禁，不再要求完整剧集时长。
 - M9.193 / BUG038最终只读复稽查通过并关闭：0°基准及左右45°/90°/180°全身图统一强制手、脚和四肢/指趾解剖门禁，失败候选有限重试后物理清理并落明确终态；复稽查关联`117 passed, 3 subtests passed`，0失败0跳过。角度版本化硬基线保持不变。
 

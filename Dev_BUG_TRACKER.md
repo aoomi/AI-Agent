@@ -16,6 +16,9 @@
 - 首个事实：节点把`h3-prompt-writing`正文内联到system instructions并要求输出selected_skills，但Agent只注册`list_style_skills`和`load_style_skill`。本地Qwen3-VL在Ref2VA多模态请求中合法产生名为`h3-prompt-writing`的工具调用，OpenAI Agents SDK因Agent工具表缺失该名称而在模型结果解析阶段失败；有限重试无法改变确定性契约错误。
 - 风险：FL2VA简单冒烟可以偶然直接输出JSON，但正式Ref2VA一旦选择主Skill工具就必然失败；Context IR无法落盘，H3按失败关闭禁止启动，BUG057和后续视频阶段永久阻塞。
 - 整改标准：供应链固定补丁必须把只读主Skill注册为精确名称`h3-prompt-writing`的工具，返回与内联材料同源的Skill和当前guide；禁止网络加载、路径越界或回退原提示词。更新补丁SHA、安装验证和动态测试，重启Comfy后重跑同一正式H3。
+- 主线实现：固定兼容补丁新增`_make_h3_material_tool`，以`function_tool(name_override="h3-prompt-writing")`注册零参数只读工具，只闭包返回已由固定skills目录加载的主Skill正文和当前base/ref guide；两个style工具保持原白名单。安装器同步锁定新补丁SHA，并在安装/验收时解析已应用`nodes.py`，强制校验精确模型可见工具名。
+- 开发验证：补丁在固定上游提交`771cb3cb01af9543b4f424518bb19b7fa0cf31d8`的隔离worktree中实际apply、Comfy Python编译和AST精确工具注册验证通过；H3安装/Context IR/Ref2VA/取消关联`48 passed`，完整unit`595 passed, 9 subtests passed`无失败无跳过，shell/Python编译通过。
+- 当前边界：用户目标允许修改范围仅限本仓库；正式Comfy自定义节点位于`/Users/aoo/AI/Tools/ComfyUI/main/ComfyUI/custom_nodes/`，应用新供应链补丁并重启Comfy会修改仓库外运行依赖。未获用户明确扩权前不得执行，故真实复测尚未开始且BUG060不能转待测试。
 
 
 ### BUG-20260811-059：人物角度后验收脱离原图片任务生命周期

@@ -15,7 +15,7 @@ MODEL_BLOB="/Users/aoo/.ollama/models/blobs/sha256-4c7fee11ee9e3b139575eedb4cd68
 MODEL_SHA="4c7fee11ee9e3b139575eedb4cd68521729ece7fc0a356150a6672e773c607ea"
 LOCKFILE="$PROJECT_ROOT/deploy/comfyui/h3-context-ir-requirements.lock"
 LOCAL_PATCH="$PROJECT_ROOT/deploy/comfyui/h3-context-ir-local-instruct.patch"
-LOCAL_PATCH_SHA="499703d22b4d5598ca543e8634cd6f08472cc45839899c33662eecec48d5de55"
+LOCAL_PATCH_SHA="d812e0947a8425f5d407c56ad610705655d13e15fd5ca6a19833d4306dd74105"
 MODE="${1:-install}"
 [[ "$MODE" == "install" || "$MODE" == "--verify" ]] || { echo "usage: $0 [--verify]" >&2; exit 2; }
 
@@ -59,6 +59,26 @@ if [[ "$MODE" == "install" ]]; then
   "$UV_BIN" pip install --python "$COMFY_PYTHON" --require-hashes -r "$LOCKFILE"
 fi
 "$COMFY_PYTHON" -m py_compile "$NODE_ROOT/__init__.py" "$NODE_ROOT/nodes.py"
+NODE_ROOT="$NODE_ROOT" "$COMFY_PYTHON" - <<'PY'
+import ast
+import os
+from pathlib import Path
+
+source = Path(os.environ["NODE_ROOT"]) / "nodes.py"
+tree = ast.parse(source.read_text(encoding="utf-8"))
+helper = next((node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_make_h3_material_tool"), None)
+if helper is None:
+    raise SystemExit("H3 core material tool helper is missing")
+decorators = [decorator for child in helper.body if isinstance(child, ast.FunctionDef) for decorator in child.decorator_list]
+if not any(
+    isinstance(decorator, ast.Call)
+    and isinstance(decorator.func, ast.Name)
+    and decorator.func.id == "function_tool"
+    and any(keyword.arg == "name_override" and isinstance(keyword.value, ast.Constant) and keyword.value.value == "h3-prompt-writing" for keyword in decorator.keywords)
+    for decorator in decorators
+):
+    raise SystemExit("H3 core material tool is not registered with its exact model-facing name")
+PY
 "$COMFY_PYTHON" - <<'PY'
 from importlib.metadata import version
 expected = {"openai-agents": "0.19.4", "openai": "2.53.0", "Pillow": "12.3.0", "numpy": "2.4.6"}
