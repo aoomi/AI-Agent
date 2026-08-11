@@ -10,7 +10,7 @@
 
 ### BUG-20260811-059：人物角度后验收脱离原图片任务生命周期
 
-- 状态：开发完成，待独立软件测试
+- 状态：软件测试通过，待只读稽查
 - 关联任务：M9.198 / BUG057正式image前序，不扩展处理BUG039—041。
 - 正式复现：人物固定角度job`93185ea7-6266-4b04-9118-cbeb1e3593b4`的Qwen产图完成后，持久job停在`processing/qwen_variant`且心跳停止；资源池却排队随机job`character-angle-audit-a116c49b-affd-4abc-8983-e26b6e66868e`。同时下一图片job`134a62ce-0124-4e2d-97dd-6ffc5dcfdaa3`在不可观测的后验收占用期内等待内存并超时失败。
 - 首个事实：`_validate_character_variant`两次LLava审核均以随机UUID申请资源，调用方又直接同步执行验收，没有经过已有`_run_image_validation`的原job心跳、180秒超时、停止取消和晚到隔离边界。
@@ -34,6 +34,8 @@
 - 二轮稽查整改：OpenPose提交、持久prompt与历史轮询进入原图片job完整身份的`audit`资源claim，并共享外层deadline。取消入口返回Comfy与LLava双确认；超时、用户停止、启动恢复、无owner清理、看门狗和服务关闭在任一prompt未确认离队时统一持久`processing/cancel_pending`及预定终态，不释放subject所有权。看门狗每轮继续精确核销；确认离队后才原样恢复completed或提交failed，服务恢复同样纠正历史“终态但prompt仍活动”的矛盾记录。
 - 二轮整改开发验证：动态覆盖后验收取消未确认保持非终态、停止与恢复拒绝提前终态、既有completed记录在prompt未离队时转`cancel_pending`并在确认后恢复completed、OpenPose使用原job资源claim与超时精确取消；直接关联`110 passed, 3 subtests passed`，完整unit`593 passed, 9 subtests passed`，均0失败0跳过。Python编译与diff门禁通过。
 - 下一状态：待独立软件测试复测。
+- 二轮整改独立软件复测：通过。在冻结提交`ec12a1c`和干净工作树上，重跑OpenPose原job资源claim、后验收取消未确认、用户停止、无owner清理、服务恢复及终态恢复关联`110 passed, 3 subtests passed`；完整unit`593 passed, 9 subtests passed`，均0失败0跳过。Python编译、文档状态、diff-check和工作树门禁通过；未启动模型、未修改正式数据。
+- 下一状态：待只读复稽查。
 
 ### BUG-20260811-058：人物固定角度串行批次误判为并发内存超限
 
