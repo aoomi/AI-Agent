@@ -59,6 +59,33 @@ class ProductionCapabilityRegistry:
             self._providers[key] = (definition, handler)
         return definition
 
+    def register_once(self, capability: str, provider_id: str, handler: CapabilityHandler, *, enabled: bool = True,
+                      metadata: Mapping[str, Any] | None = None, priority: int = 100,
+                      healthy: bool = True) -> ProductionCapability:
+        """Atomically install a process-lifetime provider without hot-replacing it.
+
+        Built-in installation can be reached through more than one imported API
+        module. Reusing the existing provider is configuration discovery, not a
+        provider replacement, and must remain safe while that provider is busy.
+        """
+        capability, provider_id = capability.strip(), provider_id.strip()
+        if not capability or not provider_id or not callable(handler):
+            raise ProductionCapabilityError("capability, provider and handler are required")
+        if priority < 0:
+            raise ProductionCapabilityError("provider priority must be non-negative")
+        concurrency = (metadata or {}).get("max_concurrency")
+        if concurrency is not None and (isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency <= 0):
+            raise ProductionCapabilityError("provider max_concurrency must be a positive integer")
+        key = (capability, provider_id)
+        with self._lock:
+            existing = self._providers.get(key)
+            if existing is not None:
+                return existing[0]
+            return self.register(
+                capability, provider_id, handler, enabled=enabled, metadata=metadata,
+                priority=priority, healthy=healthy,
+            )
+
     def unregister(self, capability: str, provider_id: str | None = None) -> bool:
         with self._lock:
             targets = [key for key in self._providers if key[0] == capability and (provider_id is None or key[1] == provider_id)]

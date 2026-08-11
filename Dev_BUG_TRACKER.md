@@ -396,9 +396,12 @@
 
 ### BUG-20260811-039：云长老人物图无法生成
 
-- 状态：主线开发中
+- 状态：开发完成，待独立软件测试
 - 用户现象：云长老生成返回 `capability provider has in-flight invocations: image.variant.qwen/comfy-qwen-image-edit-2511`。
 - 串行约束：等待前序问题完整闭环并经用户确认后处理。
+- 正式根因：能力注册表是进程级单例，但兼容API可被多个模块身份装载，每个模块各自持有`BUILTIN_PRODUCTION_CAPABILITIES_INSTALLED=False`和安装锁。后装载模块发现同名builtin后使用`replace_provider=True`刷新；若另一人物任务正在Qwen调用，热插拔保护正确拒绝替换，却把正常并发生成错误终止。
+- 框架整改：能力注册表新增原子`register_once`，完整复用注册参数校验；同一进程生命周期内同能力/provider只安装一次，重复模块安装原样复用现有definition和handler，不执行替换、卸载或健康翻转。builtin安装统一使用该原语；代码升级仍通过进程重启加载新实现，运行中provider热插拔保护保持不变。
+- 开发验证：动态线程在`image.variant.qwen`真实inflight计数为1时再次`register_once`，不抛热替换错误、不改变inflight或handler；原调用及后续调用均返回原provider。生产控制面与文档状态`104 passed`，无失败无跳过。扩大图片恢复关联为`1 failed, 156 passed`，唯一失败读取用户并行删除的前端`asset_phase:"repair"`入口，与本后端注册原语无调用关系，未计作本BUG通过证据。
 
 ### BUG-20260811-038：人物全身图顶部留白低于8%仍被放行
 

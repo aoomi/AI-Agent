@@ -360,7 +360,33 @@ class ProductionControlTests(unittest.TestCase):
         install = backend[backend.index("def _install_builtin_production_capabilities"):backend.index("def _invoke_production_capability")]
         self.assertIn("if BUILTIN_PRODUCTION_CAPABILITIES_INSTALLED", install)
         self.assertIn("BUILTIN_PRODUCTION_CAPABILITIES_INSTALLED = True", install)
-        self.assertIn("if not PRODUCTION_CAPABILITIES.has(capability, provider_id)", install)
+        self.assertIn("PRODUCTION_CAPABILITIES.register_once(", install)
+        self.assertNotIn("replace_provider=True", install)
+
+        registry = ProductionCapabilityRegistry()
+        entered = threading.Event()
+        release = threading.Event()
+
+        def original(**_):
+            entered.set()
+            release.wait(timeout=2)
+            return {"provider":"original"}
+
+        registry.register_once("image.variant.qwen", "builtin-qwen", original, metadata={"builtin":True})
+        results = []
+        worker = threading.Thread(target=lambda:results.append(registry.invoke("image.variant.qwen")))
+        worker.start()
+        self.assertTrue(entered.wait(timeout=2))
+        existing = registry.register_once(
+            "image.variant.qwen", "builtin-qwen", lambda **_: {"provider":"replacement"},
+            metadata={"builtin":True},
+        )
+        self.assertEqual(existing.provider_id, "builtin-qwen")
+        self.assertEqual(registry.runtime_snapshot()[0]["inflight"], 1)
+        release.set()
+        worker.join(timeout=2)
+        self.assertEqual(results, [{"provider":"original"}])
+        self.assertEqual(registry.invoke("image.variant.qwen"), {"provider":"original"})
 
     def test_capability_registry_balances_concurrent_calls_and_blocks_hot_unplug(self):
         registry = ProductionCapabilityRegistry()

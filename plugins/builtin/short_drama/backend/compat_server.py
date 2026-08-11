@@ -6898,10 +6898,9 @@ def _install_builtin_production_capabilities() -> None:
                 **({"supported_device_types":sorted(H3_REF2VA_SUPPORTED_DEVICE_TYPES), "availability_error":h3_blocker} if h3_provider and h3_blocker else {}),
             }
             healthy = not h3_blocker if h3_provider else True
-            if not PRODUCTION_CAPABILITIES.has(capability, provider_id):
-                PRODUCTION_CAPABILITIES.register(capability, provider_id, handler, metadata=metadata, healthy=healthy)
-            elif PRODUCTION_CAPABILITIES.get(capability, provider_id).metadata.get("builtin"):
-                PRODUCTION_CAPABILITIES.register(capability, provider_id, handler, metadata=metadata, healthy=healthy, replace_provider=True)
+            PRODUCTION_CAPABILITIES.register_once(
+                capability, provider_id, handler, metadata=metadata, healthy=healthy,
+            )
         BUILTIN_PRODUCTION_CAPABILITIES_INSTALLED = True
 
 
