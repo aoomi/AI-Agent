@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import sqlite3
+import stat
 import tarfile
 import tempfile
 from datetime import datetime, timezone
@@ -42,6 +43,7 @@ def _snapshot_file(source: Path, target: Path) -> None:
         source_uri = f"{source.resolve().as_uri()}?mode=ro"
         with sqlite3.connect(source_uri, uri=True) as origin, sqlite3.connect(target) as snapshot:
             origin.backup(snapshot)
+        shutil.copystat(source, target, follow_symlinks=False)
         return
     shutil.copy2(source, target)
 
@@ -64,11 +66,12 @@ def _snapshot_tree(source: Path, target: Path) -> None:
             _snapshot_file(entry, destination)
         else:
             raise SystemExit(f"UNSAFE_BACKUP_SOURCE_ENTRY:{entry.name}")
+    shutil.copystat(source, target, follow_symlinks=False)
 
 
 def _inventory(root: Path) -> list[dict[str, object]]:
     return [
-        {"path":path.relative_to(root).as_posix(), "size":path.stat().st_size, "sha256":_file_sha256(path)}
+        {"path":path.relative_to(root).as_posix(), "size":path.stat().st_size, "sha256":_file_sha256(path), "mode":stat.S_IMODE(path.stat().st_mode)}
         for path in sorted((item for item in root.rglob("*") if item.is_file()), key=lambda item:item.as_posix())
     ]
 
@@ -167,6 +170,7 @@ def _extract_verified(archive: Path, target: Path, expected_files: list[dict[str
                 raise SystemExit("UNSAFE_BACKUP_ARCHIVE")
             with source, destination.open("wb") as output:
                 shutil.copyfileobj(source, output, length=1024 * 1024)
+            os.chmod(destination, member.mode & 0o777)
     actual = _inventory(target)
     if actual != expected_files:
         raise SystemExit("RESTORED_CONTENT_MISMATCH")
