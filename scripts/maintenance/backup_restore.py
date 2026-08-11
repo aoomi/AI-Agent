@@ -158,11 +158,13 @@ def _safe_member(member: tarfile.TarInfo, target: Path, seen: set[str]) -> Path:
 
 def _extract_verified(archive: Path, target: Path, expected_files: list[dict[str, object]]) -> None:
     seen: set[str] = set()
+    directory_modes: list[tuple[Path, int]] = []
     with tarfile.open(archive, "r:gz") as package:
         for member in package.getmembers():
             destination = _safe_member(member, target, seen)
             if member.isdir():
                 destination.mkdir(parents=True, exist_ok=True)
+                directory_modes.append((destination, member.mode & 0o777))
                 continue
             destination.parent.mkdir(parents=True, exist_ok=True)
             source = package.extractfile(member)
@@ -171,6 +173,8 @@ def _extract_verified(archive: Path, target: Path, expected_files: list[dict[str
             with source, destination.open("wb") as output:
                 shutil.copyfileobj(source, output, length=1024 * 1024)
             os.chmod(destination, member.mode & 0o777)
+    for directory, mode in reversed(directory_modes):
+        os.chmod(directory, mode)
     actual = _inventory(target)
     if actual != expected_files:
         raise SystemExit("RESTORED_CONTENT_MISMATCH")

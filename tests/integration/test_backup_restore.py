@@ -50,7 +50,8 @@ class BackupRestoreTest(unittest.TestCase):
    self.assertEqual(list(outside.iterdir()),[])
  def test_sensitive_file_permissions_survive_restore(self):
   with tempfile.TemporaryDirectory() as d:
-   root=Path(d);source=root/"source";(source/"config").mkdir(parents=True);secret=source/"config/secret-ref.json";secret.write_text("{}");secret.chmod(0o600)
+   root=Path(d);source=root/"source";(source/"config").mkdir(parents=True);(source/"config").chmod(0o700);secret=source/"config/secret-ref.json";secret.write_text("{}");secret.chmod(0o600)
    archive=root/"backup.tar.gz";backup(source,archive);target=root/"restored";restore(archive,target,archive.with_suffix(".gz.manifest.json"))
    self.assertEqual((target/"config/secret-ref.json").stat().st_mode&0o777,0o600)
+   self.assertEqual((target/"config").stat().st_mode&0o777,0o700)
 if __name__=="__main__":unittest.main()
