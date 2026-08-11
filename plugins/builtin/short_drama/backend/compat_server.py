@@ -8109,6 +8109,10 @@ class Handler(BaseHTTPRequestHandler):
             user_id = query.get("user_id", [""])[0].strip()
             project_id = query.get("project_id", [""])[0].strip()
             scope = query.get("scope", [""])[0].strip()
+            if not resource_id or not tenant_id or not user_id or scope not in {"tenant_global", "project", "project_episode"}:
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_resource_scope"})
+            if scope != "tenant_global" and not project_id:
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_resource_scope"})
             resource = next((item for item in _load_resources().get("resources", []) if
                              str(item.get("id") or "") == resource_id and
                              str(item.get("tenant_id") or "") == tenant_id and
@@ -9404,6 +9408,7 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
             return self._json(HTTPStatus.OK, {"resource": resource})
         if parsed.path == "/api/resources/delete":
             store = _load_resources(); resource_id = str(body.get("id", "")); tenant_id = str(body.get("tenant_id") or "").strip(); user_id = str(body.get("user_id") or "").strip()
+            if not resource_id or not tenant_id or not user_id: return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_resource_scope"})
             resource = next((item for item in store.get("resources", []) if item.get("id") == resource_id and item.get("tenant_id") == tenant_id and item.get("user_id") == user_id), None)
             if not resource: return self._json(HTTPStatus.NOT_FOUND, {"error":"resource_not_found"})
             store["resources"] = [item for item in store.get("resources", []) if item is not resource]; _save_resources(store)

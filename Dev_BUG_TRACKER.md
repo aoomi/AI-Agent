@@ -19,6 +19,9 @@
 - 主线实现：资源列表按完整scope过滤；project/project_episode创建必须命中同tenant/user项目；删除拒绝非所有者；新资源URL改为`/api/resources/media?id=`并由前端追加资源自身scope/project与当前tenant/user，后端逐字段匹配且仅允许`OUTPUT_ROOT/resources`直属文件。
 - 兼容迁移：列表读取时把旧资源通用URL投影为专用鉴权URL；通用`/api/result-media`明确拒绝`resources`目录，旧记录也不能绕过所有者门禁。
 - 开发验证：资源隔离、生产控制、媒体增强及文档状态关联`114 passed`，无失败无跳过；Python编译和Vue类型检查通过。
+- 首轮独立软件测试：冻结提交`5578963`关联`114 passed`无失败无跳过；Python编译、Vue类型检查和文档状态门禁通过。
+- 首轮只读稽查：不通过（P1）。专用媒体和删除虽逐字段匹配，但没有先强制非空identity；历史缺失tenant/user/scope的资源可被空查询值命中，仍存在旧数据旁路。
+- 稽查整改：媒体读取强制resource_id、tenant、user及合法scope非空，项目scope再强制project；删除强制resource_id/tenant/user非空后才查找，历史缺身份记录统一失败关闭，待独立复测。
 
 ### BUG-20260812-067：可观测Exporter未接入正式服务生命周期
 
