@@ -391,7 +391,7 @@ let activeProjectRecord = {{value:project}}, assetResultRecoveryRunning = false;
 let autoResumedInterruptedAssetJobs = new Set(), persisted = 0, revealed = 0;
 let characterProfiles = {{value:[]}}, propProfiles = {{value:[]}}, sceneProfiles = {{value:[]}};
 let assetStatus = {{value:'generating'}}, assetError = {{value:''}};
-function assetBaselineJobName() {{ return 'unused'; }}
+function assetBaselineJobName() {{ return 'baseline-job'; }}
 function userFacingGenerationError(value) {{ return String(value || 'failed'); }}
 async function revealCompletedUnit() {{ revealed += 1; }}
 async function persistAssetState() {{ persisted += 1; }}
@@ -407,7 +407,17 @@ async function run(result) {{
   await recoverCompletedAssetImages();
   return {{item, variant, persisted, revealed}};
 }}
+async function runBaseline(result) {{
+  persisted = 0; revealed = 0; assetStatus.value = 'generating'; assetError.value = '';
+  const item = {{name:'云长老', generation_nonce:'n2', status:'generating', detail_assets:[]}};
+  characterProfiles.value = [item];
+  responseByName = {{'baseline-job':{{ok:true,data:result}}}};
+  await recoverCompletedAssetImages();
+  return {{item, persisted, revealed}};
+}}
 (async () => {{
+  const baseline = await runBaseline({{status:'completed',image:{{url:'/baseline-completed.png'}}}});
+  if (baseline.item.image_url !== '/baseline-completed.png' || baseline.item.status !== 'waiting_confirmation' || baseline.persisted !== 1 || baseline.revealed !== 1) throw new Error('completed baseline was not durably projected');
   const done = await run({{status:'completed',image:{{url:'/angle.png'}}}});
   if (done.variant.image_url !== '/angle.png' || done.variant.status !== 'waiting_confirmation' || done.persisted !== 1 || done.revealed !== 1) throw new Error('completed variant was not durably projected');
   const failed = await run({{status:'failed',error:'服务重启已回收残留图片任务，请重新生成'}});
