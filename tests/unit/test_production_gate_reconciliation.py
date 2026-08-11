@@ -58,8 +58,11 @@ def test_restart_fails_unrecoverable_synchronous_running_stage():
     helper = BACKEND[BACKEND.index("def _recover_production_workflows"):BACKEND.index("def _begin_production_request")]
     assert 'state.get("stages", {}).get(current_stage) == "running"' in helper
     assert 'brain.report(identity, current_stage, "failed"' in helper
-    assert '"image":"shot_images"' in helper
-    assert '"video":"shot_videos"' in helper
+    assert "PROJECT_STAGE_STORAGE[current_stage]" in helper
+    registrations = json.loads((ROOT / "plugins/builtin/short_drama/workflows/stage.registrations.json").read_text(encoding="utf-8"))
+    storage = {row["stage"]:row["project_storage"] for row in registrations["stages"]}
+    assert storage["image"] == "shot_images"
+    assert storage["video"] == "shot_videos"
     assert '_write_project_stage(identity["project_id"]' in helper
     main = BACKEND[BACKEND.index("def main() -> None:"):]
     assert "_recover_production_workflows()" in main
