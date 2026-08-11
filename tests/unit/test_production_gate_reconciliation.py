@@ -387,11 +387,12 @@ def test_asset_variant_terminal_reconciliation_executes_completed_and_failed_pat
     script = f"""
 const source = {json.dumps(source)};
 const project = {{id:'p1'}};
-let activeProjectRecord = {{value:project}}, assetResultRecoveryRunning = false;
+let activeProjectRecord = {{value:project}}, projectSession = 7, assetResultRecoveryRunning = false;
 let autoResumedInterruptedAssetJobs = new Set(), persisted = 0, revealed = 0;
 let characterProfiles = {{value:[]}}, propProfiles = {{value:[]}}, sceneProfiles = {{value:[]}};
 let assetStatus = {{value:'generating'}}, assetError = {{value:''}};
 function assetBaselineJobName() {{ return 'baseline-job'; }}
+function isCurrentProjectSession(id, session) {{ return activeProjectRecord.value?.id === id && projectSession === session; }}
 function userFacingGenerationError(value) {{ return String(value || 'failed'); }}
 async function revealCompletedUnit() {{ revealed += 1; }}
 async function persistAssetState() {{ persisted += 1; }}
@@ -422,6 +423,15 @@ async function runBaseline(result) {{
   if (done.variant.image_url !== '/angle.png' || done.variant.status !== 'waiting_confirmation' || done.persisted !== 1 || done.revealed !== 1) throw new Error('completed variant was not durably projected');
   const failed = await run({{status:'failed',error:'服务重启已回收残留图片任务，请重新生成'}});
   if (failed.variant.status !== 'failed' || failed.item.status !== 'failed' || failed.persisted !== 1 || !failed.variant.error.includes('服务重启')) throw new Error('failed variant terminal state was not durably projected');
+  let releaseLate;
+  const lateResult = new Promise(resolve => releaseLate = resolve);
+  const lateItem = {{name:'云长老', generation_nonce:'n3', status:'generating', detail_assets:[]}};
+  characterProfiles.value = [lateItem]; responseByName = {{'baseline-job':lateResult}}; persisted = 0;
+  const pending = recoverCompletedAssetImages();
+  projectSession = 8;
+  releaseLate({{ok:true,data:{{status:'completed',image:{{url:'/late.png'}}}}}});
+  await pending;
+  if (lateItem.image_url || persisted !== 0) throw new Error('late prior-session result mutated the active project');
   process.stdout.write('ok');
 }})();
 """

@@ -391,13 +391,16 @@
 
 ### BUG-20260811-040：生成成功的图片未显示
 
-- 状态：软件测试通过，待只读稽查
+- 状态：开发完成，待独立软件复测
 - 用户现象：图片生成后界面不显示结果。
 - 串行约束：等待前序问题完整闭环并经用户确认后处理。
 - 根因复核：该排队现象对应旧前端只消费发起请求的即时响应；页面刷新、服务恢复或原请求连接中断后，后端job即使`completed`并持有媒体URL，资产baseline/角度投影仍可能保持generating或空URL。当前框架已由BUG038后续整改加入`recoverCompletedAssetImages`两秒权威终态对账，因此本项不再需要另造恢复链。
 - 增量闭环：补充直接执行当前正式恢复函数的Node动态回归，同一矩阵同时覆盖云长老baseline completed与人物variant completed：从job结果回填URL、转`waiting_confirmation`、触发展示节奏并持久化一次；variant失败仍维持明确失败终态。未修改用户并行前端实现。
 - 开发验证：显式Node运行时动态恢复用例通过；扩大恢复/图片关联`52 passed, 1 failed, 1 deselected`，唯一失败为用户并行删除局部修复入口后的旧静态断言，与成功媒体投影/显示链无关，未计作本BUG通过证据。
 - 独立软件测试：通过。冻结提交`56dc605`以显式Node运行时执行baseline/variant completed和variant failed正式函数动态矩阵及文档状态，共`21 passed`，无失败无跳过；测试身份未修改用户前端现场或正式数据。
+- 首轮只读稽查：不通过（P1）。恢复函数只在异步返回后比较`project.id`，没有绑定发起时的`projectSession`；同一项目刷新/重载产生新session时，旧session的completed响应仍可回填新投影并持久化，违反v2.2晚到响应隔离。
+- 稽查整改：恢复轮询捕获发起时session，baseline/variant每个异步返回及中断自动恢复前均执行`isCurrentProjectSession(project.id, session)`；所有持久化显式携带原project/session。Node动态矩阵新增同project切换session后释放旧completed响应，断言零URL写入、零持久化；原成功/失败矩阵继续通过。
+- 整改验证：显式Node动态矩阵`1 passed`，无跳过。对用户并行App工作树只修改恢复函数隔离hunk，提交暂存精确排除其余界面改动。
 
 ### BUG-20260811-039：云长老人物图无法生成
 

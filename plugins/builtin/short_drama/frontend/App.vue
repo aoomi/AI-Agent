@@ -3899,6 +3899,7 @@ const autoResumedInterruptedAssetJobs = new Set<string>();
 async function recoverCompletedAssetImages() {
   const project = activeProjectRecord.value;
   if (!project || assetResultRecoveryRunning) return;
+  const session = projectSession;
   assetResultRecoveryRunning = true;
   let recovered = false;
   let shouldResumeInterruptedJob = false;
@@ -3911,7 +3912,7 @@ async function recoverCompletedAssetImages() {
       if (!item.image_url) {
         const jobName = assetBaselineJobName(project.id, group.kind, item);
         const completed = await assetService.characterResult<{ status:string; image?:{ url:string }; error?:string }>(jobName).catch(() => null);
-        if (activeProjectRecord.value?.id !== project.id) return;
+        if (!isCurrentProjectSession(project.id, session)) return;
         if (completed?.ok && completed.data.status === "completed" && completed.data.image?.url) {
           item.image_url = completed.data.image.url;
           item.status = "waiting_confirmation";
@@ -3937,7 +3938,7 @@ async function recoverCompletedAssetImages() {
         if (variant.image_url || variant.status !== "generating") continue;
         const variantJobName = `${project.id}_${item.generation_nonce || "legacy"}_${group.kind}_${item.name}_angle_${variantIndex + 2}`;
         const completed = await assetService.characterResult<{ status:string; image?:{ url:string }; error?:string }>(variantJobName).catch(() => null);
-        if (activeProjectRecord.value?.id !== project.id) return;
+        if (!isCurrentProjectSession(project.id, session)) return;
         if (completed?.ok && completed.data.status === "completed" && completed.data.image?.url) {
           variant.image_url = completed.data.image.url;
           variant.status = "waiting_confirmation";
@@ -3958,15 +3959,15 @@ async function recoverCompletedAssetImages() {
       assetStatus.value = profiles.every(item => item.status === "confirmed") ? "confirmed" : profiles.some(item => item.status === "generating") ? "generating" : profiles.some(item => item.image_url) ? "waiting_confirmation" : "pending";
       const failedProfile = profiles.find(item => item.status === "failed");
       assetError.value = profiles.some(item => item.status === "generating") ? "" : failedProfile ? `${failedProfile.name}：${failedProfile.error || "定位基准图生成失败，请继续生成"}` : "";
-      await persistAssetState();
+      await persistAssetState(project, session);
     }
   } finally {
     assetResultRecoveryRunning = false;
   }
-  if (shouldResumeInterruptedJob && activeProjectRecord.value?.id === project.id) {
+  if (shouldResumeInterruptedJob && isCurrentProjectSession(project.id, session)) {
     assetStatus.value = "pending";
     assetError.value = "上次资产图片任务已中断，请点击生成图片继续";
-    await persistAssetState();
+    await persistAssetState(project, session);
   }
 }
 const assetResultRecoveryTimer = window.setInterval(() => {
