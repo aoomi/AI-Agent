@@ -8,6 +8,17 @@
 
 `待处理` → `修复中` → `待测试` → `待稽查` → `已关闭`
 
+### BUG-20260812-067：可观测Exporter未接入正式服务生命周期
+
+- 状态：开发完成，待独立软件测试
+- 关联任务：M10.8 / V1 P1可观测性生产化；不启动模型、不改用户并行前端现场。
+- 正式复现：M9.197已提供`RecordExporter`、JSONL和Prometheus textfile实现，但全仓调用仅存在于单元测试；短剧正式服务未实例化exporter，也未在请求或启停生命周期导出记录。
+- 首个事实：运行正式兼容服务不会产生可采集的请求计数、延时、活动请求或启停事件，运维手册描述的持久导出仍只是底座能力。
+- 风险：真实成片链失败时无法从持久观测记录关联request/trace，监控也没有服务请求/状态快照，M9.197会被文档误判为已生产接线。
+- 整改标准：正式服务生命周期实例化JSONL+Prometheus复合导出；每个HTTP请求生成或沿用request_id/trace_id，持久记录方法、状态、延时，指标只用有界method/status_class标签；服务启停导出并保证敏感字段门禁继续生效。
+- 主线实现：新增`RuntimeObservability`，正式输出到`OUTPUT_ROOT/observability/records.jsonl`及原子`metrics.prom`；兼容服务统一请求边界记录活动数、请求数、累计延时、状态类别及关联ID，启停生命周期持久导出。request/trace只进入JSONL，不作为Prometheus标签，避免高基数。
+- 开发验证：runtime/exporter定向`8 passed`，Python编译通过；动态证明25ms请求写入关联JSONL，Prometheus仅含GET/2xx有界标签且活动请求归零，自动生成关联ID和service.stopped事件可持久读取。
+
 ### BUG-20260812-066：单节点混合负载缺少可重复容量基准
 
 - 状态：已关闭（最终只读复稽查通过）

@@ -881,6 +881,11 @@
 
 ## 十五、最终完成标准
 
+### M10.8：可观测Exporter正式生命周期接线（开发完成，待独立软件测试）
+
+- `RuntimeObservability`将正式服务请求与启停事件写入JSONL，并原子发布Prometheus textfile；HTTP活动数、请求数、累计延时以method/status_class有界标签输出。
+- request_id/trace_id沿用请求头或自动生成，仅进入关联日志而不进入指标标签；定向`8 passed`及编译通过。
+
 ### M10.7：单节点混合负载容量基准（最终复稽查通过，已完成）
 
 - 正式调度器混合运行control/cpu-media/accelerator，动态覆盖pool/tenant/project背压、取消唤醒、线程和票据归零。

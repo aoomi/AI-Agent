@@ -53,10 +53,12 @@ from ai_agent_core import ResourceScheduler, WorkerRegistry, WorkerSnapshot, Wor
 from ai_agent_queue import DurableTaskRepository, TaskLeaseError, TaskLeaseRepository
 from ai_agent_adapters import production_capability_registry, production_extension_registry
 from plugins.builtin.short_drama.backend.web_search import WEB_SEARCH_PROVIDER_DESCRIPTIONS, search_web
+from plugins.builtin.short_drama.backend.runtime_observability import RuntimeObservability
 
 
 APPLICATION_ROOT = Path(__file__).resolve().parents[4]
 OUTPUT_ROOT = Path(os.environ.get("SHORT_DRAMA_OUTPUT_ROOT", str(APPLICATION_ROOT / "output"))).resolve()
+OBSERVABILITY = RuntimeObservability(OUTPUT_ROOT / "observability")
 PROJECTS_FILE = OUTPUT_ROOT / "narrative-cache" / "projects.json"
 PROJECT_SNAPSHOTS_DIR = OUTPUT_ROOT / "narrative-cache" / "project-snapshots"
 PROJECT_VERSIONS_DIR = OUTPUT_ROOT / "narrative-cache" / "project-versions"
@@ -7929,6 +7931,38 @@ def _begin_production_request(body: dict, stage: str, *, stage_generation: int =
 
 
 class Handler(BaseHTTPRequestHandler):
+    def handle_one_request(self) -> None:
+        started, request_id, trace_id = OBSERVABILITY.begin_request(
+            self.headers.get("X-Request-ID") if hasattr(self, "headers") else None,
+            self.headers.get("X-Trace-ID") if hasattr(self, "headers") else None,
+        )
+        self._observability_request_id = request_id
+        self._observability_trace_id = trace_id
+        self._observability_status = HTTPStatus.INTERNAL_SERVER_ERROR
+        self.command = ""
+        try:
+            super().handle_one_request()
+        finally:
+            OBSERVABILITY.finish_request(
+                started, self._observability_request_id, self._observability_trace_id,
+                getattr(self, "command", "UNKNOWN"), int(self._observability_status),
+            )
+
+    def parse_request(self) -> bool:
+        parsed = super().parse_request()
+        if parsed:
+            request_id = self.headers.get("X-Request-ID")
+            trace_id = self.headers.get("X-Trace-ID")
+            if request_id:
+                self._observability_request_id = OBSERVABILITY.correlation_id(request_id, "req")
+            if trace_id:
+                self._observability_trace_id = OBSERVABILITY.correlation_id(trace_id, "trace")
+        return parsed
+
+    def send_response(self, code: int, message: str | None = None) -> None:
+        self._observability_status = int(code)
+        super().send_response(code, message)
+
     server_version = "ShortDramaCompatibilityAPI"
 
     def do_GET(self) -> None:  # noqa: N802
@@ -9411,6 +9445,7 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
 
 
 def main() -> None:
+    OBSERVABILITY.service_event("service.started")
     _recover_asset_3d_archive_backups()
     _recover_agent_jobs()
     _recover_image_jobs()
@@ -9443,6 +9478,7 @@ def main() -> None:
         WORKER_HEARTBEAT_STOP.set()
         WORKLOAD_ROUTER.remove(WORKER_ID, generation=1)
         WORKER_REGISTRY.remove(WORKER_ID, generation=1)
+        OBSERVABILITY.service_event("service.stopped")
 
 
 if __name__ == "__main__":
