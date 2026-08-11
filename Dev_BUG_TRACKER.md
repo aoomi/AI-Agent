@@ -8,9 +8,18 @@
 
 `待处理` → `修复中` → `待测试` → `待稽查` → `已关闭`
 
+### BUG-20260812-064：新增Stage登记门禁未覆盖启动恢复与业务投影
+
+- 状态：主线开发中
+- 关联任务：M9.198 / 架构v2.2阶段登记门禁，不扩展处理用户并行前端改动或BUG057设备阻塞。
+- 正式复现：现有`test_frontend_and_pipeline_use_one_canonical_stage_contract`只核对pipeline、前端类型和前端流程顺序；启动恢复器`_recover_production_workflows.stage_storage`仅登记outline/script/storyboard/assets/image/video/composition/review_export，缺requirements/audio/subtitle，也没有独立的项目存储投影/继续入口完整集合供CI与11阶段做相等性校验。
+- 首个事实：当前CI证明“阶段名出现在三个文件”，不能证明新增Stage同步登记于启动恢复器、LangGraph阶段映射、项目存储投影和前端继续入口；已有11阶段甚至在恢复映射中只覆盖8项。
+- 风险：新增或现有阶段可在运行期进入权威图，却在服务重启后无法按业务持久事实恢复，或前端没有继续入口；静态测试仍会错误放行。
+- 整改标准：建立四个显式可枚举登记表并由同一契约测试与`CANONICAL_STAGES`精确相等校验；每个阶段的恢复存储、图映射、项目投影和前端继续行为必须有明确策略，禁止用隐式fallback掩盖缺登记。
+
 ### BUG-20260812-063：顶层架构文档停留v2.1并反向陈述生产内核状态
 
-- 状态：软件测试通过，待只读稽查
+- 状态：已关闭（最终只读稽查通过）
 - 关联任务：用户提交的架构文档v2.2事实修正清单；BUG057保持环境阻塞，不改模型路线。
 - 正式复现：`docs/technical/系统架构设计.md`仍标记版本2.1，且第10节声称M5进行中、LangGraph M7.5尚未完成；代码和已关闭里程碑已存在11阶段契约、SQLite checkpoint、跨实例租约、ProductionLedger权威证据、拒绝事件快照、资源池/契约门禁及RecordExporter。
 - 首个事实：顶层总纲没有随M9.169/172/183/195/197闭环更新，仍把已落地生产内核描述为未完成；权威台账、晚到隔离、持久等待、导出脱敏、provider inflight保护和新增Stage登记门禁也未形成顶层章节。
@@ -19,6 +28,8 @@
 - 主线实现：顶层架构升级为v2.2并按截至2026-08-11的权威事实重写当前状态；新增ProductionLedger、晚到响应隔离、`waiting_memory`、`RecordExporter`四个章节，以及provider inflight热插拔保护和四处Stage登记CI门禁。新增架构契约测试，防止版本、里程碑及关键约束再次倒退。
 - 开发验证：架构v2.2契约、生产控制面、权威台账、阶段一致性、可观测性与文档状态关联`92 passed`，文档状态门禁通过；未启动模型、未修改正式任务或运行数据。
 - 独立软件测试：通过。冻结提交`1aaf7a9`上以显式仓库模块路径复跑架构契约、生产控制面、权威台账、阶段一致性、可观测性与文档状态`112 passed`；无失败、无跳过，未启动模型或修改正式数据。首轮遗漏模块路径导致15项导入失败，同时索引状态少了规范前缀导致2项文档门禁失败；修正测试环境和状态口径后全部通过，不掩盖失败证据。
+- 最终只读稽查：通过。代码中`CANONICAL_STAGES`精确为11阶段；ProductionLedger持久字段、代际/revision CAS与指纹/审核批次唯一边界存在；`waiting_memory`持久且投影queued；RecordExporter、JSONL/Prometheus导出和provider inflight原子保护均与文档一致。新增Stage四处登记被明确为演进强制约束，未将通用Skill机器人、多租户商业化或本机不可执行H3伪装完成。
+- 关闭时间：2026-08-12（Asia/Shanghai）。下一状态：已关闭；继续稽查Stage四处登记CI门禁的实现完整性，缺口独立登记，不回退本次文档事实同步结论。
 
 ### BUG-20260812-062：H3 INT8在MPS静默回退单核CPU且无进度门禁
 
