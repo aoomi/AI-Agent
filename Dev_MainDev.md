@@ -885,6 +885,7 @@
 
 - 正式调度器混合运行control/cpu-media/accelerator，动态覆盖pool/tenant/project背压、取消唤醒、线程和票据归零。
 - Darwin arm64小样本吞吐939.06 req/s，control P99 1.582ms、取消0.050ms；基准/文档`21 passed`。数值仅作当前硬件回归基线，不是生产SLA。
+- 首轮独立复测`21 passed`；稽查补充峰值活动不得超过容量总和门禁，当前7=4+2+1，待整改复测。
 
 ### M10.5：单节点一致性备份恢复（最终复稽查通过，已完成）
 

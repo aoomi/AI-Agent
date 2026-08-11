@@ -9,4 +9,5 @@ def test_single_node_mixed_load_preserves_control_backpressure_cancel_and_releas
     assert report["cancel"]["result"] == ["resource request cancelled"]
     assert report["backpressure_rejections"] == {"pool":1, "tenant":1, "project":1}
     assert report["threads"]["after"] == report["threads"]["before"]
+    assert report["peak"]["active"] <= sum(report["parameters"]["capacities"].values())
     assert all(not snapshot["active_items"] and not snapshot["queued"] for snapshot in report["final"].values())

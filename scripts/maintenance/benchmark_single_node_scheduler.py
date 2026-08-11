@@ -150,6 +150,8 @@ def validate(report: dict[str, object]) -> None:
         raise SystemExit("BACKPRESSURE_NOT_ENFORCED")
     if report["threads"]["after"] != report["threads"]["before"]:
         raise SystemExit("BENCHMARK_THREAD_LEAK")
+    if report["peak"]["active"] > sum(report["parameters"]["capacities"].values()):
+        raise SystemExit("RESOURCE_POOL_OVERSUBSCRIPTION")
     if any(snapshot["active_items"] or snapshot["queued"] for snapshot in final.values()):
         raise SystemExit("RESOURCE_TICKETS_NOT_RELEASED")
 
