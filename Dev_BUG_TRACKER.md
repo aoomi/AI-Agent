@@ -8,9 +8,18 @@
 
 `待处理` → `修复中` → `待测试` → `待稽查` → `已关闭`
 
-### BUG-20260812-060：H3 Ref2VA Context IR主Skill工具未注册
+### BUG-20260812-061：嵌套结果媒体URL被错误截断为末级目录
 
 - 状态：主线开发中
+- 关联任务：M9.198 / BUG057正式静音H3，不扩展处理排队BUG039—041。
+- 正式复现：BUG060修复后，正式job`4e7e8e8c-e443-48f9-b4d7-bbc8a09d9922`的Context IR成功完成并持久化优化提示词，随后H3启动前以`分镜图片不存在`失败。分镜图和身份图均存在且HTTP 200；失败输入是`subfolder=assets3d/<project>/scene/空房间`的Blender源视频。
+- 首个事实：`_local_media_path`对`subfolder`执行`Path(...).name`，把合法受控嵌套目录截断为`空房间`，再错误查找`output/空房间/blender_source.mp4`；正式资产URL实际指向`output/assets3d/<project>/scene/空房间/blender_source.mp4`。
+- 风险：所有3D资产生成的嵌套源视频均能通过媒体接口播放，却不能作为H3输入；Context IR完成后视频阶段确定性失败。
+- 整改标准：在`OUTPUT_ROOT`内按解码后的相对目录安全解析嵌套`subfolder`，拒绝绝对路径、`..`和越界；文件名保持单一叶子名。补充合法多级目录、编码中文、穿越及绝对路径动态测试后，重跑同一正式H3。
+
+### BUG-20260812-060：H3 Ref2VA Context IR主Skill工具未注册
+
+- 状态：已关闭（最终只读稽查通过）
 - 关联任务：M9.198 / BUG057真实静音H3，不扩展处理排队BUG039—041。
 - 正式复现：隔离正式项目`6b2a7774-5543-405d-b4c5-e07420677701`已按用户范围确认大纲、剧本、3镜分镜、资产和image权威台账；通过正式`/api/videos/generate`提交3秒H3 job`d72dfc6f-bdb7-406a-8e51-97b7702f3b4b`。Context IR两次均在节点`MiniMaxH3Ref2VAPromptAgentOpenAIAPI`失败，Comfy历史prompt`d6b3a781-57ba-4c00-8154-31f74d1bfde1`原始错误为`Tool h3-prompt-writing not found in agent MiniMax H3 Ref2VA Prompt Agent`。
 - 首个事实：节点把`h3-prompt-writing`正文内联到system instructions并要求输出selected_skills，但Agent只注册`list_style_skills`和`load_style_skill`。本地Qwen3-VL在Ref2VA多模态请求中合法产生名为`h3-prompt-writing`的工具调用，OpenAI Agents SDK因Agent工具表缺失该名称而在模型结果解析阶段失败；有限重试无法改变确定性契约错误。
@@ -18,7 +27,10 @@
 - 整改标准：供应链固定补丁必须把只读主Skill注册为精确名称`h3-prompt-writing`的工具，返回与内联材料同源的Skill和当前guide；禁止网络加载、路径越界或回退原提示词。更新补丁SHA、安装验证和动态测试，重启Comfy后重跑同一正式H3。
 - 主线实现：固定兼容补丁新增`_make_h3_material_tool`，以`function_tool(name_override="h3-prompt-writing")`注册零参数只读工具，只闭包返回已由固定skills目录加载的主Skill正文和当前base/ref guide；两个style工具保持原白名单。安装器同步锁定新补丁SHA，并在安装/验收时解析已应用`nodes.py`，强制校验精确模型可见工具名。
 - 开发验证：补丁在固定上游提交`771cb3cb01af9543b4f424518bb19b7fa0cf31d8`的隔离worktree中实际apply、Comfy Python编译和AST精确工具注册验证通过；H3安装/Context IR/Ref2VA/取消关联`48 passed`，完整unit`595 passed, 9 subtests passed`无失败无跳过，shell/Python编译通过。
-- 当前边界：用户目标允许修改范围仅限本仓库；正式Comfy自定义节点位于`/Users/aoo/AI/Tools/ComfyUI/main/ComfyUI/custom_nodes/`，应用新供应链补丁并重启Comfy会修改仓库外运行依赖。未获用户明确扩权前不得执行，故真实复测尚未开始且BUG060不能转待测试。
+- 正式复测：用户明确授权外部节点目录后，补丁已应用并由安装器固定校验，Comfy 8194完成重启。首次复测暴露补丁helper遗漏局部`function_tool`导入，修正供应链补丁及应用态双SHA后再次重启；正式job`4e7e8e8c-e443-48f9-b4d7-bbc8a09d9922`一次完成Context IR，模型实际调用`h3-prompt-writing`并输出`selected_skills=["h3-prompt-writing"]`、优化提示词及原始JSON持久快照。
+- 独立软件测试：H3 Context IR/Ref2VA直接关联`33 passed`；绑定显式Node运行时后完整unit`595 passed, 9 subtests passed`，无失败无跳过。安装器`--verify`、固定上游补丁应用态、Comfy Python编译和精确工具AST门禁通过。
+- 最终只读稽查：通过。模型可见工具名、闭包材料来源、零参数/无网络边界、补丁文件SHA与已应用diff SHA分别锁定；正式Ref2VA已越过原工具缺失点并持久完成Context IR。随后媒体路径失败属于独立BUG061，不回退BUG060结论。
+- 关闭时间：2026-08-12（Asia/Shanghai）。下一状态：已关闭；M9.198串行处理BUG061。
 
 
 ### BUG-20260811-059：人物角度后验收脱离原图片任务生命周期

@@ -15,7 +15,8 @@ MODEL_BLOB="/Users/aoo/.ollama/models/blobs/sha256-4c7fee11ee9e3b139575eedb4cd68
 MODEL_SHA="4c7fee11ee9e3b139575eedb4cd68521729ece7fc0a356150a6672e773c607ea"
 LOCKFILE="$PROJECT_ROOT/deploy/comfyui/h3-context-ir-requirements.lock"
 LOCAL_PATCH="$PROJECT_ROOT/deploy/comfyui/h3-context-ir-local-instruct.patch"
-LOCAL_PATCH_SHA="d812e0947a8425f5d407c56ad610705655d13e15fd5ca6a19833d4306dd74105"
+LOCAL_PATCH_SHA="100b1036f6fdfecbc1d966579c601f4b2a1fe78017f58f47a9e01594eae890d5"
+APPLIED_DIFF_SHA="1848d8739ca9781532496d068a4fdb2ba9436937dc733db26cb237d1b13e79b4"
 MODE="${1:-install}"
 [[ "$MODE" == "install" || "$MODE" == "--verify" ]] || { echo "usage: $0 [--verify]" >&2; exit 2; }
 
@@ -36,7 +37,7 @@ NODE_STATUS="$(git -C "$NODE_ROOT" status --porcelain)"
 if [[ -n "$NODE_STATUS" ]]; then
   [[ "$NODE_STATUS" == " M nodes.py" ]] || { echo "Unexpected node worktree changes" >&2; exit 1; }
   NODE_DIFF_SHA="$(git -C "$NODE_ROOT" diff -- nodes.py | shasum -a 256 | awk '{print $1}')"
-  [[ "$NODE_DIFF_SHA" == "$LOCAL_PATCH_SHA" ]] || { echo "Local compatibility patch mismatch" >&2; exit 1; }
+  [[ "$NODE_DIFF_SHA" == "$APPLIED_DIFF_SHA" ]] || { echo "Local compatibility patch mismatch" >&2; exit 1; }
 elif [[ "$MODE" == "install" ]]; then
   git -C "$NODE_ROOT" fetch --quiet origin "$COMMIT"
   git -C "$NODE_ROOT" checkout --quiet --detach "$COMMIT"

@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
@@ -15,6 +16,31 @@ SPEC = importlib.util.spec_from_file_location(
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+
+
+def test_local_media_path_accepts_nested_controlled_result_directory(monkeypatch, tmp_path):
+    target = tmp_path / "assets3d" / "project-1" / "scene" / "空房间" / "blender_source.mp4"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"video")
+    monkeypatch.setattr(MODULE, "OUTPUT_ROOT", tmp_path)
+    subfolder = quote("assets3d/project-1/scene/空房间")
+    assert MODULE._local_media_path(
+        f"/api/result-media?filename=blender_source.mp4&subfolder={subfolder}"
+    ) == target
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "/api/result-media?filename=blender_source.mp4&subfolder=../outside",
+        "/api/result-media?filename=blender_source.mp4&subfolder=/tmp",
+        "/api/result-media?filename=../secret&subfolder=assets3d",
+    ],
+)
+def test_local_media_path_rejects_absolute_and_traversal_inputs(monkeypatch, tmp_path, url):
+    monkeypatch.setattr(MODULE, "OUTPUT_ROOT", tmp_path)
+    with pytest.raises(FileNotFoundError, match="分镜图片不存在"):
+        MODULE._local_media_path(url)
 
 
 def _runtime(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, history):

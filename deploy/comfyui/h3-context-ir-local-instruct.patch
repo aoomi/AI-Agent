@@ -2,8 +2,10 @@ diff --git a/nodes.py b/nodes.py
 index d354724..8d88401 100644
 --- a/nodes.py
 +++ b/nodes.py
-@@ -299,1 +299,10 @@
+@@ -299,1 +299,12 @@
 +def _make_h3_material_tool(skill_text: str, guide_text: str):
++    from agents import function_tool
++
 +    @function_tool(name_override="h3-prompt-writing")
 +    def load_h3_prompt_writing() -> str:
 +        """Load the already verified core H3 prompt skill and selected mode guide."""

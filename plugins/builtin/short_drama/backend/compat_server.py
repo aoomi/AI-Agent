@@ -4192,10 +4192,19 @@ def _video_key(body: dict) -> str:
 
 def _local_media_path(url: object) -> Path:
     parsed = urlparse(str(url or "")); query = parse_qs(parsed.query)
-    filename = Path(query.get("filename", [""])[0]).name
-    subfolder = Path(query.get("subfolder", ["images"])[0]).name
+    filename_value = str(query.get("filename", [""])[0])
+    subfolder_value = str(query.get("subfolder", ["images"])[0])
+    filename = Path(filename_value)
+    subfolder = Path(subfolder_value)
+    invalid = (
+        not filename_value
+        or filename.is_absolute()
+        or filename.name != filename_value
+        or subfolder.is_absolute()
+        or ".." in subfolder.parts
+    )
     target = (OUTPUT_ROOT / subfolder / filename).resolve()
-    if not filename or OUTPUT_ROOT not in target.parents or not target.is_file():
+    if invalid or OUTPUT_ROOT not in target.parents or not target.is_file():
         raise FileNotFoundError("分镜图片不存在")
     return target
 
