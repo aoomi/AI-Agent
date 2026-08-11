@@ -18,7 +18,7 @@ import tempfile
 import threading
 import time
 import zlib
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -609,6 +609,11 @@ IMAGE_VALIDATION_TIMEOUT_SECONDS = max(30, int(os.environ.get("SHORT_DRAMA_IMAGE
 IMAGE_WATCHDOG_SECONDS = max(1, int(os.environ.get("SHORT_DRAMA_IMAGE_WATCHDOG_SECONDS", "5")))
 IMAGE_WATCHDOG_STOP = threading.Event()
 IMAGE_SHUTTING_DOWN = threading.Event()
+
+
+class ImageValidationCancellationPending(RuntimeError):
+    """Owned validation work has not yet been proven absent from every runtime."""
+
 TEXT_JOB_LOCK = threading.RLock()
 ACTIVE_TEXT_JOBS: dict[str, dict] = {}
 FORMAL_MODEL_OWNER_LOCK = threading.Lock()
@@ -2202,16 +2207,30 @@ def _run_image_validation(
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            _cancel_image_validation_work(job_id)
-            completed.wait(5)
+            confirmed = _cancel_image_validation_work(job_id)
+            settled = completed.wait(15)
+            if not confirmed or not settled:
+                message = f"图片后验收超时，所属资源尚未确认退出：{phase}"
+                with IMAGE_JOB_LOCK:
+                    store = _load_image_jobs(); pending = store.setdefault("jobs", {}).setdefault(job_id, {"job_id":job_id})
+                    _mark_image_cancel_pending(pending, message, terminal_error="图片后验收超时")
+                    _save_image_jobs(store)
+                raise ImageValidationCancellationPending(message)
             raise RuntimeError(f"图片后验收超时（{int(timeout_seconds)}秒）：{phase}")
         if completed.wait(min(heartbeat_seconds, remaining)):
             break
         try:
             _assert_image_job_runnable(job_id)
         except Exception:
-            _cancel_image_validation_work(job_id)
-            completed.wait(5)
+            confirmed = _cancel_image_validation_work(job_id)
+            settled = completed.wait(15)
+            if not confirmed or not settled:
+                message = f"图片后验收已取消，所属资源尚未确认退出：{phase}"
+                with IMAGE_JOB_LOCK:
+                    store = _load_image_jobs(); pending = store.setdefault("jobs", {}).setdefault(job_id, {"job_id":job_id})
+                    _mark_image_cancel_pending(pending, message, terminal_error="图片后验收取消未完成")
+                    _save_image_jobs(store)
+                raise ImageValidationCancellationPending(message)
             raise
         _update_image_job(job_id, status="processing", phase=phase, heartbeat_at=_iso_now(), pid=None, process_group=None)
     _assert_image_job_runnable(job_id)
@@ -2224,16 +2243,28 @@ def _run_image_validation(
     return bool(result[0]), str(result[1])
 
 
-def _cancel_image_validation_work(job_id: str) -> None:
+def _cancel_image_validation_work(job_id: str) -> bool:
     """Cancel every owned validation resource before the image job reaches a terminal state."""
+    _update_image_job(job_id, validation_cancel_requested_at=_iso_now(), heartbeat_at=_iso_now())
     RESOURCE_SCHEDULER.cancel_job(job_id)
     with IMAGE_JOB_LOCK:
         process = ACTIVE_IMAGE_PROCESSES.get(job_id)
         job = _load_image_jobs().get("jobs", {}).get(job_id, {})
     if process is not None:
         _terminate_process_tree(process)
-    _cancel_job_comfy_prompts(job)
-    _terminate_ollama_model("llava:latest")
+    prompts_confirmed = _cancel_job_comfy_prompts(job)
+    model_confirmed = _terminate_ollama_model("llava:latest")
+    return prompts_confirmed and model_confirmed
+
+
+def _confirm_image_job_cancellation(job: dict) -> bool:
+    """Reconcile every persisted runtime owned by a cancelled image validation."""
+    prompts_confirmed = _cancel_job_comfy_prompts(job)
+    model_confirmed = (
+        _terminate_ollama_model("llava:latest")
+        if job.get("validation_cancel_requested_at") else True
+    )
+    return prompts_confirmed and model_confirmed
 
 
 def _image_job_identity(job_id: str) -> dict[str, str]:
@@ -2497,23 +2528,29 @@ def _pose_proportion_metrics(
     prompt_id = ""
     prompt_finished = False
     try:
-        request_timeout = max(0.1, _validation_remaining(job_id, deadline, 30))
-        request = Request(f"{COMFY_API}/prompt", data=json.dumps({"prompt":graph}).encode(), headers={"Content-Type":"application/json"}, method="POST")
-        with urlopen(request, timeout=request_timeout) as response: prompt_id = json.loads(response.read())["prompt_id"]
-        _validation_remaining(job_id, deadline, 300)
-        if job_id:
-            _update_image_job(job_id, validation_prompt_id=prompt_id, heartbeat_at=_iso_now())
-        poll_deadline = time.monotonic() + _validation_remaining(job_id, deadline, 300)
-        while time.monotonic() < poll_deadline:
+        resource_identity = _image_job_identity(job_id)
+        claim_timeout = _validation_remaining(job_id, deadline, 300)
+        claim = _claim_production_resource(
+            "audit", job_id, timeout=claim_timeout, identity=resource_identity or None,
+        ) if job_id else nullcontext()
+        with claim:
+            request_timeout = max(0.1, _validation_remaining(job_id, deadline, 30))
+            request = Request(f"{COMFY_API}/prompt", data=json.dumps({"prompt":graph}).encode(), headers={"Content-Type":"application/json"}, method="POST")
+            with urlopen(request, timeout=request_timeout) as response: prompt_id = json.loads(response.read())["prompt_id"]
             _validation_remaining(job_id, deadline, 300)
-            time.sleep(1)
-            history_timeout = max(0.1, _validation_remaining(job_id, deadline, 30))
-            with urlopen(f"{COMFY_API}/history/{prompt_id}", timeout=history_timeout) as response: history = json.loads(response.read())
-            if prompt_id not in history: continue
-            record = history[prompt_id]
-            prompt_finished = True
-            if record.get("status", {}).get("status_str") != "success": return None
-            break
+            if job_id:
+                _update_image_job(job_id, validation_prompt_id=prompt_id, heartbeat_at=_iso_now())
+            poll_deadline = time.monotonic() + _validation_remaining(job_id, deadline, 300)
+            while time.monotonic() < poll_deadline:
+                _validation_remaining(job_id, deadline, 300)
+                time.sleep(1)
+                history_timeout = max(0.1, _validation_remaining(job_id, deadline, 30))
+                with urlopen(f"{COMFY_API}/history/{prompt_id}", timeout=history_timeout) as response: history = json.loads(response.read())
+                if prompt_id not in history: continue
+                record = history[prompt_id]
+                prompt_finished = True
+                if record.get("status", {}).get("status_str") != "success": return None
+                break
         if not prompt_finished:
             raise RuntimeError("人物OpenPose比例验收超时")
         matches = sorted(COMFY_OUTPUT.glob(f"{prefix}_*.json"), key=lambda path:path.stat().st_mtime, reverse=True)
@@ -3634,6 +3671,8 @@ def _update_image_job(job_id: str, **updates: object) -> dict:
 
 def _assert_image_job_runnable(job_id: str) -> None:
     job = _load_image_jobs().get("jobs", {}).get(job_id, {})
+    if job.get("validation_cancel_requested_at"):
+        raise RuntimeError(str(job.get("error") or "图片后验收已请求取消"))
     if job.get("status") in {"failed", "completed"}:
         raise RuntimeError(str(job.get("error") or "图片任务已进入终态"))
     started = _parse_job_time(job.get("started_at"))
@@ -3746,10 +3785,13 @@ def _cleanup_invalid_image_tasks() -> None:
             process = ACTIVE_IMAGE_PROCESSES.get(job_id)
             running = bool(process and process.poll() is None)
             status = str(job.get("status", ""))
-            active_current_request = job_id in ACTIVE_IMAGE_SUBJECTS.values()
+            active_current_request = job_id in ACTIVE_IMAGE_SUBJECTS.values() and job.get("phase") != "cancel_pending"
             if status in {"queued", "generating", "retrying", "processing"} and not running and not active_current_request:
-                job.update({"status":"failed", "error":"新任务启动前已回收无实际进程的旧图片任务", "finished_at":_iso_now(),
-                            "pid":None, "process_group":None}); changed = True
+                terminal_error = "新任务启动前已回收无实际进程的旧图片任务"
+                if _confirm_image_job_cancellation(job):
+                    _finish_image_cancel_pending(job, error=terminal_error); changed = True
+                else:
+                    _mark_image_cancel_pending(job, "所属Comfy prompt尚未确认退出", terminal_error=terminal_error); changed = True
             elif running and job.get("status") != "generating":
                 _terminate_process_tree(process); ACTIVE_IMAGE_PROCESSES.pop(job_id, None); ACTIVE_IMAGE_JOBS.discard(job_id); changed = True
         if changed: _save_image_jobs(store)
@@ -3765,10 +3807,26 @@ def _recover_image_jobs() -> None:
         for job_id, job in store.get("jobs", {}).items():
             # A request can die after its persisted status changed but before ComfyUI
             # receives the interrupt. Reconcile every owned prompt, not only active states.
-            _cancel_job_comfy_prompts(job)
+            prompts_confirmed = _confirm_image_job_cancellation(job)
             if job.get("identity_recovery") == "quarantined_missing_project" and not job.get("identity_recovery_persisted"):
                 job["identity_recovery_persisted"] = True
                 job["identity_recovered_at"] = _iso_now()
+                changed = True
+            original_status = str(job.get("pending_terminal_status") or job.get("status") or "failed")
+            original_error = str(job.get("pending_terminal_error") or job.get("error") or "")
+            original_finished_at = job.get("pending_terminal_finished_at") or job.get("finished_at")
+            if not prompts_confirmed:
+                terminal_error = original_error or ("服务重启已回收残留图片任务，请重新生成" if original_status not in {"completed", "failed"} else "")
+                terminal_status = original_status if original_status in {"completed", "failed"} else "failed"
+                _mark_image_cancel_pending(
+                    job, "服务恢复正在继续核销所属Comfy prompt",
+                    terminal_status=terminal_status, terminal_error=terminal_error,
+                    terminal_finished_at=original_finished_at,
+                )
+                changed = True
+                continue
+            if job.get("phase") == "cancel_pending":
+                _finish_image_cancel_pending(job)
                 changed = True
             if job.get("status") == "completed":
                 image = job.get("image") if isinstance(job.get("image"), dict) else {}
@@ -3839,6 +3897,31 @@ def _orphan_image_processes() -> list[tuple[int, int, str]]:
     return orphans
 
 
+def _mark_image_cancel_pending(
+    job: dict, message: str, *, terminal_status: str = "failed",
+    terminal_error: str = "", terminal_finished_at: object = None,
+) -> None:
+    job.update({
+        "status":"processing", "phase":"cancel_pending", "error":message,
+        "heartbeat_at":_iso_now(), "pid":None, "process_group":None,
+        "pending_terminal_status":terminal_status,
+        "pending_terminal_error":terminal_error,
+        "pending_terminal_finished_at":terminal_finished_at or _iso_now(),
+    })
+
+
+def _finish_image_cancel_pending(job: dict, *, error: str = "") -> None:
+    status = str(job.pop("pending_terminal_status", "failed") or "failed")
+    recorded_error = str(job.pop("pending_terminal_error", "") or "")
+    terminal_error = error or recorded_error
+    finished_at = job.pop("pending_terminal_finished_at", None) or _iso_now()
+    job.update({
+        "status":status, "phase":status, "error":terminal_error,
+        "finished_at":finished_at, "heartbeat_at":_iso_now(),
+        "pid":None, "process_group":None,
+    })
+
+
 def _monitor_image_jobs() -> None:
     while not IMAGE_WATCHDOG_STOP.wait(IMAGE_WATCHDOG_SECONDS):
         now = time.time()
@@ -3852,14 +3935,24 @@ def _monitor_image_jobs() -> None:
                 age = now - _parse_job_time(job.get("heartbeat_at") or job.get("started_at"))
                 hard_age = now - _parse_job_time(job.get("started_at"))
                 hard_timeout = int(job.get("timeout_seconds") or IMAGE_TASK_TIMEOUT_SECONDS) + int(job.get("queue_timeout_seconds") or IMAGE_QUEUE_TIMEOUT_SECONDS)
-                if status in {"generating", "retrying", "processing"} and not running and not worker_alive and age > IMAGE_WATCHDOG_SECONDS * 2:
-                    _cancel_job_comfy_prompts(job)
-                    job.update({"status":"failed", "error":"看门狗已回收无实际进程的图片任务", "finished_at":_iso_now(), "pid":None, "process_group":None}); changed = True
+                if job.get("phase") == "cancel_pending" and not running and not worker_alive:
+                    if _confirm_image_job_cancellation(job):
+                        _finish_image_cancel_pending(job); changed = True
+                    else:
+                        job.update({"heartbeat_at":_iso_now()}); changed = True
+                elif status in {"generating", "retrying", "processing"} and not running and not worker_alive and age > IMAGE_WATCHDOG_SECONDS * 2:
+                    if _confirm_image_job_cancellation(job):
+                        _finish_image_cancel_pending(job, error="看门狗已回收无实际进程的图片任务"); changed = True
+                    else:
+                        _mark_image_cancel_pending(job, "看门狗正在继续核销所属Comfy prompt", terminal_error="看门狗已回收无实际进程的图片任务"); changed = True
                 elif status == "queued" and age > IMAGE_QUEUE_TIMEOUT_SECONDS:
                     job.update({"status":"failed", "error":"图片任务排队超时", "finished_at":_iso_now()}); changed = True
                 elif status in {"queued", "generating", "retrying", "processing"} and hard_age > hard_timeout:
                     if running: _terminate_process_tree(process); ACTIVE_IMAGE_PROCESSES.pop(job_id, None); ACTIVE_IMAGE_JOBS.discard(job_id)
-                    job.update({"status":"failed", "error":"图片任务超过硬截止时间", "finished_at":_iso_now(), "pid":None, "process_group":None}); changed = True
+                    if _confirm_image_job_cancellation(job):
+                        _finish_image_cancel_pending(job, error="图片任务超过硬截止时间"); changed = True
+                    else:
+                        _mark_image_cancel_pending(job, "硬截止后正在继续核销所属Comfy prompt", terminal_error="图片任务超过硬截止时间"); changed = True
                 elif running and status != "generating":
                     _terminate_process_tree(process); ACTIVE_IMAGE_PROCESSES.pop(job_id, None); ACTIVE_IMAGE_JOBS.discard(job_id); changed = True
                 if job.get("status") in {"completed", "failed"} and not running:
@@ -3880,9 +3973,10 @@ def _shutdown_image_jobs() -> None:
         store = _load_image_jobs(); changed = False
         for job_id, job in store.setdefault("jobs", {}).items():
             if job.get("status") in {"queued", "generating", "retrying", "processing"}:
-                _cancel_job_comfy_prompts(job)
-                job.update({"status":"failed", "error":"服务关闭已回收图片任务", "finished_at":_iso_now(),
-                            "heartbeat_at":_iso_now(), "pid":None, "process_group":None}); changed = True
+                if _confirm_image_job_cancellation(job):
+                    _finish_image_cancel_pending(job, error="服务关闭已回收图片任务"); changed = True
+                else:
+                    _mark_image_cancel_pending(job, "服务关闭时所属Comfy prompt尚未确认退出", terminal_error="服务关闭已回收图片任务"); changed = True
         if changed: _save_image_jobs(store)
         ACTIVE_IMAGE_PROCESSES.clear(); ACTIVE_IMAGE_JOBS.clear(); ACTIVE_IMAGE_SUBJECTS.clear(); ACTIVE_IMAGE_WORKERS.clear()
 
@@ -3996,15 +4090,21 @@ def _stop_image_generation(*, project_id: str, requested_name: str = "", stop_al
             targets = [max(matches, key=lambda pair:_parse_job_time(pair[1].get("started_at")))[0]] if matches else []
         else:
             targets = [job_id for job_id, job in store.get("jobs", {}).items() if stop_all and job.get("status") in nonterminal and _job_matches_scope(job, identity) and (identity is not None or not project_id or str(job.get("subject_key", "")).startswith(project_id + ":"))]
+        confirmed_targets: list[str] = []
         for job_id in targets:
             process = ACTIVE_IMAGE_PROCESSES.pop(job_id, None)
             if process: _terminate_process_tree(process)
-            ACTIVE_IMAGE_JOBS.discard(job_id); job = store["jobs"][job_id]; _cancel_job_comfy_prompts(job)
-            job.update({"status":"failed", "error":"图片任务已停止", "finished_at":_iso_now(), "heartbeat_at":_iso_now(), "pid":None, "process_group":None})
-            for subject_key, active_job_id in list(ACTIVE_IMAGE_SUBJECTS.items()):
-                if active_job_id == job_id: ACTIVE_IMAGE_SUBJECTS.pop(subject_key, None)
+            ACTIVE_IMAGE_JOBS.discard(job_id); job = store["jobs"][job_id]
+            job["validation_cancel_requested_at"] = job.get("validation_cancel_requested_at") or _iso_now()
+            if _confirm_image_job_cancellation(job):
+                _finish_image_cancel_pending(job, error="图片任务已停止")
+                confirmed_targets.append(job_id)
+                for subject_key, active_job_id in list(ACTIVE_IMAGE_SUBJECTS.items()):
+                    if active_job_id == job_id: ACTIVE_IMAGE_SUBJECTS.pop(subject_key, None)
+            else:
+                _mark_image_cancel_pending(job, "已请求停止，所属Comfy prompt尚未确认退出", terminal_error="图片任务已停止")
         if targets: _save_image_jobs(store)
-    return targets
+    return confirmed_targets
 
 
 def _stop_video_generation(*, requested_job_id: str = "", subject_key: str = "", identity: dict | None = None) -> list[str]:
@@ -8853,6 +8953,14 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                     payload = dict(job) if is_character_generation else {"image":image, "job_id":job_id}
                     _save_image_jobs(jobs)
                 return self._json(HTTPStatus.OK, payload)
+            except ImageValidationCancellationPending as error:
+                message = str(error)
+                with IMAGE_JOB_LOCK:
+                    store = _load_image_jobs(); pending = store.setdefault("jobs", {}).setdefault(job_id, {"job_id":job_id})
+                    if pending.get("phase") != "cancel_pending":
+                        _mark_image_cancel_pending(pending, message, terminal_error="图片后验收取消未完成")
+                        _save_image_jobs(store)
+                return self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error":message, "job_id":job_id, "status":pending.get("status"), "phase":pending.get("phase")})
             except Exception as error:
                 message = f"图片生成失败：{error}"
                 terminal_updates = {"status":"failed", "error":message, "finished_at":_iso_now(),
@@ -8866,7 +8974,9 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                 with IMAGE_JOB_LOCK:
                     ACTIVE_IMAGE_JOBS.discard(job_id)
                     ACTIVE_IMAGE_WORKERS.pop(job_id, None)
-                    if ACTIVE_IMAGE_SUBJECTS.get(subject_key) == job_id: ACTIVE_IMAGE_SUBJECTS.pop(subject_key, None)
+                    current = _load_image_jobs().get("jobs", {}).get(job_id, {})
+                    if current.get("phase") != "cancel_pending" and ACTIVE_IMAGE_SUBJECTS.get(subject_key) == job_id:
+                        ACTIVE_IMAGE_SUBJECTS.pop(subject_key, None)
         if parsed.path == "/api/videos/generate":
             subject_key = _video_key(body)
             ready, memory = _memory_ready(VIDEO_ESTIMATED_MEMORY)

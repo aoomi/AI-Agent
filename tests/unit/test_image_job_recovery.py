@@ -120,6 +120,32 @@ def test_post_generation_validation_observes_stop_and_has_bounded_timeout(monkey
     assert cancelled == ["job-stop", "job-timeout"]
 
 
+def test_unconfirmed_validation_cancellation_remains_nonterminal(monkeypatch, tmp_path: Path) -> None:
+    module = load_backend_for_character_http()
+    module.IMAGE_JOBS_FILE = tmp_path / "image-jobs.json"
+    module._save_image_jobs({"jobs":{"job-cancel-pending":{
+        "job_id":"job-cancel-pending", "status":"processing", "phase":"character_validation",
+    }}})
+    release = threading.Event()
+    updates: list[dict] = []
+    monkeypatch.setattr(module, "_assert_image_job_runnable", lambda _job_id: None)
+    monkeypatch.setattr(module, "_update_image_job", lambda job_id, **values: updates.append({"job_id":job_id, **values}) or values)
+    monkeypatch.setattr(module, "_cancel_image_validation_work", lambda _job_id: False)
+
+    with pytest.raises(module.ImageValidationCancellationPending, match="尚未确认退出"):
+        module._run_image_validation(
+            "job-cancel-pending", "character_validation", lambda _image: release.wait(1), {},
+            timeout_seconds=0.02, heartbeat_seconds=0.01,
+        )
+    release.set()
+
+    pending = module._load_image_jobs()["jobs"]["job-cancel-pending"]
+    assert pending["status"] == "processing"
+    assert pending["phase"] == "cancel_pending"
+    assert pending["pending_terminal_status"] == "failed"
+    assert not any(item.get("status") in {"failed", "completed"} for item in updates)
+
+
 def test_scene_and_prop_validation_resource_tickets_are_owned_by_image_job() -> None:
     backend = BACKEND.read_text(encoding="utf-8")
     helper = backend[backend.index("def _run_image_validation"):backend.index("def _validate_prop_asset")]
@@ -255,6 +281,7 @@ def test_character_openpose_timeout_cancels_exact_persisted_prompt(monkeypatch, 
 
     monkeypatch.setattr(module, "urlopen", open_request)
     monkeypatch.setattr(module, "_cancel_comfy_prompt", lambda prompt_id, **_kwargs: cancelled.append(str(prompt_id)) or True)
+    monkeypatch.setattr(module, "_claim_production_resource", lambda *_args, **_kwargs: module.nullcontext())
     monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
 
     with pytest.raises(RuntimeError, match="OpenPose.*超时|后验收已超时"):
@@ -265,6 +292,80 @@ def test_character_openpose_timeout_cancels_exact_persisted_prompt(monkeypatch, 
     assert cancelled == ["prompt-timeout"]
     persisted = module._load_image_jobs()["jobs"]["job-timeout-prompt"]
     assert persisted.get("validation_prompt_id") == ""
+
+
+def test_unconfirmed_image_prompt_blocks_stop_and_recovery_terminal(monkeypatch, tmp_path: Path) -> None:
+    module = load_backend_for_character_http()
+    module.IMAGE_JOBS_FILE = tmp_path / "image-jobs.json"
+    subject = "project-a:character:person-a"
+    module._save_image_jobs({"jobs": {"job-pending": {
+        "job_id":"job-pending", "status":"processing", "phase":"character_validation",
+        "subject_key":subject, "project_id":"project-a", "request_name":"person-a",
+        "validation_prompt_id":"prompt-pending", "heartbeat_at":module._iso_now(), "request":{},
+    }}})
+    module.ACTIVE_IMAGE_SUBJECTS[subject] = "job-pending"
+    monkeypatch.setattr(module, "_cancel_job_comfy_prompts", lambda _job: False)
+    monkeypatch.setattr(module, "_terminate_ollama_model", lambda _model: True)
+
+    stopped = module._stop_image_generation(project_id="project-a", requested_name="person-a")
+
+    assert stopped == []
+    pending = module._load_image_jobs()["jobs"]["job-pending"]
+    assert pending["status"] == "processing"
+    assert pending["phase"] == "cancel_pending"
+    assert module.ACTIVE_IMAGE_SUBJECTS[subject] == "job-pending"
+
+    module.ACTIVE_IMAGE_SUBJECTS.clear()
+    module._cleanup_invalid_image_tasks()
+    still_pending = module._load_image_jobs()["jobs"]["job-pending"]
+    assert still_pending["status"] == "processing"
+    assert still_pending["phase"] == "cancel_pending"
+
+    monkeypatch.setattr(module, "_cancel_job_comfy_prompts", lambda _job: True)
+    module._cleanup_invalid_image_tasks()
+    recovered = module._load_image_jobs()["jobs"]["job-pending"]
+    assert recovered["status"] == "failed"
+
+
+def test_recovery_reconciles_terminal_prompt_before_restoring_terminal(monkeypatch, tmp_path: Path) -> None:
+    module = load_backend_for_character_http()
+    module.IMAGE_JOBS_FILE = tmp_path / "image-jobs.json"
+    output = tmp_path / "finished.png"
+    output.write_bytes(b"image")
+    module._save_image_jobs({"jobs":{"job-terminal":{
+        "job_id":"job-terminal", "status":"completed", "phase":"completed",
+        "validation_prompt_id":"prompt-late", "output_path":str(output), "image":{},
+        "finished_at":"2026-08-12T00:00:00+00:00",
+    }}})
+    monkeypatch.setattr(module, "_cancel_job_comfy_prompts", lambda _job: False)
+
+    module._recover_image_jobs()
+
+    pending = module._load_image_jobs()["jobs"]["job-terminal"]
+    assert pending["status"] == "processing"
+    assert pending["phase"] == "cancel_pending"
+    assert pending["pending_terminal_status"] == "completed"
+
+    monkeypatch.setattr(module, "_cancel_job_comfy_prompts", lambda _job: True)
+    module._recover_image_jobs()
+    restored = module._load_image_jobs()["jobs"]["job-terminal"]
+    assert restored["status"] == "completed"
+    assert restored["phase"] == "completed"
+    assert "pending_terminal_status" not in restored
+
+
+def test_character_openpose_uses_original_audit_resource_claim() -> None:
+    backend = BACKEND.read_text(encoding="utf-8")
+    pose = backend[backend.index("def _pose_proportion_metrics"):backend.index("def _head_body_ratio")]
+    assert '"audit", job_id, timeout=claim_timeout, identity=resource_identity or None' in pose
+    assert "with claim:" in pose
+    monitor = backend[backend.index("def _monitor_image_jobs"):backend.index("def _shutdown_image_jobs")]
+    assert 'job.get("phase") == "cancel_pending"' in monitor
+    assert "_finish_image_cancel_pending(job)" in monitor
+    assert "if _confirm_image_job_cancellation(job):" in monitor
+    route = backend[backend.index('if parsed.path in {"/api/characters/generate"'):backend.index('if parsed.path == "/api/videos/generate"')]
+    assert "except ImageValidationCancellationPending as error:" in route
+    assert "HTTPStatus.SERVICE_UNAVAILABLE" in route
 
 
 def test_post_comfy_memory_wait_is_bounded_and_keeps_job_cancellable(monkeypatch) -> None:
