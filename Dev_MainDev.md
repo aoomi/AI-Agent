@@ -37,6 +37,7 @@
 - BUG062主线实现：固定制品只准入声明的CUDA设备，MPS/CPU/未知设备在Context IR前持久`model_blocked`并投影LangGraph paused，禁止自动改模。正式job约2秒阻断且两个prompt ID均空；关联159项通过，完整unit当前仅受用户并行前端改动4项失败影响。
 - BUG062独立测试与最终稽查通过并关闭：冻结提交关联159项无失败无跳过；兼容白名单、未知设备失败关闭、无重模型副作用、paused投影和显式重放边界一致。BUG057保持真实阻塞，需CUDA兼容H3提供方后才能继续静音源视频与后续成片链。
 - BUG062补充稽查退回整改：公共能力表原仍发布H3 provider健康；现与同一设备契约接线，MPS/CPU/未知注册为unhealthy并公开CUDA白名单及阻断原因。正式能力接口已验证，关联160项通过，待独立复测与复稽查。
+- BUG062补充独立复测与只读复稽查通过并重新关闭：提交`2a94278`关联160项无失败无跳过，正式能力接口unhealthy/CUDA白名单/MPS原因断言通过；注册表与业务准入状态一致。
 
 - BUG060最终闭环：正式Ref2VA已实际调用精确注册的`h3-prompt-writing`并完成Context IR持久输出；关联`33 passed`、完整unit`595 passed, 9 subtests passed`无失败无跳过，供应链与应用态双SHA门禁通过。
 - 后续正式H3登记BUG061：`_local_media_path`把多级3D资产`subfolder`截断为末级目录，导致存在且可播放的Blender源视频在H3输入解析时误报不存在；当前只整改受控根内嵌套媒体路径解析。

@@ -10,7 +10,7 @@
 
 ### BUG-20260812-062：H3 INT8在MPS静默回退单核CPU且无进度门禁
 
-- 状态：主线开发中
+- 状态：已关闭（补充只读复稽查通过）
 - 关联任务：M9.198 / BUG057真实静音H3，不扩展处理排队BUG039—041。
 - 正式复现：BUG061修复后的正式job`e6c8d306-6644-47ad-88bb-e7ff0c01e2c6`成功完成Context IR并提交H3 prompt`a11500f0-ca73-4e9b-a4dc-9eed014e15d3`；模型和文本编码器均完整加载，但采样连续70分钟保持`0/20`。进程持续约100% CPU、24%内存，Comfy无错误且业务心跳持续，用户界面无法区分有效推理与不可交付硬件回退。
 - 首个事实：进程栈稳定落在`at::_ops::_int_mm`→`_int_mm_cpu`，当前`minimax_h3_ref2va_pruned_int8_convrot`依赖的量化矩阵算子在Darwin/MPS没有设备内核；Comfy启动还明确报告AIMDO不支持Darwin。现有能力选择只检查模型文件和可用内存，没有硬件/算子兼容门禁或首步进度截止。
@@ -28,6 +28,8 @@
 - 复稽查整改：固定H3注册项在安装能力时读取同一Comfy设备契约；MPS/CPU/未知或健康检查失败均注册`healthy=false`，metadata同步公开`supported_device_types=["cuda"]`和`availability_error`。其他内置能力健康状态不受影响；健康查询只读现有Comfy状态，不启动模型或服务。
 - 整改正式验证：服务重载后`/api/production/capabilities`返回H3 provider `enabled=true, healthy=false`，支持设备为CUDA，错误与正式job的MPS阻断事实一致；不再对外发布伪健康。
 - 整改开发验证：能力注册健康隔离、MPS/CUDA/未知设备、job/Graph状态及原H3关联`160 passed`，Python编译通过。下一状态：待独立软件复测与只读复稽查。
+- 整改独立软件复测：通过。在提交`2a94278`上只读复跑H3能力健康、设备白名单、未知设备、job/Graph状态和原Context IR/Ref2VA关联`160 passed`，无失败无跳过；正式能力接口精确断言provider unhealthy、CUDA白名单和MPS原因通过。
+- 补充最终只读复稽查：通过。能力目录与执行门禁共用同一固定制品设备契约；注册失败只降低H3 provider健康，不污染其他能力。健康查询不启动Comfy/模型，正式任务准入才允许确保服务启动；不可用provider既不会被注册表选择，也不会在业务入口静默回退。BUG062重新关闭。
 
 ### BUG-20260812-061：嵌套结果媒体URL被错误截断为末级目录
 
