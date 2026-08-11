@@ -33,7 +33,7 @@ function stateLabel(item:UnifiedAssetItem) {
         <div v-for="slide in slides" :key="slide.key" class="asset-photo-slide">
           <span class="asset-photo-label">{{slide.label}}</span>
           <img v-if="slide.imageUrl" :src="slide.imageUrl" :alt="`${item.name}${slide.label}`" :data-preview-id="slide.previewId" class="clickable-preview-image" role="button" tabindex="0" draggable="false" @click="$emit('preview',slide)" @keyup.enter="$emit('preview',slide)" />
-          <div v-else class="asset-profile-media-placeholder"><StatusPulse v-if="slide.generating" text="此图正在生成中……" /><span v-else>等待生图</span></div>
+          <div v-else class="asset-profile-media-placeholder"><StatusPulse v-if="slide.generating" text="此图正在生成中……" /><span v-else>{{slide.status==='failed'?'生成失败':'等待生图'}}</span></div>
           <div v-if="slide.imageUrl&&slide.generating" class="asset-image-generation-overlay"><StatusPulse text="此图正在生成中……" /></div>
           <MediaOverlayControls v-if="!slide.readOnly" media-type="image" :generating="slide.generating" :can-reference="Boolean(slide.imageUrl)" :show-repair="Boolean(slide.imageUrl)" :show-accept="slide.showAccept" accept-label="就要这张" @intro="$emit('toggleIntro',slide)" @import="$emit('import',slide)" @regenerate="$emit('regenerate',slide)" @repair="$emit('repair',slide)" @reference="$emit('reference',slide)" @confirm-selection="$emit('accept',slide)" />
         </div>
@@ -50,6 +50,7 @@ function stateLabel(item:UnifiedAssetItem) {
         <div v-if="item.model3d_result?.renders?.length" class="asset-3d-renders"><a v-for="render in item.model3d_result.renders" :key="render.label" :href="render.url" target="_blank"><img :src="render.url" :alt="`${item.name}${render.label}3D审核图`" /><small>{{render.label}}</small></a></div>
         <small>{{stateLabel(item)}}</small>
       </div>
+      <p v-if="item.error" class="outline-error asset-card-error">{{userError}}</p>
       <button v-if="item.image_url" class="asset-upscale-button" type="button" @click="$emit('upscale')">AI图片超分</button>
     </div>
   </article>

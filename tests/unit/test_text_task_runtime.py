@@ -209,8 +209,8 @@ def test_outline_jobs_recover_and_frontend_stops_exact_project() -> None:
         assert stage["data"]["status"] == "failed"
         assert stage["data"]["generation_id"] == ""
     frontend = FRONTEND.read_text(encoding="utf-8")
-    assert 'narrativeService.stop("outline", { project_id:interruptedProject.id, client_generation_id:interruptedOutlineGenerationId })' in frontend
-    assert 'narrativeService.stop("outline", { project_id:project?.id || "", client_generation_id:clientGenerationId })' in frontend
+    assert 'narrativeService.stop("outline", { ...productionTaskContext(interruptedProject), client_generation_id:interruptedOutlineGenerationId })' in frontend
+    assert 'narrativeService.stop("outline", { ...productionTaskContext(project), client_generation_id:clientGenerationId })' in frontend
     assert 'for (const character of Array.from(text))' not in frontend
     assert 'audit_mode:"both", range:`第${start}' not in frontend
     outline_function = frontend[frontend.index("async function generateOutline"):frontend.index("async function confirmOutline")]
@@ -275,13 +275,13 @@ def test_stopping_waiting_outline_does_not_kill_other_project_owner() -> None:
         now = __import__("time").time(); worker = threading.current_thread()
         for job_id, project_id in (("waiting-p1", "p1"), ("owner-p2", "p2")):
             module.ACTIVE_TEXT_JOBS[job_id] = {"project_id":project_id, "stage":"outline", "started_epoch":now, "heartbeat_epoch":now, "worker_thread":worker, "thread_id":worker.ident}
-            module._update_text_job(job_id, status="generating", project_id=project_id, stage="outline", client_generation_id=f"g-{project_id}")
+            module._update_text_job(job_id, status="generating", project_id=project_id, stage="outline", client_generation_id=f"g-{project_id}", request={"tenant_id":"local-default", "user_id":"aoo", "project_id":project_id})
         module.FORMAL_MODEL_OWNER_JOB_ID = "owner-p2"
         terminations = []
         module._terminate_ollama_model = lambda _model: (terminations.append(True) or True)
         server = module.ThreadingHTTPServer(("127.0.0.1", 0), module.Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
-        body = json.dumps({"kind":"outline", "project_id":"p1", "client_generation_id":"g-p1"}).encode()
+        body = json.dumps({"kind":"outline", "tenant_id":"local-default", "user_id":"aoo", "project_id":"p1", "client_generation_id":"g-p1"}).encode()
         try:
             request = Request(f"http://127.0.0.1:{server.server_port}/api/generation/stop", data=body, headers={"Content-Type":"application/json"}, method="POST")
             with urlopen(request, timeout=10) as response: payload = json.loads(response.read())
@@ -313,13 +313,13 @@ def test_stopping_script_owner_terminates_runner_before_failed_terminal() -> Non
         root = Path(temporary); prepare(module, root)
         now = __import__("time").time(); worker = threading.current_thread(); job_id = "script-owner"
         module.ACTIVE_TEXT_JOBS[job_id] = {"project_id":"p1", "stage":"script", "started_epoch":now, "heartbeat_epoch":now, "worker_thread":worker, "thread_id":worker.ident}
-        module._update_text_job(job_id, status="generating", project_id="p1", stage="script", client_generation_id="g1")
+        module._update_text_job(job_id, status="generating", project_id="p1", stage="script", client_generation_id="g1", request={"tenant_id":"local-default", "user_id":"aoo", "project_id":"p1"})
         module.FORMAL_MODEL_OWNER_JOB_ID = job_id
         terminations = []
         module._terminate_ollama_model = lambda _model: (terminations.append(True) or True)
         server = module.ThreadingHTTPServer(("127.0.0.1", 0), module.Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
-        body = json.dumps({"kind":"script", "project_id":"p1", "client_generation_id":"g1"}).encode()
+        body = json.dumps({"kind":"script", "tenant_id":"local-default", "user_id":"aoo", "project_id":"p1", "client_generation_id":"g1"}).encode()
         try:
             request = Request(f"http://127.0.0.1:{server.server_port}/api/generation/stop", data=body, headers={"Content-Type":"application/json"}, method="POST")
             with urlopen(request, timeout=10) as response: payload = json.loads(response.read())

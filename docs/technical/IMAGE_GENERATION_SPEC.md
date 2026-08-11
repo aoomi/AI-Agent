@@ -1,4 +1,6 @@
-影序AI｜短剧AI生图极简正式规范（可直接落地）
+> **历史归档，禁止作为当前执行规范。** 本文的正面近照首图、人物四图、Visual Persona→PSHuman和固定角度零Qwen口径均已被M9.187覆盖。当前唯一权威口径见`docs/specs/短剧从剧本到成片生产规范.md`、`docs/specs/短剧3D资产生产规范.md`及`plugins/builtin/short_drama/templates/prompts/AI_SHORT_DRAMA_PRODUCTION_SPEC.md`：人物先生成并确认0°正面全身基准，再由Qwen‑Edit依次生成左45°、右45°、90°、180°和0°半身；人物TripoSR唯一输入为0°正面全身。道具45°三分之二和场景45°空场景全景保持不变。
+
+影序AI｜短剧AI生图极简正式规范（历史归档）
 适用范围：AI短剧分镜生图、人物/道具/场景资产统一 | 设备：Mac 128G | 合规模型：InstantCharacter、OpenPose、ControlNet（全商用开源）
 一、资产基准规则（核心红线）
 判定标准：出场≥2次 = 公共资产，必须先做全套基准图，再生分镜；仅出场1次无需基准图

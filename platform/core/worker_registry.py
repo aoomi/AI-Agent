@@ -8,14 +8,29 @@ from pathlib import Path
 import sqlite3
 import time
 
-from .workload_router import WorkerSnapshot
+from .workload_router import WorkerSnapshot, WorkloadRoutingError
 
 
 class WorkerRegistry:
     def __init__(self, database: Path) -> None:
         self.database = database.resolve(); self.database.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.database) as connection:
-            connection.execute("CREATE TABLE IF NOT EXISTS workers (worker_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, heartbeat_at REAL NOT NULL, generation INTEGER NOT NULL)")
+        with sqlite3.connect(self.database, timeout=30, isolation_level=None) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute("CREATE TABLE IF NOT EXISTS workers (worker_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, heartbeat_at REAL NOT NULL, generation INTEGER NOT NULL)")
+                connection.execute("""CREATE TABLE IF NOT EXISTS worker_reservations (
+                    request_id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, worker_generation INTEGER NOT NULL,
+                    resource_class TEXT NOT NULL, estimated_memory INTEGER NOT NULL, service_scope TEXT NOT NULL DEFAULT '',
+                    reserved_at REAL NOT NULL, expires_at REAL NOT NULL
+                )""")
+                columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(worker_reservations)")}
+                if "service_scope" not in columns:
+                    connection.execute("ALTER TABLE worker_reservations ADD COLUMN service_scope TEXT NOT NULL DEFAULT ''")
+                connection.execute("CREATE INDEX IF NOT EXISTS worker_reservations_worker ON worker_reservations(worker_id,expires_at)")
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
     def heartbeat(self, worker: WorkerSnapshot) -> WorkerSnapshot:
         payload = json.dumps(asdict(worker), ensure_ascii=False, sort_keys=True)
@@ -23,6 +38,9 @@ class WorkerRegistry:
             connection.execute("""INSERT INTO workers VALUES(?,?,?,?) ON CONFLICT(worker_id) DO UPDATE SET
                 payload_json=excluded.payload_json,heartbeat_at=excluded.heartbeat_at,generation=excluded.generation
                 WHERE excluded.generation>=workers.generation""", (worker.worker_id, payload, worker.heartbeat_at, worker.generation))
+            connection.execute("""DELETE FROM worker_reservations WHERE worker_id=? AND worker_generation<>(
+                SELECT generation FROM workers WHERE worker_id=?
+            )""", (worker.worker_id, worker.worker_id))
         return worker
 
     def list(self, *, heartbeat_timeout: float = 30, service_scope: str = "", now: float | None = None) -> list[WorkerSnapshot]:
@@ -31,17 +49,90 @@ class WorkerRegistry:
             rows = connection.execute("SELECT payload_json FROM workers WHERE heartbeat_at>=?", (moment - heartbeat_timeout,)).fetchall()
         workers = []
         for row in rows:
-            payload = json.loads(row[0]); payload["resource_classes"] = tuple(payload.get("resource_classes") or ())
-            workers.append(WorkerSnapshot(**payload))
+            workers.append(self._worker(row[0]))
         return [worker for worker in workers if not service_scope or worker.service_scope == service_scope]
 
     def remove(self, worker_id: str, generation: int) -> bool:
         with sqlite3.connect(self.database, timeout=30) as connection:
+            connection.execute("DELETE FROM worker_reservations WHERE worker_id=? AND worker_generation=?", (worker_id, generation))
             result = connection.execute("DELETE FROM workers WHERE worker_id=? AND generation=?", (worker_id, generation))
             return result.rowcount == 1
+
+    def reserve(self, request_id: str, resource_class: str, *, estimated_memory: int = 0,
+                service_scope: str = "", heartbeat_timeout: float = 30, reservation_ttl: float = 15,
+                now: float | None = None) -> WorkerSnapshot:
+        """Atomically reserve one dispatch slot across all registry instances."""
+        request_id, resource_class = str(request_id).strip(), str(resource_class).strip()
+        if not request_id or not resource_class or estimated_memory < 0 or heartbeat_timeout <= 0 or reservation_ttl <= 0:
+            raise WorkloadRoutingError("invalid worker reservation")
+        moment = time.time() if now is None else now
+        with sqlite3.connect(self.database, timeout=30, isolation_level=None) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute("DELETE FROM worker_reservations WHERE expires_at<=?", (moment,))
+                connection.execute("""DELETE FROM worker_reservations WHERE NOT EXISTS (
+                    SELECT 1 FROM workers w WHERE w.worker_id=worker_reservations.worker_id
+                    AND w.generation=worker_reservations.worker_generation
+                )""")
+                existing = connection.execute("""SELECT w.payload_json,r.resource_class,r.estimated_memory,r.service_scope
+                    FROM worker_reservations r JOIN workers w
+                    ON w.worker_id=r.worker_id AND w.generation=r.worker_generation
+                    WHERE r.request_id=? AND r.expires_at>? AND w.heartbeat_at>=?""",
+                    (request_id, moment, moment - heartbeat_timeout)).fetchone()
+                if existing:
+                    if (str(existing[1]), int(existing[2]), str(existing[3])) != (resource_class, estimated_memory, service_scope):
+                        raise WorkloadRoutingError("worker reservation request_id contract conflict")
+                    connection.commit(); return self._worker(existing[0])
+                rows = connection.execute("SELECT payload_json FROM workers WHERE heartbeat_at>=?", (moment - heartbeat_timeout,)).fetchall()
+                reservations = connection.execute("""SELECT r.worker_id,COUNT(*),COALESCE(SUM(r.estimated_memory),0)
+                    FROM worker_reservations r JOIN workers w ON w.worker_id=r.worker_id AND w.generation=r.worker_generation
+                    WHERE r.expires_at>? GROUP BY r.worker_id""", (moment,)).fetchall()
+                occupied = {str(worker_id):(int(count), int(memory)) for worker_id, count, memory in reservations}
+                eligible = []
+                for row in rows:
+                    worker = self._worker(row[0]); reserved_count, reserved_memory = occupied.get(worker.worker_id, (0, 0))
+                    effective_active = worker.active + reserved_count
+                    if resource_class not in worker.resource_classes or service_scope and worker.service_scope != service_scope:
+                        continue
+                    if effective_active >= worker.capacity or worker.available_memory - reserved_memory < estimated_memory:
+                        continue
+                    eligible.append((effective_active / worker.capacity, worker.queue_depth, -worker.available_memory + reserved_memory, worker.worker_id, worker))
+                if not eligible:
+                    raise WorkloadRoutingError("no healthy worker reservation capacity; apply backpressure")
+                worker = min(eligible)[-1]
+                connection.execute("""INSERT INTO worker_reservations
+                    (request_id,worker_id,worker_generation,resource_class,estimated_memory,service_scope,reserved_at,expires_at)
+                    VALUES(?,?,?,?,?,?,?,?)""", (
+                    request_id, worker.worker_id, worker.generation, resource_class, estimated_memory, service_scope,
+                    moment, moment + reservation_ttl,
+                ))
+                connection.commit(); return worker
+            except Exception:
+                connection.rollback(); raise
+
+    def release_reservation(self, request_id: str) -> bool:
+        with sqlite3.connect(self.database, timeout=30) as connection:
+            result = connection.execute("DELETE FROM worker_reservations WHERE request_id=?", (str(request_id).strip(),))
+            return result.rowcount == 1
+
+    def reservation_snapshot(self, *, now: float | None = None) -> list[dict[str, object]]:
+        moment = time.time() if now is None else now
+        with sqlite3.connect(self.database, timeout=30) as connection:
+            rows = connection.execute("""SELECT r.request_id,r.worker_id,r.worker_generation,r.resource_class,
+                r.estimated_memory,r.service_scope,r.reserved_at,r.expires_at FROM worker_reservations r JOIN workers w
+                ON w.worker_id=r.worker_id AND w.generation=r.worker_generation
+                WHERE r.expires_at>? ORDER BY r.reserved_at,r.request_id""", (moment,)).fetchall()
+        keys = ("request_id", "worker_id", "worker_generation", "resource_class", "estimated_memory", "service_scope", "reserved_at", "expires_at")
+        return [dict(zip(keys, row, strict=True)) for row in rows]
 
     def reap(self, *, heartbeat_timeout: float = 30, now: float | None = None) -> int:
         moment = time.time() if now is None else now
         with sqlite3.connect(self.database, timeout=30) as connection:
+            connection.execute("DELETE FROM worker_reservations WHERE expires_at<=? OR worker_id IN (SELECT worker_id FROM workers WHERE heartbeat_at<?)", (moment, moment - heartbeat_timeout))
             result = connection.execute("DELETE FROM workers WHERE heartbeat_at<?", (moment - heartbeat_timeout,))
             return result.rowcount
+
+    @staticmethod
+    def _worker(payload_json: str) -> WorkerSnapshot:
+        payload = json.loads(payload_json); payload["resource_classes"] = tuple(payload.get("resource_classes") or ())
+        return WorkerSnapshot(**payload)

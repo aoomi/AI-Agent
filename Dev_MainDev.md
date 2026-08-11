@@ -1,10 +1,374 @@
-# AI 开发任务规划
+# AI 主线开发计划
 
 版本：2.2  
 生效日期：2026-08-07  
 适用对象：主线开发 AI
+职责与完成门禁：统一以 `AGENTS.md` 为准。
 
-### M9.169：统一任务权威提交与JSON投影崩溃一致性（失租围栏整改完成，待软件测试复测）
+## 使用规则
+
+- 本文件只记录里程碑、当前状态和开发证据，不重复定义通用职责。
+- 当前问题只以文件顶部最新未关闭条目和同编号 `Dev_BUG_TRACKER.md` 记录为执行依据。
+- 当前问题与排队状态唯一从 `docs/product/当前开发状态.md` 读取；本文件只保留里程碑计划和证据。
+- 标记为“历史、已覆盖、已关闭、已完成”的条目仅供追溯，不得作为现行需求或下一任务自动执行。
+- 同一里程碑存在多轮记录时，以日期最新且通过完整测试、稽查闭环的记录为准；状态冲突时以 `Dev_BUG_TRACKER.md` 为准。
+- 当前问题完成后停止，等待用户确认下一条；禁止从历史条目自动挑选任务。
+
+### M9.198：真实全链路成片生产验收（主线开发中）
+
+- 按`docs/product/剩余框架工作清单.md`顺序启动单机V1真实全链验收；目标为新项目从需求/大纲贯穿增强导出，并保存task、provider、版本、指纹、审核批次、资源票据、耗时和manifest证据。
+- 同一闭环必须覆盖长媒体阶段停止、服务重启恢复、局部重做、旧代隔离、成片播放/音画/字幕及base/enhanced版本绑定；未取得正式链证据前不得宣称完成。
+- 当前仅进入只读盘点与资源核验，排队BUG039—041不分析、不修改。
+- 正式首步发现BUG-20260811-046：新项目服务端`stage_state`为空，但创建成功后的前端未加载新项目流程，持续显示旧项目全阶段投影。先修复创建/编辑切换后的项目会话加载与晚到隔离，再继续真实生产。
+- BUG046主线整改完成：项目加载先同步清空大纲至导出十阶段投影，创建/编辑保存后等待新project/session流程、资源、任务和版本恢复；正式新旧项目立即切换无旧资产瞬态。定向/contract`45 passed`、全unit`556 passed, 9 subtests passed`、typecheck和83模块构建通过，待独立软件测试。
+- BUG046独立软件测试通过：正式连续三轮新旧项目切换的立即/稳定投影均隔离，空新项目stage_state保持空；定向/contract`45 passed`、全unit`556 passed, 9 subtests passed`无skip，typecheck和83模块构建通过，待只读稽查。
+- BUG046最终只读稽查通过并关闭：统一十阶段同步清空、创建/编辑新会话加载和晚到session围栏闭环；M9.198继续在隔离新项目执行真实全链。
+- 正式停止/恢复首败登记BUG047：大纲停止后UI允许重新生成，但统一工作流已是cancelled，再次运行返回`workflow is cancelled`。当前先修复全阶段一致的重新激活/新代际协议，再继续真实链。
+- BUG047主线整改完成：统一`begin`只接受严格更新的stage generation从cancelled恢复，同代、零代及旧代晚到均失败关闭；正式服务重载后同项目新代际真实32B大纲完成并卸载。定向`120 passed`、全unit`558 passed, 9 subtests passed`和编译通过，待独立软件测试。
+- BUG047独立测试当前阻塞：定向`120 passed`无skip；完整unit中BUG047及业务回归均通过，但文档门禁因并行BUG038索引/Tracker状态冲突产生3项失败（其余`555 passed, 9 subtests passed`）。未越界修改BUG038，待其事实源收敛后重跑完整unit；当前不得进入稽查。
+- BUG047独立软件复测通过：并行状态收敛后，定向`120 passed`、完整unit`560 passed, 9 subtests passed`均无skip；编译、文档门禁和diff-check通过，进入只读代码稽查。
+- BUG047首轮稽查仅退回状态口径：索引改用允许值“软件测试通过，待只读稽查”；业务代码与测试未变，重新提交软件测试。
+- BUG047最终只读复稽查通过并关闭：新generation恢复、同/旧代拒绝、正式重启生成与资源释放闭环；整改复测完整unit`560 passed, 9 subtests passed`无skip。M9.198继续剧本至增强导出真实链。
+- 正式大纲确认进入剧本首败登记BUG048：UI提示大纲已确认，但项目投影、无confirmation的ledger completed与LangGraph pending_confirmation分裂，剧本返回前序未完成。当前整改全部非upscale公开投影的确认/generation权威边界。
+- BUG048主线整改完成：非upscale公开projection不能写confirmation/generation/权威证据，无精确现行确认的completed统一降为pending_confirmation；正式坏状态重载后自动收敛，真实32B剧本完成并推进storyboard。关联`135 passed`、全unit`564 passed, 9 subtests passed`及编译/文档门禁通过，待独立测试。
+- BUG048独立软件测试通过：关联`135 passed`、全unit`564 passed, 9 subtests passed`无skip，编译、文档门禁及正式权威状态/资源终态复核通过，待只读稽查。
+- BUG048最终只读稽查通过并关闭：统一非upscale projection权威边界、确认唯一入口、同代保护和新指纹重确认闭环；正式旧数据收敛及真实剧本通过。M9.198继续分镜脚本。
+- 正式分镜完成后登记BUG049：资产正式执行已无租约/任务/模型，但晚到前端`generating`项目投影再次把项目与LangGraph覆盖为`running`；当前整改公开项目阶段投影与服务端generation权威边界。
+- BUG049主线整改完成：公开项目阶段写入不再改生产权威；分镜与资产页入口均以项目投影+LangGraph双事实门禁正式assets，结构化JSON仅一次有限重试。正式generation 3恢复至assets pending_confirmation后才生图，暂停后资源全空。关联`110 passed`、全unit`565 passed, 9 subtests passed`无skip、typecheck与83模块构建通过，待独立软件测试。
+- BUG049独立软件测试通过：关联`111 passed`、全unit`565 passed, 9 subtests passed`无失败无skip；typecheck、83模块构建、编译、文档门禁及正式assets generation 3/资源终态复核通过，待只读稽查。
+- BUG049首轮稽查退回：晚到资产running投影仍可删除正式census的额外资产；主线改为终态下按名称合并资产集合并保留current-only profiles，非资产阶段丢弃整份晚到数据快照，待重新测试。
+- BUG049稽查整改开发完成：晚到assets强制按名称合并，保留正式census独有场景/道具及媒体字段；其他阶段保留当前完整权威数据。关联`111 passed`、全unit`565 passed, 9 subtests passed`、typecheck、83模块构建、编译和文档门禁通过，待独立软件复测。
+- BUG049稽查整改独立软件复测通过：关联`111 passed`、全unit`565 passed, 9 subtests passed`无失败无skip，typecheck、83模块构建、编译及文档门禁通过，待只读复稽查。
+- BUG049最终只读复稽查通过并关闭：公开投影与生产权威隔离，晚到assets保留正式完整census，非assets拒绝整份旧快照；M9.198继续自动资产图片及后续全链。
+- 正式资产续跑登记BUG050：道具质检失败已在项目数据保存明确failed/error，但资产卡显示“等待生图”且隐藏原因；当前定位统一结果回填与卡片错误投影。
+- BUG050主线整改完成：资产结果轮询不再把真实failed降为pending，共享资产卡主体持续展示错误；关联`134 passed`、全unit`565 passed, 9 subtests passed`、typecheck、83模块构建及文档门禁通过，待独立软件测试。
+- BUG050首轮独立测试退回：正式错误已可见，但失败卡无图占位仍显示“等待生图”；共享卡按slide failed统一显示“生成失败”，重新提交测试。
+- BUG050退回整改开发完成：failed卡统一显示“生成失败”与错误正文；关联`134 passed`、全unit`565 passed, 9 subtests passed`、typecheck、83模块构建及文档门禁通过，待独立复测。
+- BUG050独立软件复测通过：正式失败卡状态与真实错误一致，关联`134 passed`、全unit`565 passed, 9 subtests passed`无失败无skip，typecheck、83模块构建及文档门禁通过，待只读稽查。
+- BUG050最终只读稽查通过并关闭：失败终态、失败占位和卡片错误统一，显式重试边界保持；M9.198继续资产图片及后续全链。
+- 正式资产重试登记BUG051：道具提取提示同时正向要求笔迹并要求无文字，后端无文字硬门禁使其不可满足；当前整改公共提示词净化契约。
+- BUG051主线整改完成：无文字道具进入provider前统一移除正向字形线索并保留材质形态，有限重试复用净化提示；正式“信纸/信件”真实生成成功。关联`135 passed`、全unit`566 passed, 9 subtests passed`、编译/typecheck/83模块构建/文档门禁通过，待独立测试。
+- BUG051独立软件测试通过：正式道具waiting_confirmation且媒体存在、错误为空、模型释放；关联`135 passed`、全unit`566 passed, 9 subtests passed`无失败无skip及全部门禁通过，待只读稽查。
+- BUG051首轮稽查退回整改：否定词改为必须直接邻接并约束具体文字cue；“带铭文且无人”不能再被无关否定旁路，待重新测试。
+- BUG051稽查整改开发完成：逐cue直接否定覆盖前后短语及多段修饰，无关否定不再旁路；关联`135 passed`、全unit`566 passed, 9 subtests passed`及全部门禁通过，待独立复测。
+- BUG051稽查整改独立复测通过：关联`135 passed`、全unit`566 passed, 9 subtests passed`无失败无skip，正式产物及资源终态保持，待只读复稽查。
+- BUG051最终只读复稽查通过并关闭：逐cue直接否定与无关否定隔离闭环；M9.198继续正式资产队列。
+- 正式下一道具登记BUG052：前一Comfy任务调用异步释放后，串行下一任务立即做42GB内存门禁而误失败；当前整改释放完成与下一重任务准入握手。
+- BUG052主线整改完成：仅在Comfy近期释放或队列空闲主动释放后进入有限、可取消waiting_memory；非释放窗口立即拒绝。正式三道具连续成功。关联`139 passed`、全unit`570 passed, 9 subtests passed`及全部门禁通过，待独立测试。
+- BUG052独立软件测试通过：等待/取消/超时/重启恢复矩阵、正式连续道具与资源终态通过；关联`139 passed`、全unit`570 passed, 9 subtests passed`无失败无skip，待只读稽查。
+- BUG052最终只读稽查通过并关闭：accelerator序列化、Comfy空闲释放、有限waiting_memory及失败边界闭环；M9.198继续场景。
+- 正式场景登记BUG053：Klein候选子进程退出后job保持processing且heartbeat停止，界面长期生成；当前定位候选后验收/回填监督链。
+- BUG053主线整改完成：道具/场景后验收统一纳入图片job阶段、心跳、停止、180秒超时和LLaVA终止释放；正式空房间在生成PID退出后进入scene_validation并持续心跳，最终completed。图片专项`33 passed`、全unit`570 passed, 2 skipped, 9 subtests passed`，Node补测消除跳过来源，编译/typecheck/83模块构建/文档门禁通过，待独立软件测试。
+- BUG053独立软件测试通过：关联`87 passed, 3 subtests passed`、完整unit`572 passed, 9 subtests passed`无失败无skip；构建门禁、正式媒体终态和LLaVA释放通过，待只读代码稽查。
+- BUG053首轮稽查退回整改完成：验收资源票据不再使用随机audit job等待900秒，统一绑定图片job且与180秒验收同界；停止/超时先取消排队票据再终止活动LLaVA，关闭终态后晚到启动重模型窗口。图片专项`34 passed`、全unit`573 passed, 9 subtests passed`，待独立软件复测。
+- BUG053稽查整改独立软件复测通过：关联`88 passed, 3 subtests passed`、完整unit`573 passed, 9 subtests passed`无失败无skip，票据所有权/取消、构建及正式证据通过，待只读复稽查。
+- BUG053最终只读复稽查通过并关闭：后验收心跳/停止/有限超时、原job资源票据取消、活动LLaVA终止和晚到隔离闭环；M9.198继续资产确认、3D/视频至增强导出正式链。
+- 正式场景恢复确认登记BUG054：原failed资产scope重新激活并确认后lifecycle为completed且confirmation有效，但仍保留旧失败error；当前整改ProductionLedger成功状态转换的错误清理契约。
+- BUG054主线整改完成：reactivate、直接completed与confirm统一清除旧失败error，pending显式诊断和真实失败错误保持；正式原场景复确认为completed/error空。台账专项`84 passed`、直接依赖`225 passed, 1 deselected`（仅用户跳过BUG038静态断言），待独立软件测试。
+- BUG054独立软件测试通过：台账及直接依赖`225 passed, 1 deselected`无失败无skip，唯一deselect为用户跳过BUG038；正式记录、CAS/回滚、构建门禁通过，待只读稽查。
+- BUG054最终只读稽查通过并关闭：成功台账的reactivate/direct-completed/confirm统一清旧error，失败与诊断边界不变；M9.198继续3D及后续正式链。
+- 正式场景3D登记BUG055：TripoSR完成后Blender清理仍残留4条非流形边并明确failed；当前只整改场景/道具共享网格修复与审核链。
+- BUG055主线整改完成：批量封孔后仅对顶点边界度严格为2的简单闭合环确定性封口，复杂损坏仍由非流形审核失败关闭；同一正式GLB由4条降为0条，正式重试完成并产出7视图及4秒源视频。3D专项`19 passed`、编译通过，待独立软件测试。
+- BUG055独立软件测试通过：简单4边环动态封口为0，度4分叉边界保持6条并失败关闭；关联`61 passed`、全unit`576 passed, 9 subtests passed`无失败无skip，唯一deselect为用户跳过BUG038静态断言，待只读稽查。
+- BUG055最终只读稽查通过并关闭：共享worker仅封闭严格简单边界环，复杂损坏保持失败关闭；正式场景3D已确认归档不可变版本。M9.198继续道具3D及后续真实链。
+- 正式“信纸/信件”3D生成成功后登记BUG056：确认入口将业务原名净化后再比对原始subject key，合法含斜杠资产被误报候选不匹配；当前分离业务身份名与文件安全名。
+- BUG056主线整改完成：业务身份原名与路径安全名分离，精确subject比较和路径越界门禁同时保留；原含斜杠候选已正式确认归档。关联`32 passed`及编译/文档门禁通过，待独立软件测试。
+- BUG056独立软件测试通过：关联`56 passed`、全unit`581 passed, 9 subtests passed`无失败无skip，唯一deselect为用户跳过BUG038；身份碰撞拒绝、路径安全、正式归档及门禁一致，待只读稽查。
+- BUG056最终只读稽查通过并关闭：业务原名精确身份与安全路径组件分界成立，碰撞/越界/旧任务保持拒绝；M9.198继续服装道具3D，H3按用户要求不使用音频输入。
+- 三项道具及场景3D均正式确认后登记BUG057：H3无参考音频输入但仍解码自生音轨；当前保留官方节点必需audio VAE，仅移除交付音轨，权威声音继续由后续TTS/口型链产生。
+- BUG057静音图实现与关联`81 passed`完成，但正式H3被权威image前序门禁409阻断；该前序正是用户要求跳过的BUG038人物确认链。未绕过门禁、未把静态证据视为真实通过，当前阻塞等待授权或合格正式项目。
+- 用户随后授权继续补齐正式image前序；资产页确认“林婉清”0°基准图后，五个Qwen固定角度因上一Comfy权重异步释放窗口被60GB直接门禁连续拒绝，登记BUG058。人物Qwen固定角度及独立修复共用入口已接入既有有限、可取消`waiting_memory`握手，当前处于主线开发验证。
+- M9.193 / BUG038最终只读复稽查通过并关闭：0°基准及左右45°/90°/180°全身图统一强制手、脚和四肢/指趾解剖门禁，失败候选有限重试后物理清理并落明确终态；复稽查关联`117 passed, 3 subtests passed`，0失败0跳过。角度版本化硬基线保持不变。
+
+### M9.197：可观测性持久导出与告警最小闭环（最终稽查通过，已完成）
+
+- 将原进程内日志、指标和trace底座扩展为统一`RecordExporter`插槽；默认`NullExporter`保持既有调用兼容，可组合接入持久JSONL及Prometheus textfile原子快照。
+- 指标标签规范化、counter禁止回退，结构化快照及span/alert统一携带可选`request_id/trace_id`；嵌套敏感字段拒绝写入持久证据。
+- 增加队列积压类确定性告警规则/导出测试；本增量只建立生产化可观测底座，不宣称API、任务、provider、ledger和manifest全链追踪已经完成。
+- 专项`5 passed`、Python编译通过；未启动模型、未操作正式服务或生产任务。BUG-20260811-045等待独立软件测试。
+- 首轮独立测试中可观测专项及动态全部通过；全unit唯一失败来自联网搜索“全provider失败”测试只隔离2个免Key provider、遗漏现行注册表另2个免Key后备，真实网络成功使断言未抛错。已按五provider权威注册表补全测试隔离，待重跑后再次提交独立测试。
+- 整改自检：联网搜索与可观测定向`14 passed`；全unit`521 passed, 1 skipped, 9 subtests passed`，文档状态检查及Python编译通过。生产搜索实现未改动。
+- 第二轮复测发现敏感指标标签可在tuple→list后绕过递归检查；现已在标签注册、结构化快照、JSONL和Prometheus四层拒绝敏感二元键，直接恶意快照不能绕过。可观测专项`6 passed`；扩大unit受并行文档状态变更及资源池瞬态用例阻断，等待冻结快照独立复测。
+- 2026-08-11冻结快照主线自检：可观测与联网搜索定向`18 passed`，完整unit`554 passed, 1 skipped, 9 subtests passed`；文档状态门禁、关键Python编译和限定diff-check通过。同期修正BUG045首状态与唯一索引冲突，当前仍为待独立软件复测。
+- 最新独立软件复测通过：可观测及关联`41 passed`、完整unit`555 passed, 9 subtests passed`且无skip；敏感二元标签四层失败关闭、持久导出、原子快照、告警和关联ID均通过，关键Python编译通过。BUG045待只读稽查。
+- 最终稽查退回整改：非有限数值和非法Prometheus标签曾可进入counter/textfile；现注册与直接导出双层拒绝非数字、bool、NaN、±Infinity、非法指标名/标签名及畸形标签结构。专项`6 passed`、完整unit`555 passed, 9 subtests passed`、复现脚本、文档门禁、编译与diff-check通过，待独立软件复测。
+- 同根因扩大整改将指标快照语义门禁统一复用于JSONL和Prometheus，任何持久exporter均在写入前拒绝恶意手工快照，Composite不会产生JSONL部分写入；自检保持专项`6 passed`、全unit`555 passed, 9 subtests passed`。
+- 稽查整改独立复测：定向`41 passed`、完整unit`555 passed, 9 subtests passed`且无skip；JSONL/Prometheus/Composite共用门禁及关键Python编译通过，待只读复稽查。
+- 最终只读复稽查通过：注册与全部持久exporter共享有限数值、合法名称/标签结构和秘密字段门禁，Composite无部分非法写入；BUG-20260811-045已关闭。全链trace、仪表盘和正式告警演练仍按剩余框架清单继续。
+
+### M9.196：文档当前状态唯一事实源（最终稽查通过，已完成）
+
+- 新增机器可读的`docs/product/当前开发状态.md`，集中维护并行工作流、里程碑、BUG及唯一当前状态；原四份文档的多轮状态明确降级为历史证据。
+- 新增`scripts/maintenance/check_document_status.py`及单元测试，自动拒绝重复里程碑/BUG、未知状态、BUG详情缺失、状态族冲突和第二当前事实源声明。
+- 不改业务代码、不启动模型或正式生产任务；BUG-20260811-044等待独立软件测试。
+- 首轮独立测试退回后补齐Tracker活动项反向完备性、本地链接存在性、跨文档同编号状态冲突与显式历史豁免，并接入pytest自动收集的contract门禁。
+- 第二轮退回后，secondary组合行会分别归一M编号与BUG完整/简写编号，并逐项和索引状态族比较；三份职责文档的M/BUG参数化矩阵及contract共`18 passed`。
+- 最终稽查退回后，Tracker测试改为动态section定位和相反状态族变异，参数化覆盖待测试/待稽查/已关闭；专项与contract`21 passed`、全部contracts`40 passed, 51 subtests passed`。
+- 第二轮独立复测通过：专项与contract `18 passed`、三文档组合M/BUG冲突与历史豁免动态`6/6`，反向完备、链接、contract入口和简写归一均通过；待最终只读稽查。
+- 最终整改独立复测通过：专项与contract`21 passed`、全部contracts`40 passed, 51 subtests passed`、完整unit`555 passed, 9 subtests passed`且无skip，关键Python编译通过。
+- 最终只读复稽查通过：状态冲突夹具不绑定当前生命周期，三类状态族和相邻BUG保护均闭环；BUG-20260811-044已关闭并从当前索引移除。
+
+### M9.193：人物全身安全区改为轮廓级数值门禁（开发完成，待独立软件测试）
+
+- 修复 YOLO 人体框可能漏掉发顶/鞋底却被布尔标记直接放行的问题；全身归一统一使用 GrabCut 可见人物轮廓，按9%顶部、5%底部容差重排并输出实际边界比例。
+- 机器验收只接受归一标记与数值证据同时满足8%/3%的结果；0°、左右45°、90°和180°全身统一要求确定性完整构图，旧标记或视觉模型主观判断不能绕过。
+- 正式失败旧图实测归一后顶部8.996%、底部5.004%；定向`34 passed, 1 skipped`、完整单元测试`503 passed, 1 skipped, 9 subtests passed`，Python编译、Vue typecheck及83模块构建通过；正式8787已在全资源空闲时重载至PID`55404`。
+- 稽查退回整改：轮廓识别异常不再回退YOLO框；异常直接失败关闭并进入既有候选重生成，验收只接受`grabcut_person_silhouette`来源。专项`3 passed`、真实旧图重复归一通过、图片关联`116 passed, 3 subtests passed`；正式8787已重载至PID`58574`，等待重新独立软件测试。
+- 二次稽查退回整改：0° baseline不再直接调用归一器，baseline与variant共用候选准备生命周期。轮廓失败立即删除当前文件，baseline统一有限3次生成，末次返回可定位失败。新增动态测试核对provider重试次数、失败文件清理、最终成功及末次失败；关联`118 passed, 1 skipped, 3 subtests passed`，编译、类型检查与83模块构建通过。全单元`537 passed, 2 failed, 9 subtests passed`，2项均为其他并行文档状态冲突，与BUG038代码链无调用关系。
+- BUG-20260811-038待独立软件测试；BUG039—041仅登记排队，未提前处理。
+
+### M9.192：增强权威台账与阶段状态统一提交（最终稽查通过，已完成）
+
+- `review_export/upscale`物理执行只生成延迟authority payload，不再提前写入成功台账；最终权威记录、项目/Graph状态统一由owner+generation提交helper在stage lease commit guard内发布。
+- ProductionLedger整批authority事务在全部记录校验写入后、SQLite提交前执行Graph callback；Graph/项目提交异常会回滚整批权威记录，取消先赢、失租旧代和失败路径均为零成功证据，提交先赢则唯一消费租约。
+- Graph事件持久记录精确authority commit tuple；启动恢复发现Graph已pending但对应ledger事务未持久化时自动failed关闭，禁止崩溃后长期保留无权威证据的waiting状态。
+- 开发动态覆盖cancel-first、commit-first、Graph原子故障、失租新代及重启恢复5项；review_export/upscale、取消与生产控制关联`147 passed`，Python编译、Vue typecheck与83模块生产构建通过。未启动模型或操作正式任务。
+- 独立软件测试补充验证多集第二条authority故障整批回滚、完全相同批次重复提交幂等、tenant/user/project三维隔离，以及Graph已落盘但ledger缺失的崩溃窗口恢复失败关闭；原5项动态、关联`147 passed`、完整单元测试`495 passed, 1 skipped, 9 subtests passed`全部通过。Python编译、Vue typecheck与83模块生产构建通过；未启动重模型或操作正式任务。
+- 最终只读稽查与正式加载验收通过；用户图片任务自然结束后安全重载8787，新进程已加载当前代码且任务、资源池、Ollama、ComfyUI全空，BUG-20260811-035已关闭。
+
+### M9.191：分镜资产自动生图与取消手动上传前置（最终稽查通过，已完成）
+
+- 分镜脚本逐集产出后继续沿现有串行队列自动提取资产卡并生成缺失基准图；进入资产页也会自动续跑缺失项。
+- 移除“请上传人物四视图、场景和道具”的旧提示与进入资产页时清空已有图片/角度/确认状态的破坏性逻辑；手动导入仅保留为可选替换能力，不再是生产前置条件。
+- 资产页入口single-flight按`project_id + projectSession`绑定，旧项目未决Promise不会吞掉新项目首次进入；旧代finally也不能清除新代owner。
+- 稽查整改复测：P1/P2分别阻塞confirm与prepare的跨项目动态2/2；P2新建transaction并唯一persist/enqueue，P1晚到零写回且旧finally不清P2 owner；定向102 passed、1 skipped；完整单元测试490 passed、1 skipped、9 subtests；编译、类型检查与83模块构建通过。
+- 最终稽查通过，BUG-20260811-037已关闭。
+
+### M9.190：资产人物错误提示按卡片隔离（最终稽查通过，已完成）
+
+- 资产批次中某个人物的失败信息只显示在该人物卡片，不再作为全局阶段错误覆盖其他人物的确认弹窗。
+- 确认苏璃等当前人物基准图时清除旧的兄弟资产批次提示；当前人物其余角度仍严格使用自身已确认基准与自身已确认角度。
+- 冻结快照复测：定向118 passed、1 skipped、3 subtests；完整单元测试489 passed、1 skipped、9 subtests；编译、类型检查与83模块构建通过。
+- 最终稽查通过，BUG-20260811-036已关闭。
+
+### M9.189：生图能力幂等注册、台账兼容与人物构图安全区（最终稽查通过，已完成）
+
+- 内置生产能力只在进程内首次安装；运行中的Klein 9B请求不再触发同提供器热替换，后续请求继续由既有FIFO与资源池串行调度。
+- 生产台账统一使用显式24列写入，兼容升级后的SQLite结构。
+- 人物所有全身角度图统一执行最高发顶上方纯背景至少8%、最低鞋底下方纯背景至少3%的安全区下限；提示词、确定性归一、机器验收和三份现行规范同步。
+- 独立软件测试：动态inflight二次安装通过；定向209 passed、1 skipped、3 subtests；全部单元测试458 passed、1 skipped、9 subtests；编译、类型检查与83模块构建通过。
+- 最终稽查通过，BUG-20260811-033已关闭。
+
+### M9.188：分镜媒体阶段完整范围门禁统一（最终稽查通过，已完成）
+
+- 修复阶段入口把“任意一条已确认scope”直接当作整个阶段完成的问题；入口、人工确认、资产延迟确认和重启/批量同步恢复统一复用同一台账门禁判定，禁止`trusted`旁路。
+- image/video/audio/subtitle以storyboard权威shot census为期望集合；只有至少一集全部镜头均存在且已确认时才能推进。缺镜头、待确认镜头或缺storyboard census均失败关闭，其他完整分集可独立向后生产。
+- 媒体实际scope必须全部属于storyboard目标集合；目标外、非法/非规范ID、重复/别名碰撞及非shot类型均失败关闭，门禁保留全部实际记录。媒体完成还必须有非空fingerprint/audit batch，且confirmation两项与顶层当前值精确一致；非媒体stage不受该证据特约束影响。最新扩大关联`202 passed, 1 skipped`，类型检查与83模块生产构建通过。
+- 隔离动态复现旧实现一张已确认分镜图即可放行video；整改后partial/missing均拒绝、完整单集精确放行、后续完整集不受前面残缺集阻断。扩大关联`170 passed, 1 skipped`、Python编译通过，未启动模型或正式任务。
+- 最终独立复测覆盖四媒体阶段、额外/非法scope、别名碰撞、多集边界及确认/延迟确认/恢复/入口共用门禁；专项`79 passed, 1 skipped`、扩大关联`192 passed, 1 skipped`，编译、类型检查与83模块生产构建通过。
+- 最终只读稽查与正式加载验收通过；8787已加载当前实现，任务、资源池、Ollama与ComfyUI均空闲，BUG-20260811-034已关闭。
+
+### M9.187：人物0°正面全身基准与全角度提示词消歧（最终稽查通过，已完成）
+
+- 人物首张定位基准改为0°正面平视完整全身；人工确认后才依次生成左45°、右45°、90°侧面、180°背面和0°半身。
+- 六个角度提示词分别声明唯一目标姿态、偏航范围、构图及禁止的其他角度/景别；人物身份描述统一移除视角、近照、半身和全身等冲突词。
+- 人物3D确认输入同步为已确认0°正面全身基准；道具45°三分之二与场景45°空场景全景保持不变。
+- 独立软件测试：定向73 passed、3 subtests；全部单元测试448 passed、1 skipped、9 subtests；编译、类型检查与83模块构建通过。最终稽查通过，BUG-20260811-032已关闭。
+
+### M9.186：人物基准图验收自动三次生成（历史左45口径，已被M9.187覆盖）
+
+- 左45°人物基准图执行首图加最多2次自适应重生成，共3次候选；每次重试携带上一候选实际失败的硬门禁。
+- 失败汇总只检查左45°真正 required 的单人物、方向、底部留白、纯灰背景、尺寸、完整构图和30—60°面部角度，不再误报无关头身比、手臂比例等字段。
+- 第三次仍不合格才暂停当前资产队列，错误明确说明“自动生成3次仍未通过”；成功结果记录`validation_attempts`。
+
+### M9.185：资产续生保留成品与子任务循环门禁修复（最终稽查通过，已完成）
+
+- 人物/道具/场景基准、角度修复及3D建模属于assets内部构建子任务，不执行其下游阶段前序门禁；资源调度仍使用image/3d资源池和统一FIFO。
+- 资产页主按钮固定为生成/继续生成，只补`image_url`缺失项；禁止调用全量purge或清空已有图。单卡重做仍是唯一显式替换入口。
+- 历史`previous stage is not completed: storyboard/assets`错误按精确文本迁移；已有图恢复待确认、无图恢复待生成，其他真实错误不清除。
+- 当前项目墨无痕与宗门试炼场成品保留；已被旧purge物理删除的苏璃、云长老仅标记为待补生成。关联`125 passed, 1 skipped`，编译、类型检查及83模块构建通过。
+- 首败整改独立复测通过：持久媒体门禁12/12、子任务路由17/17、历史错误迁移7/7；关联`171 passed, 1 skipped`，编译、类型检查和83模块构建通过。正式项目状态与物理媒体一致。
+- 最终稽查通过，BUG-20260811-030已关闭。
+
+### M9.184：资产操作统一FIFO与延迟阶段确认（最终稽查通过，已完成）
+
+- 资产页自动/手动生成、重做、局部修复、图片导入、基准/角度确认、3D生成/确认及图片超分统一进入项目会话级FIFO，按提交顺序单路执行；重复操作按稳定key去重。
+- 队列在已有资产任务运行时等待，项目切换或“停止”会提升代际并清除未执行操作；停止/取消保持即时控制命令，不进入普通队列。
+- 单资产确认先持久确认该资产；若storyboard尚未完成，只延迟assets总阶段推进，不回滚资产确认。生产阶段冲突统一返回HTTP 409，禁止未捕获异常导致socket hang up和伪HTTP 500。
+- 稽查整改后，已启动操作与新项目操作仍共享同一FIFO尾链，项目切换只使旧代未启动任务失效，不再重置尾链制造旧新并发；导入、修复、确认、3D生成/确认和超分在每个异步响应后均校验固定project/session，所有持久化使用捕获的原项目上下文，旧项目晚到结果不得写入或清理新项目状态。
+- 独立复测确认旧任务与新项目任务严格`old-start→old-end→new-start→new-end`且最大并发为1；各类旧响应晚到零状态、零持久化、零提示污染。关联`164 passed, 1 skipped`，编译、类型检查及83模块构建通过。
+- 最终稽查确认统一FIFO、跨项目响应围栏、owner token精确回收、延迟确认和HTTP 409链均无剩余阻断，BUG-20260811-029已关闭。
+
+### M9.183：增强版视频统一服务端阶段（最终稽查通过，已完成）
+
+- BUG028最终权威篡改整改开发完成，待独立软件测试：upscale权威字段已从projection progress物理拆分；公开single/bulk只允许进度投影，不能创建或覆盖fp/batch/generation/evidence/confirmation及已确认生命周期。真实生成先持久分配单调generation，fingerprint绑定generation+batch，authority history与revision CAS原子拒绝低代、旧fp+batch重放和同代不同证据；完全相同同代提交幂等。确认与enhanced导出三方精确绑定fp+batch+generation，旧UI确认拒绝。专项`32 passed`、关联`161 passed, 1 skipped`，pycompile与Vue typecheck通过；本进程Vite构建受ChatGPT内置Node与Rollup原生模块Team ID签名不兼容阻断，待独立测试运行时复验。未启动模型或操作正式服务。
+- 最终稽查阻断整改完成，待独立软件复测：`ProductionLedger.upsert`以`content_fingerprint + audit_batch_id`作为证据代际。仅两者均未变化时，missing/null progress可保留既有production/audit evidence；任一变化先原子清除两项旧证据和confirmation，再只接收本次upsert携带的非空规范证据，禁止同fingerprint新batch继承旧证。临时SQLite覆盖fp-only、batch-only、双变化、missing/null/空结构、新证据、跨实例reload/reconfirm与enhanced authority；专项`36 passed`、关联`203 passed, 1 skipped`，pycompile、Vue typecheck及83模块构建通过，未启动模型或操作正式服务。
+- 最新稽查三项阻断已整改：upscale深watch同步携带结构化production/audit evidence，SQLite progress对缺失/null执行保留式字段合并；enhanced缺权威证据失败关闭，legacy缺省仅允许base；enhanced导出声明及服务端authority同时精确绑定fingerprint+audit batch，同fp旧批次不得复用。
+- 临时SQLite深watch/reload、enhanced/base证据边界、同fp新旧batch端到端及关联回归通过：`44`项专项、`171 passed, 1 skipped`关联、`4`项交付链；pycompile、Vue typecheck、83模块构建通过，待独立软件复测。
+- 独立软件复测通过：正式前端sync动态保留嵌套证据并在缺失时省略擦除字段；SQLite跨实例/确认不丢证据，enhanced缺证、legacy base边界及同fp新旧batch精确拒绝成立。四步骤失败/取消`8/8`、原子回滚、规范JSON、真实files/manifest、single-flight/FIFO与关联`181 passed, 1 skipped`通过；pycompile/typecheck/83模块构建通过，未启动模型或正式任务。
+
+- 权威证据已贯穿SQLite reload→confirm→enhanced export manifest：嵌套production/audit JSON不降格，客户端篡改被服务端ledger覆盖；基础版遗留scope输出明确not_available/not_applicable边界。
+
+- 复稽查整改：production_evidence保留结构类型，空/NaN/不可序列化值拒绝；fingerprint全树规范JSON。资产操作FIFO新增正式函数动态，覆盖顺序、重复key owner、停止/切换新owner及旧finally代际保护。
+- 复稽查最终软件测试通过：补测Infinity、深层全树键序/语义、确认导出及正式FIFO owner/epoch隔离；扩大回归180项、1项环境跳过，pycompile/typecheck/83模块构建通过。
+- 端到端证据复测通过：SQLite跨实例reload/confirm保持嵌套证据类型，客户端伪证据被权威scope覆盖，enhanced files/manifest携带完整版本、指纹、批次与证据；legacy base缺省原因明确。关联180项、1项环境跳过，构建通过。
+
+- 原`runUpscale`由前端逐集直调超分、字幕OCR、人脸与终审四类接口，绕过统一stage lease/cancel/资源路由；失败还会把全部基础母版伪写为skipped。
+- 现一次提交`review_export/upscale`整批commands，服务端逐集串行执行超分及真实质量审核，任一失败停止后续且阶段failed，禁止假成功/假skipped。
+- 前端仅原子接收服务端items，使用project/session/AbortController围栏；项目切换主动abort，旧项目晚到成功/异常零污染。报价仍为无副作用预检，不属于生产提交。
+- 软件测试首败：多集commands中第1集缺path时未整批预校验，仍调用第1、2集超分与终审并返回waiting_confirmation；违反缺输入整批零副作用，登记BUG-20260811-028后停止测试。
+- 最终权威边界：增强证据改为server-owned列并以单调generation、revision CAS和不可变history保护；公开projection仅可更新progress，不能篡改指纹、批次、证据、确认或终态。确认与导出严格绑定fp+batch+generation，旧代与同代伪证据永久拒绝。最终稽查及正式加载验收通过，BUG028已关闭。
+- BUG028整改：所有upscale command在首次provider前整批验证对象、唯一正整数episode、合法绝对媒体来源、base版本和目标分辨率/FPS/模式；混合批次任一非法整批失败且零副作用。
+- 软件复测：非法输入22/22通过；成功item缺少`content_fingerprint`与`audit_batch_id`，不能落与enhanced导出匹配的权威upscale证据，BUG028继续待处理。
+- 权威证据整改：服务端生成绑定输入版本、增强输出、目标参数和审核证据的SHA-256及服务端批次ID，整批成功后原子落`upscale:{episode}` pending_confirmation；人工确认后enhanced导出严格匹配，篡改或旧批次拒绝。失败/cancel不写成功证据。
+- 第二轮软件首败：正式runUpscale报价等待期间重复点击启动2次quote且返回不同Promise，尚无覆盖报价→确认→runStage全事务的project/session single-flight；BUG028继续待处理。
+- 第三轮动态功能复测已通过前端18项、后端取消/失败8项、台账原子回滚1项及权威证据52项；扩大回归唯一失败为旧测试仍要求前端直连MuseTalk→LatentSync，而现行权威回退已在服务端统一video阶段，需同步测试契约后重跑。
+- 关联旧测试已同步为服务端动态契约：MuseTalk成功不回退、失败仅回退一次、取消不回退；前端正式生成入口无口型直连。业务架构保持统一video阶段。
+- 稽查退回最终复测通过：完整command与OCR/face/final证据逐项影响指纹、键序稳定、not_applicable原因明确，确认/导出代际门禁无回归；资产按钮统一FIFO契约经独立判定成立。扩大回归178项、1项环境跳过，编译/类型/83模块构建通过。
+- 最终软件测试通过：前端single-flight/停止/晚到、服务端四步取消失败、原子台账、权威fingerprint/batch/confirm/enhanced导出及输入门禁均通过；扩大回归`171 passed, 1 skipped`，pycompile/typecheck/83模块构建通过，未启动模型。
+- 前端整改：非async公开入口直接返回同一flight，quote→确认→runStage→merge→persist共享project/session/controller/epoch；切项目和stop释放旧flight并隔离晚到，旧finally不清新任务，拒绝/异常后可重试。
+- 稽查整改：增强指纹绑定完整command与完整输出；OCR/face/final分别记录status+evidence或明确not_applicable原因，启用步骤无真实evidence失败关闭。规范JSON排序保证键序稳定，任一输入或步骤证据变化改变指纹。
+
+### M9.182：纯空场景资产与动作伪场景清理（最终稽查通过，已完成）
+
+- 场景提取只接受地点型可复用空间，地点词覆盖古装、都市、校园、医疗、交通、商业、工业与自然环境；服务端读取项目权威人物名单，人物姓名、人物动作、姿态、状态、群体行为和剧情句子均在任务登记前拒绝。
+- 服务端统一重建场景提示词，仅保留地点、布局、光线和固定陈设，并强制无人、无人形、无人体、无文字；伪场景在任务登记和资源占用前返回`invalid_scene_asset_subject`。
+- 前端对加载、增量合并、权威接管、标准导入和分镜预建的场景统一归一；历史伪场景自动删除并持久化，从分镜背景描述补回真实地点。
+
+### M9.181：全局提示统一进入项目对话框（最终稽查通过，已完成）
+
+- 所有既有`notify()`提示统一追加为左侧助手消息，并标记“系统提示”；不再渲染页面底部蓝色Toast横幅。
+- 相同连续提示自动去重，写入后自动滚动到对话末尾；提示服从当前项目对话隔离，不污染其他项目。
+- 系统提示不写回助手历史接口，避免历史保存失败触发递归保存；业务阶段状态与错误字段继续作为恢复和任务门禁事实源。
+
+### M9.180：资产批次、图片投影与分镜续生成闭环（最终稽查通过，已完成）
+
+- generateAllAssetImages按project+session单飞，独立controller与batch token贯穿权威读取、合并、清状态、purge、模型提交、响应写回和持久化。
+- 图片持久投影专项3/3通过；动态确认分镜续生成会重新生成已有完整集并覆盖existing shots，旧测试反映真实产品回归，需迁入服务端仅补missing的行为契约。
+- 已整改：服务端按15–23镜、连续镜号/时间线、2–9秒和目标总时长权威识别完整分集；完整集零模型且所有旧字段原样保留，部分集整集重生。新镜头确定性合并，重复/非法/跨集输出失败关闭；前端仅替换generated_episodes并保持project/session/abort围栏。
+- 切项目或停止立即abort并隔离旧flight；旧请求即使忽略signal也不能写新项目或继续下一模型。停止后释放旧键可安全重试，旧finally不清新flight。
+- 回收按旧flight/controller/token三重身份同步清batchGenerating/旧generating卡片；新项目立即可启动。stop使用epoch围栏，旧stop响应和旧finally不得复位新批次投影。
+- 单飞公开入口必须是普通函数并直接返回权威flight；禁止async包装导致相同底层任务返回不同Promise identity。内部执行器保持async，调用方await语义不变。
+- 动态首败：p1 readStage阻塞时切p2，回收虽清controller/flight/token但未清assetBatchGenerating；p2被全局assetImagesRunning拦截且零readStage。旧p1失去token后finally也不会复位，形成跨项目残留背压。
+- 第四轮动态read/purge/model晚到23项通过；同项目重复调用因公开入口仍为async而返回不同外层Promise，严格同Promise契约失败。
+- 第四轮整改独立复测通过：严格同Promise、异常重试、stop epoch、旧finally与三重身份隔离共16项；晚到矩阵23项、关联155项及3个子测试、编译/类型/构建通过。
+- 稽查退回修复：人物、场景、道具基准图及分镜/辅助生图在入口stage、资源类别和持久任务Graph投影三处统一为`image`；`assets`仅承载资产清单与`asset_3d`工作流，后者资源类别为`3d`。人物生图的running/completed/failed只报告image，禁止污染assets租约与状态。
+- 最终独立复测：完整集边界与续生成动态`18/18`、前端实际合并及项目晚到隔离`5/5`、投影`3/3`；扩大关联`163 passed, 1 skipped, 3 subtests passed`，pycompile/typecheck/Vite 83模块构建通过，未启动模型。
+- 最终只读稽查：2D图片三处契约统一image、asset_3d保持assets/3d；严格批次单飞与会话代际围栏、完整集原样保留和缺集补生成全部通过。扩大回归197项通过，正式资源与模型队列空闲。
+
+### M9.179：review_export服务端内核（最终稽查通过，已完成）
+
+- 后端review_export专项6项通过后发现前端最终审核仍在逐集与最多三轮重试双循环内调用runStage；一次点击可重复提交同一阶段，未满足单次整批服务端编排。
+- 已按首败停止其余测试，未启动模型或正式任务。
+- 整批审核与后端门禁已通过，但导出入口缺少project/session/abort围栏；旧项目晚到响应会无条件覆盖当前项目导出结果，继续退回。
+- 已补project级AbortController与single-flight Promise；同项目重复点击返回同一Promise且只提交一次runStage。项目切换/停止abort，files/manifest/status和persist均受启动project/session围栏，旧项目晚到成功或异常零污染，finally身份释放后可重试。
+- 已补完整租户身份的服务端review_export精确停止；服务端未确认取消明确409。停止递增epoch并立即释放旧单飞键，新重试不等待忽略signal的旧Promise；旧响应与finally按epoch/Promise/controller身份隔离。
+- 稽查修复导出信任边界：请求审核结果仅为声明，服务端必须从生产台账读取同tenant/user/project的review episode与composition/upscale确认，校验completed、confirmation和当前审核/媒体fingerprint+batch；任何伪造、跨项目、旧版本或未确认均零调用导出provider。
+- 复稽查2：媒体权威门禁无条件执行，audit_required=false只豁免review；source_version=base只认composition，enhanced只认upscale，不允许any合并或回落。多集任一缺证整批失败且零provider副作用。
+- 关联测试契约同步现行架构：assets run-stage只负责清单提取，characters/generate归image资源；队列生成统一传入启动project/session并验证晚到隔离，不再接受无上下文旧签名。关联126项及类型/构建通过。
+- 最终独立复测：两条测试保持双向精确断言，无放宽；四组权威与关联回归126/126、Python编译、Vue类型检查和83模块生产构建通过。
+- 第三轮首败：stopExports只有本地abort/failed持久化，无定向review_export stage stop且旧flight不释放；忽略signal时服务端继续、同项目无法立即重试。
+- 第三轮独立复测通过：正式前端异步闸门覆盖定向停止、即时重试、旧响应/旧finally隔离及503诊断；关联135项、Python编译、Vue类型检查和83模块生产构建通过，未启动模型或正式任务。
+- 权威审核门禁独立复测通过：临时SQLite与真实HTTP覆盖伪造、跨身份、未确认、旧fingerprint/batch、媒体版本及多集原子门禁；前端停止晚到动态7项、专项19项、关联137项、类型与构建全部通过。
+- 复稽查2动态门禁23项与专项14项通过；关联回归发现两条旧静态断言仍要求`characters/generate→assets`及无project/session的`generateAllAssetImages()`，与现行image阶段和会话隔离契约冲突，已按首败退回同步测试。
+- 最终只读稽查通过：审核开关不影响媒体权威门禁，base/enhanced精确绑定composition/upscale；跨身份、旧证据和多集缺项均零导出调用。整批编排、停止、会话与代际围栏通过，正式资源和模型队列空闲。
+
+### M9.178：统一服务端阶段取消（最终稽查通过，已完成）
+
+- 软件测试首败：叙事初审中途取消后，内部审核链仍继续调用修复模型与最终审核模型，外层审核完成后才检查取消；cancel event未传入审核/修复内部。
+- 动态调用序列确认取消后新增`text.narrative.repair`和第二次`audit.narrative`；已按首败停止其余测试，未启动正式模型或任务。
+- 已把同一cancel event贯穿outline/script/storyboard共享审核链，在分块、初审、修复、终审前后统一检查；内部Event不会进入provider payload。新增动态回归及关联`109 passed`，待独立复测。
+- 审核节点动态矩阵与126项关联通过；Vue typecheck发现`stopAsset3D`引用未定义`project`（TS2304），正式构建门禁失败。
+- `stopAsset3D`现显式取得并校验活动项目后再发送完整身份停止请求；无项目不发送。Vue typecheck与Vite生产构建通过。
+- 独立最终复测：审核取消矩阵10/10、关联126项、Python编译、Vue typecheck与82模块生产构建全部通过；未启动模型或正式任务。
+- 最终只读稽查：八阶段检查点、审核Event隔离、generation/commit围栏、完整身份停止与跨租户保护全部通过；只读回归128/128，正式worker、资源池及模型队列空闲。
+
+### M9.178：统一服务端阶段取消检查点（历史开发记录，已由M9.178最终闭环覆盖）
+
+- 大纲、剧本、分镜、资产、图片、视频、合片及审核导出入口统一复用现有stage lease/cancel event；入口、批次、command、poll、本地调用、审核和fallback前后均检查，取消后禁止新模型、新command和晚到pending_confirmation。
+- 所有正式停止统一先定向stage cancel，再精确终止当前文本、图片或视频子任务；强制完整tenant/user/project，子job停止同步校验身份。
+- 专项及关联`135 passed`，Python编译通过。当前环境无`npm`命令，前端类型与构建待独立测试环境执行。
+
+### BUG-20260811-022：统一仓库孤儿图片任务恢复（最终稽查通过，已关闭）
+
+- 统一任务仓库权威列会补齐旧残缺payload的status、身份、stage、进程和时间字段；启动恢复/watchdog不再漏掉分类JSON缺失或无status的非终态任务。
+- 恢复沿用分类保存、durable upsert、outbox与Graph投影正常链，保持租户隔离、终态幂等和投影一致性；隔离动态及关联`119 passed`，未修改正式数据库。
+- 独立动态矩阵15/15、关联78项与Python编译通过；待全空闲安全加载后只读确认历史任务正常failed收敛且nonterminal为0。
+- 正式历史job虽failed且nonterminal=0，但project_id仍为空；投影被ignored直接ack，无法形成Graph状态，身份完整与Graph一致门禁未通过。
+- 对完全缺失真实project的可证明遗留image孤儿使用确定性`recovered-orphan-image-<job_id>`隔离身份并记录quarantine证据，禁止伪造归属到用户真实项目；failed必须经outbox成功投影后才能ack。
+- 独立动态12/12、关联79项及正式PID98981补验通过；历史孤儿Graph failed、outbox/nonterminal为0，普通terminal未改。
+
+### M9.177：跨实例worker派发容量原子预留（最终稽查通过，已完成）
+
+- SQLite工作节点发现新增dispatch reservation；多个网关实例通过`BEGIN IMMEDIATE`原子选择并占用worker容量，避免心跳更新前同时把任务派给同一节点。
+- 预留同时核算worker活动数、容量、资源类别、服务范围、可用内存与已预留内存；支持request幂等、TTL自动过期、generation围栏、精确释放和快照。
+- 专项及关联`92 passed`，Python编译与差异格式检查通过；未修改兼容服务、未操作正式任务。
+- 软件测试首败：正式`_forward_production_request`仍只调用进程内`WORKLOAD_ROUTER.route`，未调用共享注册表reserve/release；动态远端转发`reserve_calls=0/release_calls=0`，跨实例超卖风险仍存在。
+- BUG-20260811-021已将预留正式接入`_forward_production_request`；成功、业务错误、连接异常均finally释放，相同request使用稳定ID，整改关联`95 passed`。
+- 幂等契约复测通过：同ID仅在resource/memory/scope完全一致时复用，冲突保持旧预留并拒绝；异常矩阵10/10、关联78项与Python编译通过。
+- 软件复测首败：稳定job ID跨resource/scope/memory复用时直接命中旧预留，text预留后的video请求被错误返回text-only worker，完整派发身份未绑定。
+- 稽查整改：旧schema迁移使用`BEGIN IMMEDIATE`锁内复核并仅执行一次ALTER；8实例并发初始化全部成功，避免升级启动竞态。
+- 独立关联79项及正式schema/service_scope、唯一worker和空闲状态补验通过。
+
+### M9.176：生产能力提供方并发容量与热插拔保护（最终稽查通过，已完成）
+
+- `ProductionCapabilityRegistry`新增提供方级`max_concurrency`、实时`inflight`占用和容量背压；同优先级提供方在并发请求下按可用容量分流。
+- 软件测试通过：专项72项、20线程容量/公平/无超卖动态矩阵、关联96项及Python编译均通过；未访问正式服务、重模型或orphan prompt。
+- 运行中的提供方禁止卸载、全量替换或同提供方热替换；任务释放后可正常插拔，避免在途调用失去实现与版本归属。
+- 新增运行快照与并发契约校验；专项及关联`82 passed`，Python编译和差异格式检查通过，未修改兼容服务、未启动重模型或干预正式任务。
+
+### BUG-20260811-020：视频终态与Comfy owned prompt原子核销（最终稽查通过，已关闭）
+
+- 视频停止与终态提交前后必须确认owned prompt已从Comfy queue消失；取消未确认时保持`generating/cancel_pending`并保留资源票据，禁止返回停止成功。若同队列存在foreign running，禁止调用全局interrupt，只等待安全窗口。
+- 看门狗发现终态job仍有owned prompt时恢复资源票据，由专属worker核销后还原原终态；重启和关闭不得在取消未确认时伪造failed/cancelled。
+- 关联轻量生命周期回归`119 passed`，后端编译、Vue类型检查和Vite正式构建通过；未启动或干预正式重模型。
+
+### M9.175：H3 Context IR Agent接入Ref2VA生产链（最终稽查通过，已完成）
+
+- Ref2VA固定执行独立串行链：Context IR落盘优化结果→卸载专用32B模型并确认不驻留→释放Comfy→H3 Ref2VA；禁止两重模型并存或嵌套同一工作流。
+- Context IR持久化独立阶段、prompt ID、心跳、尝试次数及`optimized_prompt/selected_skills/raw_json`文件；H3只消费非空优化提示词，任何优化、落盘、取消、超时或卸载失败均阻断H3。
+- 第三轮测试发现当前job同批次内的符号链接在resolve后仍通过普通文件门禁并提交H3一次，BUG-20260811-019继续待处理。
+- symlink门禁已整改；第四轮测试发现history完整的正常成功路径不会登记并删除三个SaveText中转输出，任务结束仍残留文件，BUG-20260811-019继续待处理。
+- 中转清理已整改；第五轮测试发现publication父目录symlink仍可绕过末级文件检查并提交H3一次，BUG-20260811-019继续待处理。
+- 前置异常与三文件原子发布已整改；第二轮整改将当前job同批三文件设为唯一事实源，强制普通文件/同目录/非空/JSON门禁并从磁盘回读，缺失或错误零H3提交且不重试重推理。
+- 首败整改：Comfy启动、建目录与身份图复制全部进入统一清理域；清理文件失败不覆盖原始异常。三份Context IR产物先写唯一staging目录，写齐后以目录原子替换一次发布，任一写入失败均无可见半成品。
+- 首败已整改：Comfy启动、建目录和身份图复制全部进入统一清理作用域；前置异常也会卸载、free并移除本任务空目录，H3保持零提交。
+- Context prompt已纳入停止、结果中断回收、看门狗、恢复和关闭核销；临时输入与中转文本finally清理，完整资源票据、终态保护和最多一次普通重试保持。
+- 轻量动态测试覆盖成功、失败单次重试、history瞬时异常、超时、持久化失败、取消、卸载失败阻断及优化提示词唯一传递；关联`150 passed, 3 subtests passed`，Python编译、类型检查与正式构建通过，未启动重模型。
+
+### M9.174：资产阶段成功后清理历史并发冲突错误（最终稽查通过，已关闭）
+
+- 资产阶段已进入`waiting_confirmation/confirmed/completed`时，人物、道具、场景卡片不再保留历史`production stage is already running: assets`失败状态。
+- 前端加载、增量合并与后端权威资产合并统一归一化：无图恢复`pending`，已有图恢复`waiting_confirmation`，只清理已失效的阶段并发错误，不覆盖图片、确认、角度和3D成果。
+- 正式项目历史错误已通过项目阶段接口清理，资产阶段保持`waiting_confirmation`且资源队列为空。
+- 软件复测确认前后端白名单统一为`waiting_confirmation/confirmed/completed`；三类资产96项动态矩阵、关联134项、类型检查和正式构建通过。
+- 清理必须同时满足权威assets状态属于waiting_confirmation/confirmed/completed与错误文本精确匹配；failed/generating/cancelled等状态即使错误文本相同也不得改写卡片事实。
+
+### M9.173：基础设施提供方接口契约门禁（历史测试记录，已由最终稽查闭环覆盖）
+
+- 8类基础设施扩展metadata统一声明`contract_version`与`required_methods`，覆盖资源调度、台账、事实库、任务仓库、LangGraph、路由、任务租约和worker发现。
+- 扩展实例创建后、投入生产前逐项验证所需方法可调用；缺少任一方法立即抛出provider contract mismatch，禁止运行到任务中途才失败。
+- task lease契约包含跨实例阶段执行新增的request_cancel、cancellation_requested与commit_guard，PostgreSQL/Redis替换实现必须完整支持同等语义。
+- provider注册必须提供implementation_type；注册表在任何replace/activate写入前按类型验证全部required_methods，失败保持原provider集合、active绑定与实例创建能力不变；create仍对真实实例二次校验。
+- 非builtin provider在写入前还必须完成真实factory contract probe；factory None、异常、实例方法不可调用或申报类型与实物不符均原子拒绝。
+- 软件已覆盖factory注册后变坏、类型撒谎、非法schema、activate/替换/启停/卸载并发与8 builtin真实实例；专项`69 passed`、关联`149 passed, 3 subtests passed`，正式8契约及资源空闲通过。
+- 注册、完整替换、单provider刷新与显式激活共用同一契约验证：`required_methods`必须是合法集合，真实实例必须属于声明的`implementation_type`且方法全部可调用；激活时重新探测可变factory，失败保持原active。探测配置仅存注册表内部，不进入公开metadata。
+- 契约提升为extension-point级强制规范：已有契约的扩展点禁止候选省略或缩减required_methods；builtin探测豁免只由composition root构造白名单授予，公开metadata中的builtin字段不能产生信任。
+- 软件复测覆盖契约降级三类写入、伪造builtin、旧无契约完整替换、坏fallback自动接管和并发首注册；专项`70 passed`、动态`116`组、关联`150 passed, 3 subtests passed`及正式8项契约/空闲验收通过。
+- 软件已验证失败原子性`6/6`、8内置实例`8/8`、并发create/activate `2400/2400`和关联`146 passed, 3 subtests passed`；正式8个active metadata完整，资源全空。
+
+### M9.172：生产阶段跨实例单飞与持久取消（最终稽查通过，已关闭）
+
+- `/api/production/run-stage`同一tenant/user/project/stage必须持有SQLite分布式执行租约；进程内集合仅作快速提示，不再是多实例权威单飞依据。
+- 阶段租约使用持久单调generation；释放或过期后再次取得不得复用旧generation，防止旧执行体提交晚到结果。
+- 取消请求写入租约仓库，任意API实例均可取消实际owner；owner续租检测到持久取消后设置本地事件并停止提交。
+- 阶段结果写项目状态与LangGraph前均复核owner+generation；失租或取消按cancelled终态处理，禁止写waiting_confirmation。
+- 最终项目写回与LangGraph提交位于租约仓库`commit_guard`的同一SQLite写事务围栏内；取消与提交线性化，提交成功消费租约，取消先到则业务结果零写回。
+- LangGraph按stage持久最新执行generation并拒绝低代生命周期；纯失租的旧owner禁止报告任何Graph终态，只有确认属于当前代的显式取消才允许报告cancelled。
+- 软件已验证当前代即时取消、gen1/gen2反序、同/跨实例cancel-first与commit-first线性化、唯一项目写回及正式持久响应；专项`65 passed`、关联`144 passed, 3 subtests passed`，正式资源全空。
+- 每个失租/提交前检查点同步按owner+generation读取持久cancel_requested；不得等待续租线程设置旁路标志，确保当前代取消即时进入Graph cancelled。
+- 取消接口以SQLite request_cancel结果为唯一线性化事实；只有持久取消成功才设置本地Event并返回stopped=1，commit-first时必须返回0。
+- 软件已验cancel-first零业务写回/Graph cancelled与commit-first唯一waiting_confirmation/Graph pending_confirmation；不同scope并行、generation重启单调、异常无泄漏及正式服务均通过，关联`141 passed, 3 subtests passed`。
+
+### M9.171：MiniMax H3 Context IR提示词优化节点安装（供应链整改完成，待软件测试复测）
+
+- 固定安装JerryZRic Context IR Agent提交771cb3cb…，MIT许可；ComfyUI白名单加载FL2VA与Ref2VA两个提示词节点。
+- 本地OpenAI兼容端点使用专用qwen3-vl 32B/16K模型；真实Comfy调用输出非空H3结构化提示词，结束后模型卸载、队列清空。
+- 新增持久LaunchAgent与固定启动脚本；节点路径、依赖、模式、内存、真实证据及“非官方云Context-IR”边界已同步规范。
+- M9.175已完成短剧Ref2VA自动生产接线、独立任务状态、落盘、精确取消和卸载门禁；FL2VA等其他模式仍只保留节点安装能力。
+- 供应链已固定Git提交、MIT许可哈希、42项Python完整版本及下载哈希、32B源blob SHA-256；提供可复现安装/校验脚本、CycloneDX SBOM、pip-audit与Bandit证据。
+
+### M9.169：统一任务权威提交与JSON投影崩溃一致性（最终稽查通过，已关闭）
 
 - text/image/video任务保存顺序统一为：先提交可插拔统一任务仓库，再写兼容JSON投影。禁止JSON先成功、SQLite后失败造成重启时终态倒退。
 - JSON投影失败时权威任务仍可从SQLite读取并覆盖旧投影；权威提交失败时禁止修改JSON，避免兼容文件冒充已提交事实。
@@ -13,6 +377,7 @@
 - outbox事件使用SQLite全局单调revision；确认删除必须匹配job_id+revision。LangGraph按stage保存最新投影revision并拒绝旧版本，保证并发drain不会误删新事件或用旧queued覆盖新completed。
 - 多服务实例投影前必须取得SQLite中的tenant/user/project/stage级租约；租约自动续期、进程失联后过期。持锁后重新读取最新outbox，跨实例禁止同时写同一阶段checkpoint。
 - 续租失败、租约被接管或数据库异常必须立即标记`lost`；Graph提交前后及ack前均复核所有权。提交途中失租时，从SQLite权威任务重新生成更高revision事件，禁止旧持有者确认新事件，并由后续投影自动修复可能的旧checkpoint。
+- 软件复测已覆盖失租晚到修复、两进程原子抢锁、续租/释放/replay SQLite busy、shutdown不ack及正式空闲验收；关联`137 passed, 3 subtests passed`，专项`59 passed`。
 - 租约释放与单个任务库重放遇到SQLite busy时保留TTL/outbox并等待下次心跳；异常不得逃逸并终止worker heartbeat，其他任务库仍须继续重放。
 
 ### M9.170：服装独立道具资产与镜头级换装链（最终稽查通过，已关闭）
@@ -81,7 +446,7 @@
 
 ### M9.158：人物左右45°多角度档案（历史顺序，已被M9.166覆盖）
 
-- 六格能力继续保留；当前顺序改为左45°全身基准、0°正面、右45°、90°、180°、0°半身。
+- 六格能力继续保留；该左45°首张顺序已被M9.187的0°正面全身首张口径覆盖。
 - Qwen‑Edit支持`left_45_full/right_45_full`，所有角度固定使用0°基准图哈希种子；已生成角度自动合成人物档案并作为Image 3传入后续角度。
 - 分镜继续读取人物全部已确认角度作为身份、服饰与轮廓参考，0°半身保持人脸主参考。
 
@@ -104,7 +469,7 @@
 - 90°/180°链使用按项目+资产键控控制器，每个网络与持久化边界复核project/session/abort；旧项目90°晚到不得启动180°。
 - 当前厚涂0°会加载批准的Klein9B厚涂风格LoRA；男女Klein9B人物LoRA未获production_approved，不得偷偷加载。结果元数据记录实际LoRA文件、scale和SHA。
 - 项目加载只自动补资产框架；图片中断恢复为pending并提示主动点击生成，禁止load/resume自动启动图片模型。
-- 历史0°/`front_full`人物3D输入已废止；当前M9.166固定使用已确认左45°全身与`reference_angle=left_45_full`。
+- 该M9.166左45°人物3D输入已被M9.187覆盖；当前固定使用已确认0°正面全身与`reference_angle=front_full`。
 - 资产框架提取继续使用project/session键控单飞和晚到响应围栏，避免`assets already running`回归。
 
 ### M9.155：Flux场景/道具固定角度CFG锁定（2026-08-11）
@@ -199,8 +564,6 @@
 - 3D只审核结构、姿态和服装/道具大致对应，不审核面部相似度；面部一致性继续由2D身份链锁定。
 - 规范：`docs/specs/短剧3D资产生产规范.md`、`docs/specs/短剧从剧本到成片生产规范.md`、`plugins/builtin/short_drama/templates/prompts/AI_SHORT_DRAMA_PRODUCTION_SPEC.md`。
 
-## 一、自动执行规则
-
 ### M9.144：大纲生产任务可靠性与性能闭环（历史模型口径，已被M9.163覆盖）
 
 - 大纲总纲和分集批次统一登记服务端唯一任务ID、真实工作线程、阶段、心跳和1800秒硬超时。
@@ -209,14 +572,15 @@
 - 历史27B Q8复用与122B审核模型口径已废止；当前按M9.163固定为qwen3-vl:32b生成、qwen2.5:72b初审→最多一次修正→终审，串行加载并在完成后卸载。
 - 前端大纲结果整段即时展示，项目切换和页面中断立即持久化失败并定向停止后端任务。
 
-1. 严格按 M1 → M2 → M3 → M4 → M5 → M6 → M7 → M8 → M9 → M10 → M11 和任务编号顺序连续执行，不重复确认。
-2. 每项完成后立即执行相关测试、同步 `docs/product/项目进度.md` 与 `docs/memory/项目记忆.md`，随后自动进入下一项。
-3. 单项完成、阶段切换、阶段性汇报和外部稽查均不构成停止条件。
-4. 仅用户明确说“停下”、全部任务完成或出现无法自行消除的真实阻塞时停止。
-5. 软件测试与外部稽查独立进行；问题统一登记到 `Dev_BUG_TRACKER.md`，固定按“主力开发 → 软件测试 → 代码稽查”流转，任一失败均按原 BUG 编号退回主力开发，稽查关闭后返回原任务。
-6. 所有实现遵守 `DIRECTORY_README.md`；不得创建 `server/`、`platform/registry/` 或其他未登记目录。
-7. 平台通用能力进入 `platform/`，短剧业务只进入 `plugins/builtin/short_drama/`，跨层结构只进入 `shared/contracts/`。
-8. 每项必须同时具备实现、正常场景测试、直接异常测试和文档同步才算完成。
+## 一、历史路线顺序与现行执行约束
+
+1. M1 → M11 仅表示产品路线依赖顺序，不构成自动执行授权。
+2. 当前只处理用户明确反馈的一条问题；完成开发、测试、稽查和记录闭环后停止，等待用户确认下一条。
+3. 软件测试与代码稽查属于当前问题的完成门禁，不是新的问题；任一失败均按原 BUG 编号退回主线开发。
+4. 当前状态以文件顶部最新未关闭条目和 `Dev_BUG_TRACKER.md` 为准，历史条目不得自动恢复执行。
+5. 所有实现遵守 `DIRECTORY_README.md`；不得创建 `server/`、`platform/registry/` 或其他未登记目录。
+6. 平台通用能力进入 `platform/`，短剧业务只进入 `plugins/builtin/short_drama/`，跨层结构只进入 `shared/contracts/`。
+7. 每项必须同时具备实现、正常场景测试、直接异常测试和文档同步才算完成。
 
 ## 二、目标与顺序
 
@@ -462,9 +826,9 @@
 - M9.117：场景固定角度改为主平视、左45度、右45度和高角度微俯视四张；左右45度使用独立标签、互斥方向提示和独立图片槽，历史单45度/低角度数据在继续生成时按新定义归一化。
 - M9.126（历史人物角度链，已被M9.163覆盖）：曾使用Schnell、RealVisXL、IP-Adapter与OpenPose串行链；当前固定角度唯一执行链为Qwen-Edit多参考六格。
 - M9.127：国风浅涂“国风仙韵”和国风厚涂“油画仙韵”两份 FLUX.1 LoRA 已获准直接用于对应项目的 Schnell 基准图；固定角度阶段不继承 LoRA。
-- M9.128：人物正面全身、严格90°侧面、严格180°背面统一强制发顶上方约5%画高、完整鞋底下方约5%画高安全边距；生成提示词、视觉验收字段和正式图片规范同步执行。
+- M9.128（历史5%安全边距，已被M9.189覆盖）：当前全部人物全身角度统一为发顶上方纯背景至少8%、鞋底下方纯背景至少3%，均为最低值而非固定值。
 - M9.129：道具基准图新增单一独立道具、纯中性背景、无场景环境、无文字招牌、无真人人体五项硬验收；道具禁止加载人物风格 LoRA，商店、街道、房间和建筑等场景图无法再以道具图放行。
-- M9.130：项目图片预览已统一为 Codex 式底部悬浮缩放条，支持适窗实际百分比、加减缩放、滚轮缩放、拖拽平移、双击/百分比复位和键盘快捷键；人物固定角度图生成后先执行确定性前景归一化，强制发顶与鞋底各约5%安全边距，再执行身份、方向、服装、体型和尺寸验收。
+- M9.130（图片预览能力保留；历史5%归一口径已被M9.189覆盖）：项目图片预览继续支持适窗、缩放、拖拽和复位；人物全身角度的确定性前景归一现执行发顶至少8%、鞋底至少3%的非固定安全区下限，再进入身份、方向、服装、体型和尺寸验收。
 - M9.131：人物固定角度一致性门禁已纠正错误放行：正面全身独立核对脸型年龄、刘海分缝、扎发/辫子、发长发色、领口扣饰、服装主色和装饰复杂度；旧全身服装引用在重生时清除，缺失引用强制回退到已确认基准图。当前错误候选已作废，新候选因身份、发型、服装不一致被正确拦截，未进入人工确认。
 - M9.132：“就要这张”确认链路已解除生产台账同步等待，确认后立即切换生成状态并异步登记台账；人物基准确认时强制重置失效服装引用为当前基准图，后端缺失引用同步回退。真实页面验证按钮点击后立即消失、显示生成中和暂停，并创建全身角度任务。
 - M9.125：全网及 GitHub 扩展检索后下载14个 FLUX.1 仅测试候选，严格归入国风浅涂或国风厚涂：风格5、女性3、男性3、灵兽3；许可、来源、大小、SHA-256、Safetensors 与 FLUX 权重键登记到独立测试索引，正式模型索引和商用索引继续保持为空，未实图验收前禁止进入生产。
@@ -473,7 +837,7 @@
 ## 十五、最终完成标准
 
 M1—M11 全部实现并通过单元、契约、集成、端到端、安全、性能、部署和灾备验收；正式环境可安装、升级、回滚和恢复；文档与真实状态一致；不存在模拟成功、跨层业务污染、跨租户访问或未记录缺口。
-- M9.122：人物正面近照唯一标准构图固定为928×1664、脸高占画40%—50%（自动目标45%）、完整头发与双耳入框、发顶保留5%安全边距、左右各保留2%安全边距、肩胸完整、InsightFace偏航/翻滚≤7°；后端已强制执行单脸、发顶与发宽检测及规范化裁切。
+- M9.122（历史正面近照口径，已被M9.187/M9.189覆盖）：曾规定脸高40%—50%、目标45%及发顶5%；当前0°半身仅承担腰部裁切近景身份职责，0°正面全身是唯一基准和TripoSR人物输入，全部全身角度执行发顶至少8%、鞋底至少3%的安全区。
 - M9.138（历史人物角度链，已被M9.163覆盖）：曾以Klein扩展全身并以RealVisXL/IP-Adapter/OpenPose生成侧背；当前固定角度唯一执行链为Qwen-Edit多参考六格，原比例验收门禁继续保留。
 - M9.139（历史未落地候选，已被M9.163覆盖）：Visual Persona/PSHuman三视图未成为当前执行链；当前固定角度唯一执行链为Qwen-Edit多参考六格。
 - M9.141（历史文本路由，已被M9.163覆盖）：曾使用9B/27B/122B三档Qwen3.5；当前唯一执行口径为qwen3-vl:32b生成、qwen2.5:72b初审→最多一次修正→终审，并继续共用重任务互斥锁、按需串行加载和完成后卸载。
@@ -485,10 +849,35 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - AI规范保持14个唯一章节；后端大纲/分集/剧本/单镜/整集分镜入口统一拒绝55—65秒外请求，不再静默夹值。
 ### M9.166：45°单图3D输入与七角度自动回填（开发完成，待软件测试）
 
-- 人物首张改为左45°全身并作为TripoSR唯一人物几何输入；人物卡保持六格，其余五格继续由Qwen‑Edit逐槽生成确认。
+- 该左45°首张与TripoSR输入已被M9.187覆盖；当前首张及人物几何输入为0°正面全身，人物卡六格和Qwen‑Edit逐槽确认继续有效。
 - 道具只生成45°三分之二视图，场景只生成45°空场景全景；人工确认后自动启动TripoSR→Blender，禁止2D继续补角度。
 - Blender七角度RGB/Mask/Depth/Normal完成后自动回填道具/场景卡片；3D审核图只读，不提供2D导入、重做或修复操作。
 ### M9.168：资产生成冲突接管与人物卡排序（开发完成，待软件测试）
 
 - 图片按钮遇到同项目assets提取已运行时不再直接失败；前端等待服务端权威阶段完成，合并人物/道具/场景后继续生图，超时才给出中文可恢复提示。
-- 人物卡展示顺序固定为0°正面半身、0°正面全身、左45°全身、右45°全身、90°侧面全身、180°背面全身；左45°仍是TripoSR唯一人物几何输入，显示顺序不改变生成职责。
+- 人物卡展示顺序固定为0°正面半身、0°正面全身、左45°全身、右45°全身、90°侧面全身、180°背面全身；该M9.168左45° TripoSR输入属于历史口径并已被M9.187覆盖，当前唯一人物几何输入为0°正面全身。
+# M9.179：审核导出服务端闭环（2026-08-11）
+
+- `review_export`不再是未安装占位：统一阶段执行器支持`audit/export`两种串行操作，复用现有stage lease、取消事件、local-call checkpoint与能力注册表。
+- 成片审核与交付导出的正式前端入口均改走`/api/production/run-stage`；前端只负责准备命令、展示证据与人工确认，不再直连最终审核/导出能力。
+- 审核批次要求非空且分集唯一；导出媒体要求非空且分集唯一。启用审核时，所有待导出集必须存在`status=pass && confirmed=true`的审核事实，否则服务端拒绝导出，禁止绕过质量门禁。
+- 轻量动态与关联测试21项通过；前端类型检查与生产构建通过，未启动重模型或操作正式任务。
+- BUG-20260811-024修复：一次最终审核点击严格只提交一次整批`runStage`；逐集审核与瞬态失败单次重试归服务端，前端不再按分集/attempt循环提交阶段。整批响应受project/session/abort晚到围栏保护，失败证据原样写回且不得进入导出。
+# M9.194 联网搜索能力框架接入（最终稽查通过，已完成）
+
+- 对话新增统一 `web.search` 能力注册与搜索意图路由；Brave（配置 Key）优先，DuckDuckGo/Bing/Google 免 Key 多源后备并有限重试。
+- 联网回答强制附来源与检索审计信息；所有提供方失败时阻止本地模型无来源作答。
+- 已加入公网 URL/协议/响应类型/体积/超时门禁，前端检索状态与结果继续在对话框展示。
+- 最终独立复测：真实公网空缓存连续3/3取得LangGraph权威来源；GitHub限流/403逐次留痕并可审计降级。专项147 passed/1 skipped/3 subtests；全unit 543 passed/1 skipped/9 subtests；py_compile、后端compileall、Vue typecheck、Vite 83 modules及文档状态检查通过。
+- 用户截图复现根因与整改：旧链只检查“有来源”，缺少模型实体、主题相关性和发布日期门禁。原句真实HTTP现仅返回SenseNova U1、Flux.2 Klein、GLM-Image，按发布日期倒序，无翻译/Tamil/字体/工具/提示库；确定性回答不调用LLM，回答与来源使用同一结果数组。查询保留本地运行、Apple Silicon、日期和商用等附加条件；缓存恢复透传cache_hit、live_attempts、恢复时间，跨查询、过期、损坏及私网来源均失败关闭。
+### M9.195：LangGraph拒绝事件持久快照围栏（最终稽查通过，已完成）
+
+- 修复旧projection revision、旧stage generation虽未回退生命周期却覆盖顶层持久`event`的问题；重启恢复和导演决策不再读取被拒绝的旧owner/旧authority信息。
+- 新增`accepted_event`和按stage权威事件映射；阶段事件只有通过revision与generation双围栏后才同时发布。已有正代际时，无代际legacy回调同样失败关闭。
+- 动态覆盖旧revision、旧generation、无generation、跨stage隔离和SQLite重载；完整单元测试`507 passed, 1 skipped, 9 subtests passed`，未启动重模型或操作正式任务。BUG-20260811-043待独立软件测试。
+- LangGraph/生产集成与authority恢复扩大组合冻结复跑`117 passed, 1 skipped`；Python编译、Vue typecheck及83模块生产构建通过。
+- 独立软件测试首败：当前双围栏错误地先全局比较`projection_revision`，导致更高`stage_generation`配合新代较小revision被拒绝；动态`generation 4/revision 10 -> generation 5/revision 1`后仍保留旧owner事件。须改为generation优先、revision仅在同generation内单调，再重新测试完整矩阵。
+- 退回整改完成：generation现为第一所有权围栏；更高代重置并建立自身revision序列，同代才执行revision单调检查。未来高代、同代旧/缺revision、旧/零代、跨stage、重载和双实例专项`7 passed`；完整单元测试`525 passed, 1 skipped, 9 subtests passed`，编译、类型检查与83模块构建通过。
+- 第二轮退回整改完成：正代际按stage accepted-event存在性识别revision序列，因此新代首个0可接管、第二个重复/缺失0严格拒绝、1正常推进；无stage事件的真旧checkpoint允许一次迁移。run-stage成功/失败、确认、协调提交及恢复入口全部显式递增revision。专项`9 passed`、完整unit`543 passed, 1 skipped, 9 subtests passed`，编译/typecheck/83模块构建通过，待独立复测。
+- 最新独立软件复测通过：事件围栏、阶段取消、authority原子提交、项目恢复与文档状态关联`132 passed`；完整unit`554 passed, 1 skipped, 9 subtests passed`，Node运行时补充后对应动态文件`23 passed`；关键Python编译、Vue typecheck及83模块生产构建通过。BUG043待只读稽查。
+- 最终只读稽查通过：generation优先、同代revision单调、revision0唯一首事件、legacy一次迁移、拒绝事件恢复与正式调用方revision推进均成立；BUG-20260811-043已关闭。

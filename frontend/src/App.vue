@@ -1,15 +1,9 @@
 <script setup lang="ts">
-import { provide } from "vue";
-import {
-  appRuntimeKey,
-  createAppRuntime,
-} from "../../plugins/builtin/short_drama/frontend/app-runtime";
 import { registerShortDramaFrontend } from "../../plugins/builtin/short_drama/frontend/register";
 import { registerSystemAgentsFrontend } from "../../plugins/builtin/system_agents/frontend/register";
 import CanvasSlot from "./plugin-slots/slots/CanvasSlot.vue";
 import { listPluginSlots } from "./plugin-slots/registry";
 
-provide(appRuntimeKey, createAppRuntime());
 registerShortDramaFrontend();
 registerSystemAgentsFrontend();
 const canvasPlugins = listPluginSlots("canvas");

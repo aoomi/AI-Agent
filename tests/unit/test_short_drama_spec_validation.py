@@ -155,12 +155,12 @@ class StoryboardValidationTest(unittest.TestCase):
         self.assertIn('variant.status = "pending"', source)
         self.assertIn("hasCompleteAssetVariants(group.kind, item)", source)
 
-    def test_character_baseline_uses_left_45_full_body_without_retry_loop(self) -> None:
+    def test_character_baseline_uses_front_full_body_with_bounded_retry(self) -> None:
         backend = MODULE_PATH.read_text(encoding="utf-8")
         self.assertNotIn("for validation_attempt in range(5)", backend)
-        self.assertIn("strict left 45-degree full-body view", backend)
+        self.assertIn("strict zero-degree front-facing full-body view", backend)
         self.assertIn("complete head, hands and shoes visible", backend)
-        self.assertIn('_validate_character_variant(image.get("url", ""), image, "left_45_full")', backend)
+        self.assertIn('_validate_character_variant(candidate.get("url", ""), candidate, "front_full")', backend)
 
     def test_regeneration_purges_scoped_media_jobs_and_frontend_state(self) -> None:
         backend = MODULE_PATH.read_text(encoding="utf-8")
@@ -171,7 +171,8 @@ class StoryboardValidationTest(unittest.TestCase):
         self.assertIn("def _purge_generated_assets", backend)
         self.assertIn("target.unlink(missing_ok=True)", backend)
         self.assertIn('postJson<T>("/api/assets/purge-generated"', service)
-        self.assertIn("await assetService.purgeGenerated({ project_id:project.id, asset_kind:kind, asset_name:item.name })", frontend)
+        baseline = frontend[frontend.index("async function generateAssetBaseline"):frontend.index("async function generateAsset3D")]
+        self.assertNotIn("assetService.purgeGenerated", baseline)
         self.assertIn("重新生成强制版本规则", spec)
 
 

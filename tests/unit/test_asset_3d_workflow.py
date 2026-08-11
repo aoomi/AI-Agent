@@ -23,26 +23,26 @@ def test_klein9b_reference_generation_is_fixed_to_8bit_8_steps():
     assert 'mlx-community/flux2-klein-9b-8bit' in BACKEND
     assert '"--base-model", "flux2-klein-9b", "--steps", "8"' in BACKEND
     assert 'model="FLUX.2 Klein 9B 8-bit"' in BACKEND
-    assert 'reference_angle = "left_45_full" if kind == "character" else "three_quarter_45"' in BACKEND
+    assert 'reference_angle = "front_full" if kind == "character" else "three_quarter_45"' in BACKEND
 
 
-def test_character_first_card_is_left_45_full_body():
+def test_character_first_card_is_front_full_body():
     assert 'label:"左45°全身"' in APP
     assert 'label:"0°正面全身"' in APP
-    assert '严格左45度完整全身照' in APP
+    assert '严格0度正面平视完整全身照' in APP
     assert 'label:"90°侧面全身"' in APP
     assert 'label:"180°背面全身"' in APP
     assert 'label:"0°正面半身"' in APP
-    assert 'reference_angle:kind === "character" ? "left_45_full" : "three_quarter_45"' in APP
+    assert 'reference_angle:kind === "character" ? "front_full" : "three_quarter_45"' in APP
     assert 'baseline_confirmed:Boolean(item.baseline_confirmed_at)' in APP
 
 
-def test_character_3d_rejects_missing_or_unconfirmed_left45_baseline(monkeypatch):
+def test_character_3d_rejects_missing_or_unconfirmed_front_baseline(monkeypatch):
     monkeypatch.setattr(BACKEND_MODULE, "_assert_image_job_runnable", lambda _job_id: None)
     invalid = (
-        {"asset_kind":"character", "reference_angle":"left_45_full", "baseline_confirmed":True},
-        {"asset_kind":"character", "reference_angle":"front_full", "source_baseline_url":"/x.png", "baseline_confirmed":True},
-        {"asset_kind":"character", "reference_angle":"left_45_full", "source_baseline_url":"/x.png", "baseline_confirmed":False},
+        {"asset_kind":"character", "reference_angle":"front_full", "baseline_confirmed":True},
+        {"asset_kind":"character", "reference_angle":"left_45_full", "source_baseline_url":"/x.png", "baseline_confirmed":True},
+        {"asset_kind":"character", "reference_angle":"front_full", "source_baseline_url":"/x.png", "baseline_confirmed":False},
     )
     for payload in invalid:
         try:
@@ -53,12 +53,12 @@ def test_character_3d_rejects_missing_or_unconfirmed_left45_baseline(monkeypatch
             raise AssertionError(f"invalid character 3D input accepted: {payload}")
 
 
-def test_runtime_ai_spec_uses_six_views_but_only_left45_as_3d_baseline():
+def test_runtime_ai_spec_uses_six_views_but_only_front_as_3d_baseline():
     assert "人物资产固定六图" in SPEC_AI
-    assert "先生成左45度全身基准并人工确认" in SPEC_AI
+    assert "先生成0度正面全身基准并人工确认" in SPEC_AI
     for token in ("腰部裁切", "手部完全出画", "约占画高75%", "双肩不触边", "纯色无杂物背景"):
         assert token in SPEC_AI
-    assert "TripoSR只读取已确认左45度全身基准图" in SPEC_AI
+    assert "TripoSR只读取已确认0度正面全身基准图" in SPEC_AI
 
 
 def test_prop_and_scene_use_one_confirmed_45_reference_then_blender_renders():
@@ -88,7 +88,7 @@ def test_3d_api_has_unique_job_and_existing_lifecycle_guards():
     assert 'if parsed.path == "/api/assets/3d/generate"' in BACKEND
     assert 'job_id = str(uuid4())' in BACKEND
     assert 'subject_key = f"{project_id}:3d:{kind}:{asset_name}"' in BACKEND
-    assert 'expected_subject = f"{project_id}:3d:{kind}:{asset_name}"' in BACKEND
+    assert 'expected_subject = f"{project_identity}:3d:{kind}:{asset_identity}"' in BACKEND
     assert 'str(job.get("subject_key") or "") != expected_subject' in BACKEND
     assert 'ACTIVE_IMAGE_SUBJECTS[subject_key] = job_id' in BACKEND
     assert 'workflow":"asset_3d"' in BACKEND
@@ -120,10 +120,12 @@ def test_worker_enforces_asset_specific_face_caps_and_deliverables():
     assert 'bpy.ops.mesh.delete_loose' in WORKER
     assert 'bpy.ops.mesh.fill_holes' in WORKER
     assert 'non_manifold_edges' in WORKER
+    assert '_seal_simple_boundary_loops(repair_mesh)' in WORKER
+    assert 'sum(edge in component_edges for edge in vertex.link_edges) != 2' in WORKER
 
 
 def test_frontend_exposes_generate_stop_confirm_and_downloads():
-    for token in ("generateAsset3D", "stopAsset3D", "confirmAsset3D", '@generate3d="generateAsset3D', '@confirm3d="confirmAsset3D', '@stop3d="stopAsset3D'):
+    for token in ("generateAsset3D", "stopAsset3D", "confirmAsset3D", '@generate3d="queueAsset3D', '@confirm3d="queueAsset3DConfirmation', '@stop3d="stopAsset3D'):
         assert token in APP
     assert 'model3d_status' in APP
     assert 'model_url' in ASSET_CARD and 'blend_url' in ASSET_CARD
@@ -140,6 +142,45 @@ def test_confirmed_3d_channels_are_consumed_by_storyboard_generation():
     assert 'archive_root.replace(backup)' in BACKEND
     assert 'backup.replace(archive_root)' in BACKEND
     assert 'def _recover_asset_3d_archive_backups' in BACKEND
+
+
+def test_3d_confirmation_keeps_business_identity_separate_from_safe_path(monkeypatch, tmp_path):
+    output_root = tmp_path / "output"
+    application_root = tmp_path / "application"
+    candidate = output_root / "assets3d/project/prop/信纸_信件"
+    candidate.mkdir(parents=True)
+    (candidate / "report.json").write_text("{}", encoding="utf-8")
+    store = {"jobs": {
+        "matching": {
+            "workflow":"asset_3d", "status":"completed", "project_id":"project",
+            "asset_kind":"prop", "asset_name":"信纸/信件",
+            "subject_key":"project:3d:prop:信纸/信件",
+            "result":{"status":"pending_confirmation", "candidate_path":str(candidate), "asset_type":"prop"},
+        },
+        "other": {
+            "workflow":"asset_3d", "status":"completed", "project_id":"project",
+            "asset_kind":"prop", "asset_name":"信纸/信件-副本",
+            "subject_key":"project:3d:prop:信纸/信件-副本",
+            "result":{"status":"pending_confirmation", "candidate_path":str(candidate), "asset_type":"prop"},
+        },
+    }}
+    monkeypatch.setattr(BACKEND_MODULE, "OUTPUT_ROOT", output_root)
+    monkeypatch.setattr(BACKEND_MODULE, "APPLICATION_ROOT", application_root)
+    monkeypatch.setattr(BACKEND_MODULE, "_load_image_jobs", lambda: store)
+    monkeypatch.setattr(BACKEND_MODULE, "_save_image_jobs", lambda value: None)
+    result = BACKEND_MODULE._confirm_asset_3d_job({
+        "job_id":"matching", "project_id":"project", "asset_kind":"prop", "asset_name":"信纸/信件",
+    })
+    assert result["status"] == "completed"
+    assert Path(result["archive_path"]).name == "信纸_信件"
+    try:
+        BACKEND_MODULE._confirm_asset_3d_job({
+            "job_id":"other", "project_id":"project", "asset_kind":"prop", "asset_name":"信纸/信件",
+        })
+    except ValueError as error:
+        assert str(error) == "3D候选与资产不匹配"
+    else:
+        raise AssertionError("different business identity accepted after filename normalization")
 
 
 def test_identity_boundary_is_explicit_in_both_specs():

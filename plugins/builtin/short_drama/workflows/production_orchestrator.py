@@ -32,8 +32,11 @@ class ProductionControlState(TypedDict, total=False):
     user_id: str
     project_id: str
     event: dict[str, Any]
+    accepted_event: dict[str, Any]
+    stage_events: Annotated[dict[str, dict[str, Any]], operator.or_]
     stages: Annotated[dict[str, str], operator.or_]
     projection_revisions: Annotated[dict[str, int], operator.or_]
+    stage_generations: Annotated[dict[str, int], operator.or_]
     current_stage: str
     next_stage: str
     status: str
@@ -113,18 +116,20 @@ class ProductionOrchestrator:
         waiting = self.report(identity, canonical, "pending_confirmation", evidence=dict(output))
         return {**waiting, "output": dict(output), "error": ""}
 
-    def begin(self, identity: Mapping[str, Any], stage: str) -> dict[str, Any]:
+    def begin(self, identity: Mapping[str, Any], stage: str, *, stage_generation: int = 0) -> dict[str, Any]:
         """Authorize a legacy endpoint through the same dependency gate."""
         canonical = canonical_stage(stage)
         state = self.state(identity)
         if state.get("status") == "cancelled":
-            raise ValueError("workflow is cancelled")
+            current_generation = int(state.get("stage_generations", {}).get(canonical) or 0)
+            if stage_generation <= current_generation:
+                raise ValueError("cancelled workflow requires a newer stage generation")
         if state.get("stages", {}).get(canonical) == "running":
             raise ValueError(f"production stage is already running: {canonical}")
         index = CANONICAL_STAGES.index(canonical)
         if index and state["stages"].get(CANONICAL_STAGES[index - 1]) != "completed":
             raise ValueError(f"previous stage is not completed: {CANONICAL_STAGES[index - 1]}")
-        return self.report(identity, canonical, "running")
+        return self.report(identity, canonical, "running", stage_generation=stage_generation)
 
     def _compile(self):
         builder = StateGraph(ProductionControlState)
@@ -137,11 +142,37 @@ class ProductionOrchestrator:
                 raise ValueError(f"invalid production lifecycle: {lifecycle}")
             incoming_revision = max(0, int(event.get("projection_revision") or 0))
             current_revision = int((state.get("projection_revisions") or {}).get(stage) or 0)
-            if incoming_revision and incoming_revision <= current_revision:
-                return {"projection_revisions": {}, "updated_at": datetime.now(UTC).isoformat()}
+            incoming_generation = max(0, int(event.get("stage_generation") or 0))
+            current_generation = int((state.get("stage_generations") or {}).get(stage) or 0)
+
+            def reject() -> dict[str, Any]:
+                return {
+                    "event": dict(state.get("accepted_event") or {}),
+                    "updated_at": datetime.now(UTC).isoformat(),
+                }
+
+            # A generation is the owner fence.  Revisions are only comparable
+            # inside that generation: a newly leased owner restarts its local
+            # projection sequence and must not be rejected by the old owner's
+            # numerically larger revision.
+            if current_generation and incoming_generation < current_generation:
+                return reject()
+            same_generation = incoming_generation == current_generation
+            stage_events = state.get("stage_events") or {}
+            has_accepted_stage_event = isinstance(stage_events.get(stage), Mapping)
+            if (
+                same_generation
+                and has_accepted_stage_event
+                and (current_generation > 0 or current_revision > 0)
+                and incoming_revision <= current_revision
+            ):
+                return reject()
             return {
+                "event": event, "accepted_event": event, "stage_events": {stage:event},
                 "stages": {stage: lifecycle}, "current_stage": stage,
-                "projection_revisions": {stage:incoming_revision} if incoming_revision else {},
+                "projection_revisions": {stage:incoming_revision}
+                    if incoming_revision or incoming_generation > current_generation else {},
+                "stage_generations": {stage:incoming_generation} if incoming_generation else {},
                 "updated_at": datetime.now(UTC).isoformat(),
             }
 
@@ -220,7 +251,14 @@ class ProductionOrchestrator:
             "next_stage": str(state.get("next_stage") or ""),
             "stages": dict(state.get("stages") or {}),
             "decision": dict(state.get("decision") or {}),
+            "event": dict(state.get("event") or {}),
+            "stage_events": {
+                str(key):dict(value)
+                for key, value in dict(state.get("stage_events") or {}).items()
+                if isinstance(value, Mapping)
+            },
             "projection_revisions": {str(key):int(value) for key, value in dict(state.get("projection_revisions") or {}).items()},
+            "stage_generations": {str(key):int(value) for key, value in dict(state.get("stage_generations") or {}).items()},
             "updated_at": str(state.get("updated_at") or ""),
             "orchestrator": "langgraph",
             "director_model": "mlx-community/Qwen3.5-122B-A10B-mxfp4",

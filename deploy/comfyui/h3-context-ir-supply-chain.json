@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "component": "MiniMax H3 Context IR Agent",
+  "source": {
+    "repository": "https://github.com/JerryZRic/comfyui-minimax-h3-context-ir-agent.git",
+    "commit": "771cb3cb01af9543b4f424518bb19b7fa0cf31d8",
+    "license": "MIT",
+    "license_sha256": "e9da65c5e066e8b1f928c3db22ba71397bf7153ed1daf1c3c838b0a6531e3f87",
+    "upstream_requirements_sha256": "4194f9139f715cd433a0de6e37358bf10992372d0ff87eab45895e11879b842f",
+    "local_compatibility_patch": "deploy/comfyui/h3-context-ir-local-instruct.patch",
+    "local_compatibility_patch_sha256": "499703d22b4d5598ca543e8634cd6f08472cc45839899c33662eecec48d5de55"
+  },
+  "python_dependencies": {
+    "lockfile": "deploy/comfyui/h3-context-ir-requirements.lock",
+    "lockfile_sha256": "f3632aac1b0c9f42d78103244ff20da705cf4265e6a638b28539da49aff9bb34",
+    "direct_versions": {
+      "openai-agents": "0.19.4",
+      "openai": "2.53.0",
+      "Pillow": "12.3.0",
+      "numpy": "2.4.6"
+    }
+  },
+  "context_model": {
+    "source_name": "qwen3-vl:32b-instruct",
+    "source_blob": "/Users/aoo/.ollama/models/blobs/sha256-4c7fee11ee9e3b139575eedb4cd68521729ece7fc0a356150a6672e773c607ea",
+    "source_blob_size": 20910274592,
+    "source_blob_sha256": "4c7fee11ee9e3b139575eedb4cd68521729ece7fc0a356150a6672e773c607ea",
+    "derived_name": "qwen3-vl-h3-context-ir:latest",
+    "num_ctx": 16384,
+    "num_predict": 2048,
+    "renderer": "qwen3-vl-instruct",
+    "parser": "qwen3-vl-instruct"
+  },
+  "security_evidence": {
+    "sbom": "docs/security/h3-context-ir-sbom.cdx.json",
+    "vulnerability_scan": "docs/security/h3-context-ir-pip-audit.json",
+    "static_scan": "docs/security/h3-context-ir-bandit.json",
+    "vulnerabilities": 0,
+    "static_high": 0,
+    "static_medium": 0,
+    "static_low": 1,
+    "static_low_disposition": "B110 at upstream nodes.py:252: broad Exception is swallowed only while calling set_tracing_disabled(True). Accepted as a low-severity observability failure: the approved runtime uses a loopback Ollama endpoint and placeholder key, config and LaunchAgent set OPENAI_AGENTS_DISABLE_TRACING=1, and installation verification asserts the pinned agents API can disable tracing. Any future API incompatibility is blocked by exact dependency and source hashes.",
+    "runtime_smoke": "docs/security/h3-context-ir-runtime-smoke.json"
+  }
+}

@@ -69,35 +69,59 @@ class ProductionControlTests(unittest.TestCase):
                 received["body"] = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 payload = json.dumps({"accepted":True}).encode(); self.send_response(202); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(payload))); self.end_headers(); self.wfile.write(payload)
             def log_message(self, *_): return
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Echo); thread = threading.Thread(target=server.serve_forever); thread.start()
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Echo); thread = threading.Thread(target=server.serve_forever); thread.start(); dispatch_temp = TemporaryDirectory()
         try:
             root = Path(__file__).resolve().parents[2]
             spec = importlib.util.spec_from_file_location("compat_remote_dispatch_test", root / "plugins/builtin/short_drama/backend/compat_server.py")
             module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-            module.WORKLOAD_ROUTER = WorkloadRouter(); module.WORKER_SCOPE = "scope"; module.WORKER_ID = "local"; module._heartbeat_local_worker = lambda: None
-            module.WORKLOAD_ROUTER.heartbeat(WorkerSnapshot("remote", "scope", ("text",), 1, 0, 0, 100, time.time(), endpoint=f"http://127.0.0.1:{server.server_port}"))
+            module.WORKER_SCOPE = "scope"; module.WORKER_ID = "local"; module._heartbeat_local_worker = lambda: None
+            module.WORKER_REGISTRY = WorkerRegistry(Path(dispatch_temp.name) / "workers.sqlite")
+            module.WORKER_REGISTRY.heartbeat(WorkerSnapshot("remote", "scope", ("text",), 1, 0, 0, 100, time.time(), endpoint=f"http://127.0.0.1:{server.server_port}"))
             self.assertEqual(module._forward_production_request("/api/outline/plan", {"project_id":"p"}, False), (202, {"accepted":True, "_dispatch":{"worker_id":"remote", "endpoint":f"http://127.0.0.1:{server.server_port}"}}))
             self.assertEqual(received, {"dispatched":"1", "body":{"project_id":"p"}})
+            self.assertEqual(module.WORKER_REGISTRY.reservation_snapshot(), [])
             self.assertIsNone(module._forward_production_request("/api/outline/plan", {}, True))
         finally:
-            server.shutdown(); server.server_close(); thread.join()
+            server.shutdown(); server.server_close(); thread.join(); dispatch_temp.cleanup()
 
     def test_remote_gateway_failure_is_normalized_to_service_unavailable(self):
         class FailedGateway(BaseHTTPRequestHandler):
             def do_POST(self):
                 payload = json.dumps({"error":"bad_gateway"}).encode(); self.send_response(502); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(payload))); self.end_headers(); self.wfile.write(payload)
             def log_message(self, *_): return
-        server = ThreadingHTTPServer(("127.0.0.1", 0), FailedGateway); thread = threading.Thread(target=server.serve_forever); thread.start()
+        server = ThreadingHTTPServer(("127.0.0.1", 0), FailedGateway); thread = threading.Thread(target=server.serve_forever); thread.start(); dispatch_temp = TemporaryDirectory()
         try:
             root = Path(__file__).resolve().parents[2]
             spec = importlib.util.spec_from_file_location("compat_remote_failure_test", root / "plugins/builtin/short_drama/backend/compat_server.py")
             module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-            module.WORKLOAD_ROUTER = WorkloadRouter(); module.WORKER_SCOPE = "scope"; module.WORKER_ID = "local"; module._heartbeat_local_worker = lambda: None
+            module.WORKER_SCOPE = "scope"; module.WORKER_ID = "local"; module._heartbeat_local_worker = lambda: None
             endpoint = f"http://127.0.0.1:{server.server_port}"
-            module.WORKLOAD_ROUTER.heartbeat(WorkerSnapshot("remote", "scope", ("text",), 1, 0, 0, 100, time.time(), endpoint=endpoint))
+            module.WORKER_REGISTRY = WorkerRegistry(Path(dispatch_temp.name) / "workers.sqlite")
+            module.WORKER_REGISTRY.heartbeat(WorkerSnapshot("remote", "scope", ("text",), 1, 0, 0, 100, time.time(), endpoint=endpoint))
             self.assertEqual(module._forward_production_request("/api/outline/plan", {}, False), (503, {"error":"workload_dispatch_failed", "message":"bad_gateway", "_dispatch":{"worker_id":"remote", "endpoint":endpoint}}))
+            self.assertEqual(module.WORKER_REGISTRY.reservation_snapshot(), [])
         finally:
-            server.shutdown(); server.server_close(); thread.join()
+            server.shutdown(); server.server_close(); thread.join(); dispatch_temp.cleanup()
+
+    def test_remote_dispatch_reservation_is_stable_and_released_on_every_exit(self):
+        root = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location("compat_dispatch_reservation_test", root / "plugins/builtin/short_drama/backend/compat_server.py")
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        remote = WorkerSnapshot("remote", "scope", ("text",), 1, 0, 0, 100, time.time(), endpoint="http://127.0.0.1:9")
+        class Registry:
+            def __init__(self): self.reserved = []; self.released = []
+            def reserve(self, request_id, resource_class, **values): self.reserved.append((request_id, resource_class, values)); return remote
+            def release_reservation(self, request_id): self.released.append(request_id); return True
+        registry = Registry(); module.WORKER_REGISTRY = registry; module.WORKER_SCOPE = "scope"; module.WORKER_ID = "local"
+        module._heartbeat_local_worker = lambda: None
+        def unavailable(*_, **__): raise OSError("unavailable")
+        module.urlopen = unavailable
+        body = {"tenant_id":"t", "user_id":"u", "project_id":"p", "request_id":"stable-request"}
+        for _ in range(2):
+            with self.assertRaisesRegex(OSError, "unavailable"):
+                module._forward_production_request("/api/outline/plan", body, False)
+        self.assertEqual([item[0] for item in registry.reserved], ["stable-request", "stable-request"])
+        self.assertEqual(registry.released, ["stable-request", "stable-request"])
 
     def test_task_lease_fences_expired_owner_and_late_results(self):
         with TemporaryDirectory() as temporary:
@@ -139,6 +163,99 @@ class ProductionControlTests(unittest.TestCase):
             self.assertEqual(second.list(service_scope="scope", heartbeat_timeout=10, now=105), [worker])
             self.assertEqual(second.list(service_scope="scope", heartbeat_timeout=10, now=120), [])
 
+    def test_worker_dispatch_reservations_are_atomic_across_registry_instances(self):
+        with TemporaryDirectory() as temporary:
+            database = Path(temporary) / "workers.sqlite"
+            registries = [WorkerRegistry(database) for _ in range(3)]
+            for worker_id in ("node-a", "node-b"):
+                registries[0].heartbeat(WorkerSnapshot(worker_id, "scope", ("text",), 1, 0, 0, 100, 100))
+            barrier = threading.Barrier(4); selected = []; rejected = []
+            def reserve(index):
+                barrier.wait()
+                try: selected.append(registries[index].reserve(f"request-{index}", "text", service_scope="scope", now=105))
+                except WorkloadRoutingError as error: rejected.append(str(error))
+            threads = [threading.Thread(target=reserve, args=(index,)) for index in range(3)]
+            for thread in threads: thread.start()
+            barrier.wait()
+            for thread in threads: thread.join(timeout=2)
+            self.assertEqual({worker.worker_id for worker in selected}, {"node-a", "node-b"})
+            self.assertEqual(len(rejected), 1)
+            self.assertEqual(len(registries[0].reservation_snapshot(now=105)), 2)
+            self.assertTrue(registries[1].release_reservation("request-0") or registries[1].release_reservation("request-1") or registries[1].release_reservation("request-2"))
+
+    def test_worker_reservation_is_idempotent_generation_fenced_and_expires(self):
+        with TemporaryDirectory() as temporary:
+            registry = WorkerRegistry(Path(temporary) / "workers.sqlite")
+            original = WorkerSnapshot("node", "scope", ("image",), 1, 0, 0, 100, 100, generation=1)
+            registry.heartbeat(original)
+            self.assertEqual(registry.reserve("request", "image", estimated_memory=50, now=105, reservation_ttl=5), original)
+            self.assertEqual(registry.reserve("request", "image", estimated_memory=50, now=106, reservation_ttl=5), original)
+            with self.assertRaisesRegex(WorkloadRoutingError, "reservation capacity"):
+                registry.reserve("second", "image", now=106)
+            replacement = WorkerSnapshot("node", "scope", ("image",), 1, 0, 0, 100, 107, generation=2)
+            registry.heartbeat(replacement)
+            self.assertEqual(registry.reservation_snapshot(now=107), [])
+            self.assertEqual(registry.reserve("second", "image", now=107, reservation_ttl=5), replacement)
+
+    def test_worker_reservation_accounts_for_reserved_memory(self):
+        with TemporaryDirectory() as temporary:
+            registry = WorkerRegistry(Path(temporary) / "workers.sqlite")
+            worker = WorkerSnapshot("node", "scope", ("video",), 2, 0, 0, 100, 100)
+            registry.heartbeat(worker)
+            self.assertEqual(registry.reserve("first", "video", estimated_memory=60, now=105), worker)
+            with self.assertRaisesRegex(WorkloadRoutingError, "reservation capacity"):
+                registry.reserve("second", "video", estimated_memory=60, now=105)
+
+    def test_worker_reservation_idempotency_requires_the_same_request_contract(self):
+        with TemporaryDirectory() as temporary:
+            registry = WorkerRegistry(Path(temporary) / "workers.sqlite")
+            worker = WorkerSnapshot("node", "scope-a", ("text", "video"), 2, 0, 0, 200, 100)
+            registry.heartbeat(worker)
+            self.assertEqual(
+                registry.reserve("shared", "text", estimated_memory=10, service_scope="scope-a", now=105), worker
+            )
+            for resource, memory, scope in (
+                ("video", 10, "scope-a"), ("text", 90, "scope-a"), ("text", 10, "scope-b")
+            ):
+                with self.assertRaisesRegex(WorkloadRoutingError, "request_id contract conflict"):
+                    registry.reserve("shared", resource, estimated_memory=memory, service_scope=scope, now=106)
+            snapshot = registry.reservation_snapshot(now=106)
+            self.assertEqual(len(snapshot), 1)
+            self.assertEqual((snapshot[0]["resource_class"], snapshot[0]["estimated_memory"], snapshot[0]["service_scope"]), ("text", 10, "scope-a"))
+
+    def test_worker_reservation_schema_migration_is_safe_across_concurrent_instances(self):
+        with TemporaryDirectory() as temporary:
+            database = Path(temporary) / "workers.sqlite"
+            with sqlite3.connect(database) as connection:
+                connection.execute("CREATE TABLE workers (worker_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, heartbeat_at REAL NOT NULL, generation INTEGER NOT NULL)")
+                connection.execute("""CREATE TABLE worker_reservations (
+                    request_id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, worker_generation INTEGER NOT NULL,
+                    resource_class TEXT NOT NULL, estimated_memory INTEGER NOT NULL,
+                    reserved_at REAL NOT NULL, expires_at REAL NOT NULL
+                )""")
+            barrier = threading.Barrier(9)
+            created: list[WorkerRegistry] = []
+            errors: list[Exception] = []
+
+            def construct() -> None:
+                barrier.wait()
+                try:
+                    created.append(WorkerRegistry(database))
+                except Exception as error:
+                    errors.append(error)
+
+            threads = [threading.Thread(target=construct) for _ in range(8)]
+            for thread in threads:
+                thread.start()
+            barrier.wait()
+            for thread in threads:
+                thread.join(timeout=5)
+            self.assertEqual(errors, [])
+            self.assertEqual(len(created), 8)
+            with sqlite3.connect(database) as connection:
+                columns = [str(row[1]) for row in connection.execute("PRAGMA table_info(worker_reservations)")]
+            self.assertEqual(columns.count("service_scope"), 1)
+
     def test_composition_requires_one_confirmed_media_package_per_shot(self):
         root = Path(__file__).resolve().parents[2]
         spec = importlib.util.spec_from_file_location("compat_media_package_test", root / "plugins/builtin/short_drama/backend/compat_server.py")
@@ -162,6 +279,33 @@ class ProductionControlTests(unittest.TestCase):
         backend = (root / "plugins/builtin/short_drama/backend/compat_server.py").read_text(encoding="utf-8")
         self.assertGreaterEqual(backend.count("atomic_write_json("), 8)
         self.assertNotIn('json.dump(store, stream, ensure_ascii=False, indent=2)', backend)
+
+    def test_repository_only_legacy_image_job_is_recovered_and_projected(self):
+        root = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location("compat_orphan_image_recovery_test", root / "plugins/builtin/short_drama/backend/compat_server.py")
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        with TemporaryDirectory() as temporary:
+            output = Path(temporary); cache = output / "narrative-cache"; cache.mkdir()
+            module.OUTPUT_ROOT = output; module.IMAGE_JOBS_FILE = cache / "character-image-jobs.json"
+            module.TASK_REPOSITORIES = {}; module.PRODUCTION_ORCHESTRATOR = ProductionOrchestrator(cache / "graph.sqlite")
+            module.COMFY_INPUT = output / "comfy-input"; module.COMFY_INPUT.mkdir()
+            module._cancel_job_comfy_prompts = lambda _job: True
+            module._orphan_image_processes = lambda: []
+            repository = module._task_repository(module.IMAGE_JOBS_FILE)
+            repository.upsert("legacy-job", "image", {
+                "request":{"tenant_id":"tenant-a", "user_id":"user-a", "project_id":"project-a", "endpoint":"/api/shots/generate"},
+                "stage":"qwen_repairing", "heartbeat_at":"2026-08-08T21:03:26+00:00",
+            })
+            self.assertEqual(repository.get("legacy-job")["status"], "queued")
+            module._recover_image_jobs()
+            recovered = repository.get("legacy-job")
+            self.assertEqual(recovered["status"], "failed")
+            self.assertEqual(recovered["payload"]["status"], "failed")
+            self.assertEqual(recovered["payload"]["tenant_id"], "tenant-a")
+            self.assertEqual(repository.pending_projections(task_class="image"), [])
+            self.assertEqual(module.PRODUCTION_ORCHESTRATOR.state({"tenant_id":"tenant-a", "user_id":"user-a", "project_id":"project-a"})["stages"]["image"], "failed")
+            module._recover_image_jobs()
+            self.assertEqual(repository.get("legacy-job")["status"], "failed")
 
     def test_production_capabilities_are_replaceable_and_disableable(self):
         self.assertIs(production_capability_registry(), production_capability_registry())
@@ -209,6 +353,47 @@ class ProductionControlTests(unittest.TestCase):
         self.assertTrue(registry.has("image.generate", "plugin"))
         self.assertEqual(registry.invoke("image.generate")["provider"], "plugin")
         self.assertEqual(registry.invoke("image.generate", provider_id="builtin")["provider"], "builtin-v2")
+
+    def test_builtin_install_is_idempotent_during_an_inflight_invocation(self):
+        root = Path(__file__).resolve().parents[2]
+        backend = (root / "plugins/builtin/short_drama/backend/compat_server.py").read_text(encoding="utf-8")
+        install = backend[backend.index("def _install_builtin_production_capabilities"):backend.index("def _invoke_production_capability")]
+        self.assertIn("if BUILTIN_PRODUCTION_CAPABILITIES_INSTALLED", install)
+        self.assertIn("BUILTIN_PRODUCTION_CAPABILITIES_INSTALLED = True", install)
+        self.assertIn("if not PRODUCTION_CAPABILITIES.has(capability, provider_id)", install)
+
+    def test_capability_registry_balances_concurrent_calls_and_blocks_hot_unplug(self):
+        registry = ProductionCapabilityRegistry()
+        entered = threading.Barrier(3)
+        release = threading.Event()
+
+        def provider(name):
+            def run(**_):
+                entered.wait(timeout=2); release.wait(timeout=2); return {"provider":name}
+            return run
+
+        registry.register("text.outline", "node-a", provider("node-a"), priority=10, metadata={"max_concurrency":1})
+        registry.register("text.outline", "node-b", provider("node-b"), priority=10, metadata={"max_concurrency":1})
+        results = []
+        workers = [threading.Thread(target=lambda:results.append(registry.invoke("text.outline"))) for _ in range(2)]
+        for worker in workers: worker.start()
+        entered.wait(timeout=2)
+        snapshot = registry.runtime_snapshot()
+        self.assertEqual({item["provider_id"]:item["inflight"] for item in snapshot}, {"node-a":1, "node-b":1})
+        with self.assertRaisesRegex(ProductionCapabilityError, "concurrency capacity"):
+            registry.invoke("text.outline")
+        with self.assertRaisesRegex(ProductionCapabilityError, "in-flight"):
+            registry.unregister("text.outline", "node-a")
+        release.set()
+        for worker in workers: worker.join(timeout=2)
+        self.assertEqual({item["provider"] for item in results}, {"node-a", "node-b"})
+        self.assertTrue(registry.unregister("text.outline", "node-a"))
+
+    def test_capability_concurrency_contract_rejects_invalid_limits(self):
+        registry = ProductionCapabilityRegistry()
+        for invalid in (0, -1, True, "2"):
+            with self.assertRaisesRegex(ProductionCapabilityError, "max_concurrency"):
+                registry.register("video.shot", f"provider-{invalid}", lambda **_: {}, metadata={"max_concurrency":invalid})
 
     def test_production_infrastructure_is_replaceable_and_disableable(self):
         self.assertIs(production_extension_registry(), production_extension_registry())
@@ -374,8 +559,10 @@ class ProductionControlTests(unittest.TestCase):
     def test_formal_production_endpoints_enter_langgraph_gate(self):
         root = Path(__file__).resolve().parents[2]
         backend = (root / "plugins/builtin/short_drama/backend/compat_server.py").read_text(encoding="utf-8")
-        for endpoint, stage in (("/api/outline/plan","outline"),("/api/script/episode","script"),("/api/characters/generate","assets"),("/api/shots/generate","image"),("/api/videos/generate","video"),("/api/audio/tts","video"),("/api/videos/merge","composition"),("/api/videos/audit","review_export")):
+        for endpoint, stage in (("/api/outline/plan","outline"),("/api/script/episode","script"),("/api/shots/generate","image"),("/api/videos/generate","video"),("/api/audio/tts","video"),("/api/videos/merge","composition"),("/api/videos/audit","review_export")):
             self.assertIn(f'"{endpoint}":"{stage}"', backend)
+        self.assertNotIn('"/api/characters/generate":"assets"', backend)
+        self.assertIn('"/api/characters/generate":"image"', backend)
         self.assertIn("_begin_production_request(body, production_stage)", backend)
         self.assertIn('"completed":"pending_confirmation"', backend)
         self.assertIn("_production_orchestrator().report(", backend)
@@ -602,6 +789,308 @@ class ProductionControlTests(unittest.TestCase):
         self.assertEqual(module._replay_durable_task_projections(), 2)
         self.assertEqual(calls, ["text", "image", "video"])
 
+    def test_production_stage_lease_and_cancel_cross_instances(self):
+        root = Path(__file__).resolve().parents[2]
+        backend = root / "plugins/builtin/short_drama/backend/compat_server.py"
+        with TemporaryDirectory() as temporary:
+            database = Path(temporary) / "leases.sqlite"
+            modules = []
+            for index in range(2):
+                spec = importlib.util.spec_from_file_location(f"compat_stage_lease_{index}", backend)
+                module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+                module.TASK_LEASES = TaskLeaseRepository(database)
+                module.WORKER_ID = f"worker-{index}"
+                module.ACTIVE_PRODUCTION_STAGE_REQUESTS = set()
+                module.ACTIVE_PRODUCTION_STAGE_CANCEL_EVENTS = {}
+                modules.append(module)
+            body = {"tenant_id":"t", "user_id":"u", "project_id":"p"}
+            entered = threading.Event(); cancelled = threading.Event()
+            def owner():
+                try:
+                    with modules[0]._claim_production_stage_request(body, "storyboard") as event:
+                        entered.set()
+                        self.assertTrue(event.wait(3))
+                        cancelled.set()
+                except RuntimeError as error:
+                    self.assertIn("cancelled or lease lost", str(error))
+            thread = threading.Thread(target=owner); thread.start()
+            self.assertTrue(entered.wait(1))
+            with self.assertRaisesRegex(ValueError, "already running"):
+                with modules[1]._claim_production_stage_request(body, "storyboard"):
+                    pass
+            self.assertEqual(modules[1]._cancel_production_stage(body, "storyboard"), 1)
+            self.assertTrue(cancelled.wait(2))
+            thread.join(2)
+            self.assertFalse(thread.is_alive())
+
+    def test_task_lease_cancel_flag_is_generation_fenced(self):
+        with TemporaryDirectory() as temporary:
+            repository = TaskLeaseRepository(Path(temporary) / "leases.sqlite")
+            first = repository.acquire("stage", "owner-a", ttl=5)
+            self.assertTrue(repository.request_cancel("stage"))
+            self.assertTrue(repository.cancellation_requested("stage", "owner-a", int(first["generation"])))
+            self.assertFalse(repository.owns("stage", "owner-a", int(first["generation"])))
+            self.assertFalse(repository.renew("stage", "owner-a", int(first["generation"]), ttl=5))
+            repository.release("stage", "owner-a", int(first["generation"]))
+            second = repository.acquire("stage", "owner-b", ttl=5)
+            self.assertGreater(int(second["generation"]), int(first["generation"]))
+            self.assertFalse(repository.cancellation_requested("stage", "owner-b", int(second["generation"])))
+
+    def test_task_lease_commit_guard_linearizes_against_cancel(self):
+        with TemporaryDirectory() as temporary:
+            database = Path(temporary) / "leases.sqlite"
+            owner_repository = TaskLeaseRepository(database)
+            cancel_repository = TaskLeaseRepository(database)
+            lease = owner_repository.acquire("stage", "owner", ttl=5)
+            commit_started = threading.Event(); release_commit = threading.Event(); cancel_result = []
+            def cancel():
+                commit_started.wait(1)
+                cancel_result.append(cancel_repository.request_cancel("stage"))
+            thread = threading.Thread(target=cancel); thread.start()
+            with owner_repository.commit_guard("stage", "owner", int(lease["generation"])):
+                commit_started.set(); time.sleep(.05); release_commit.set()
+            thread.join(2)
+            self.assertEqual(cancel_result, [False])
+            self.assertFalse(owner_repository.owns("stage", "owner", int(lease["generation"])))
+
+            cancelled = owner_repository.acquire("stage", "next-owner", ttl=5)
+            self.assertTrue(cancel_repository.request_cancel("stage"))
+            with self.assertRaisesRegex(TaskLeaseError, "lost before commit"):
+                with owner_repository.commit_guard("stage", "next-owner", int(cancelled["generation"])):
+                    self.fail("cancelled lease entered commit guard")
+
+    def test_extension_provider_contract_is_validated_before_use(self):
+        registry = ProductionExtensionRegistry()
+        with self.assertRaisesRegex(ProductionExtensionError, "missing methods: acquire,commit_guard"):
+            registry.register(
+                "storage.task_lease", "bad", lambda **_values: object(),
+                metadata={"contract_version":1, "required_methods":["acquire", "commit_guard"], "implementation_type":object},
+            )
+
+        class LeaseProvider:
+            def acquire(self): pass
+            def commit_guard(self): pass
+        registry.register(
+            "storage.task_lease", "good", lambda **_values: LeaseProvider(), replace=True,
+            metadata={"contract_version":1, "required_methods":["acquire", "commit_guard"], "implementation_type":LeaseProvider},
+        )
+        self.assertIsInstance(registry.create("storage.task_lease"), LeaseProvider)
+
+    def test_invalid_extension_contract_cannot_replace_active_provider(self):
+        class Stable:
+            def acquire(self): pass
+            def commit_guard(self): pass
+        registry = ProductionExtensionRegistry()
+        contract = {"contract_version":1, "required_methods":["acquire", "commit_guard"]}
+        registry.register(
+            "storage.task_lease", "stable", lambda **_values: Stable(),
+            metadata={**contract, "implementation_type":Stable},
+        )
+        for replace in (False, True):
+            with self.assertRaisesRegex(ProductionExtensionError, "contract mismatch"):
+                registry.register(
+                    "storage.task_lease", f"broken-{replace}", lambda **_values: object(),
+                    metadata={**contract, "implementation_type":object}, replace=replace, activate=True,
+                )
+            self.assertEqual(registry.get("storage.task_lease").provider_id, "stable")
+            self.assertIsInstance(registry.create("storage.task_lease"), Stable)
+        for provider, factory in (("none", lambda **_values: None), ("lying", lambda **_values: object())):
+            with self.assertRaises(ProductionExtensionError):
+                registry.register(
+                    "storage.task_lease", provider, factory,
+                    metadata={**contract, "implementation_type":Stable}, replace=True, activate=True,
+                )
+            self.assertEqual(registry.get("storage.task_lease").provider_id, "stable")
+
+    def test_extension_activation_reprobes_factory_and_preserves_active_provider(self):
+        class LeaseProvider:
+            def acquire(self): pass
+            def commit_guard(self): pass
+        registry = ProductionExtensionRegistry()
+        contract = {"contract_version":1, "required_methods":["acquire", "commit_guard"], "implementation_type":LeaseProvider}
+        registry.register("storage.task_lease", "stable", lambda **_: LeaseProvider(), metadata=contract)
+        state = {"value": LeaseProvider(), "error": None}
+        def mutable_factory(**_values):
+            if state["error"] is not None:
+                raise state["error"]
+            return state["value"]
+        registry.register("storage.task_lease", "mutable", mutable_factory, metadata=contract, activate=False)
+        state["value"] = None
+        with self.assertRaisesRegex(ProductionExtensionError, "returned no instance"):
+            registry.activate("storage.task_lease", "mutable")
+        self.assertEqual(registry.get("storage.task_lease").provider_id, "stable")
+        state["error"] = RuntimeError("probe failed")
+        with self.assertRaisesRegex(ProductionExtensionError, "probe failed"):
+            registry.activate("storage.task_lease", "mutable")
+        self.assertEqual(registry.get("storage.task_lease").provider_id, "stable")
+
+    def test_extension_contract_rejects_wrong_instance_type_and_invalid_schema(self):
+        class Declared:
+            def acquire(self): pass
+            def commit_guard(self): pass
+        class Impostor:
+            def acquire(self): pass
+            def commit_guard(self): pass
+        registry = ProductionExtensionRegistry()
+        contract = {"contract_version":1, "required_methods":["acquire", "commit_guard"], "implementation_type":Declared}
+        with self.assertRaisesRegex(ProductionExtensionError, "implementation type mismatch"):
+            registry.register("storage.task_lease", "impostor", lambda **_: Impostor(), metadata=contract)
+        with self.assertRaisesRegex(ProductionExtensionError, "invalid required_methods"):
+            registry.register(
+                "storage.task_lease", "invalid-schema", lambda **_: Declared(),
+                metadata={"required_methods":"acquire", "implementation_type":Declared},
+            )
+
+    def test_extension_point_contract_cannot_be_downgraded_or_forge_builtin_trust(self):
+        class LeaseProvider:
+            def acquire(self): pass
+            def commit_guard(self): pass
+        registry = ProductionExtensionRegistry()
+        contract = {"contract_version":1, "required_methods":["acquire", "commit_guard"], "implementation_type":LeaseProvider}
+        registry.register("storage.task_lease", "stable", lambda **_: LeaseProvider(), metadata=contract)
+        original = registry.list()
+        with self.assertRaisesRegex(ProductionExtensionError, "extension point contract is required"):
+            registry.register(
+                "storage.task_lease", "no-contract", lambda **_: None,
+                metadata={}, replace=True, activate=True,
+            )
+        with self.assertRaisesRegex(ProductionExtensionError, "returned no instance"):
+            registry.register(
+                "storage.task_lease", "forged-builtin", lambda **_: None,
+                metadata={**contract, "builtin":True}, replace=True, activate=True,
+            )
+        self.assertEqual(registry.list(), original)
+        self.assertEqual(registry.get("storage.task_lease").provider_id, "stable")
+        self.assertIsInstance(registry.create("storage.task_lease"), LeaseProvider)
+
+    def test_langgraph_stage_generation_rejects_stale_owner_terminal_state(self):
+        with TemporaryDirectory() as temporary:
+            brain = ProductionOrchestrator(Path(temporary) / "graph.sqlite")
+            identity = {"tenant_id":"t", "user_id":"u", "project_id":"p"}
+            brain.report(identity, "requirements", "completed", trusted=True)
+            brain.report(identity, "outline", "running", stage_generation=1, projection_revision=0)
+            brain.report(identity, "outline", "running", stage_generation=2, projection_revision=0)
+            stale = brain.report(identity, "outline", "cancelled", stage_generation=1, projection_revision=1)
+            self.assertEqual(stale["stages"]["outline"], "running")
+            self.assertEqual(stale["stage_generations"]["outline"], 2)
+            completed = brain.report(identity, "outline", "pending_confirmation", stage_generation=2, projection_revision=1)
+            brain.report(identity, "outline", "failed", stage_generation=1, projection_revision=2)
+            final = brain.state(identity)
+            self.assertEqual(completed["stages"]["outline"], "pending_confirmation")
+            self.assertEqual(final["stages"]["outline"], "pending_confirmation")
+            self.assertEqual(final["stage_generations"]["outline"], 2)
+
+    def test_cancelled_workflow_reactivates_only_with_newer_stage_generation(self):
+        with TemporaryDirectory() as temporary:
+            brain = ProductionOrchestrator(Path(temporary) / "graph.sqlite")
+            identity = {"tenant_id":"t", "user_id":"u", "project_id":"p"}
+            brain.report(identity, "requirements", "completed", trusted=True)
+            brain.begin(identity, "outline", stage_generation=4)
+            cancelled = brain.report(identity, "outline", "cancelled", stage_generation=4, projection_revision=1)
+            self.assertEqual(cancelled["status"], "cancelled")
+            with self.assertRaisesRegex(ValueError, "requires a newer stage generation"):
+                brain.begin(identity, "outline", stage_generation=4)
+            with self.assertRaisesRegex(ValueError, "requires a newer stage generation"):
+                brain.begin(identity, "outline")
+            resumed = brain.begin(identity, "outline", stage_generation=5)
+            self.assertEqual(resumed["status"], "running")
+            self.assertEqual(resumed["stages"]["outline"], "running")
+            self.assertEqual(resumed["stage_generations"]["outline"], 5)
+            stale = brain.report(identity, "outline", "cancelled", stage_generation=4, projection_revision=2)
+            self.assertEqual(stale["status"], "running")
+            self.assertEqual(stale["stage_generations"]["outline"], 5)
+
+    def test_non_upscale_projection_cannot_forge_completion_or_authority(self):
+        with TemporaryDirectory() as temporary:
+            ledger = ProductionLedger(Path(temporary) / "ledger.sqlite")
+            identity = {"tenant_id":"t", "user_id":"u", "project_id":"p"}
+            key = {**identity, "stage":"outline", "scope_type":"project", "scope_id":"p"}
+            projected = ledger.upsert_projection({
+                **key, "lifecycle":"completed", "content_fingerprint":"outline-v1", "audit_batch_id":"audit-v1",
+                "generation":99, "confirmation":{"confirmed_by":"attacker"},
+                "production_evidence":{"forged":True}, "audit_evidence":{"forged":True},
+            })
+            self.assertEqual(projected["lifecycle"], "pending_confirmation")
+            self.assertIsNone(projected["confirmation"])
+            self.assertEqual(projected["generation"], 0)
+            self.assertIsNone(projected["production_evidence"])
+            self.assertIsNone(projected["audit_evidence"])
+
+            confirmed = ledger.confirm(key)
+            self.assertEqual(confirmed["lifecycle"], "completed")
+            preserved = ledger.upsert_projection({
+                **key, "lifecycle":"idle", "content_fingerprint":"outline-v1", "audit_batch_id":"audit-v1",
+                "generation":100, "confirmation":{"confirmed_by":"attacker"},
+            })
+            self.assertEqual(preserved["lifecycle"], "completed")
+            self.assertEqual(preserved["confirmation"]["confirmed_by"], "u")
+            self.assertEqual(preserved["generation"], 0)
+
+            changed = ledger.upsert_projection({
+                **key, "lifecycle":"completed", "content_fingerprint":"outline-v2", "audit_batch_id":"audit-v2",
+            })
+            self.assertEqual(changed["lifecycle"], "pending_confirmation")
+            self.assertIsNone(changed["confirmation"])
+
+    def test_projected_narrative_completion_requires_confirm_endpoint_before_graph_promotion(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(__file__).resolve().parents[2]
+            spec = importlib.util.spec_from_file_location("compat_projection_confirmation_test", root / "plugins/builtin/short_drama/backend/compat_server.py")
+            module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+            module.PRODUCTION_LEDGER = ProductionLedger(Path(temporary) / "ledger.sqlite")
+            brain = ProductionOrchestrator(Path(temporary) / "graph.sqlite")
+            module.PRODUCTION_ORCHESTRATOR = brain
+            identity = {"tenant_id":"t", "user_id":"u", "project_id":"p"}
+            brain.report(identity, "requirements", "completed", trusted=True)
+            key = {**identity, "stage":"outline", "scope_type":"project", "scope_id":"p"}
+            projected = module.PRODUCTION_LEDGER.upsert_projection({
+                **key, "lifecycle":"completed", "content_fingerprint":"outline-v1", "audit_batch_id":"audit-v1",
+            })
+            self.assertEqual(projected["lifecycle"], "pending_confirmation")
+            self.assertNotEqual(brain.state(identity)["stages"].get("outline"), "completed")
+            record, workflow = module._confirm_production_scope(key)
+            self.assertEqual(record["lifecycle"], "completed")
+            self.assertIsNotNone(record["confirmation"])
+            self.assertEqual(workflow["stages"]["outline"], "completed")
+
+    def test_stage_active_check_reads_persisted_cancel_without_waiting_for_renewal(self):
+        root = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location("compat_stage_cancel_sync_test", root / "plugins/builtin/short_drama/backend/compat_server.py")
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        with TemporaryDirectory() as temporary:
+            repository = TaskLeaseRepository(Path(temporary) / "leases.sqlite")
+            module.TASK_LEASES = repository
+            lease = repository.acquire("production-stage:t:u:p:assets", "owner", ttl=5)
+            event = threading.Event()
+            event.lease_key = "production-stage:t:u:p:assets"
+            event.lease_owner = "owner"
+            event.lease_generation = int(lease["generation"])
+            self.assertTrue(repository.request_cancel(event.lease_key))
+            with self.assertRaisesRegex(RuntimeError, "cancelled or lease lost"):
+                module._ensure_production_stage_request_active(event, "assets")
+            self.assertTrue(event.is_set())
+            self.assertTrue(event.cancel_requested)
+
+    def test_same_instance_commit_first_cancel_reports_not_cancelled(self):
+        root = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location("compat_stage_commit_first_test", root / "plugins/builtin/short_drama/backend/compat_server.py")
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        with TemporaryDirectory() as temporary:
+            module.TASK_LEASES = TaskLeaseRepository(Path(temporary) / "leases.sqlite")
+            body = {"tenant_id":"t", "user_id":"u", "project_id":"p"}
+            entered = threading.Event(); release = threading.Event(); cancel_result = []
+            def owner():
+                with module._claim_production_stage_request(body, "assets") as event:
+                    with module._production_stage_commit_guard(event, "assets"):
+                        entered.set(); release.wait(2)
+            owner_thread = threading.Thread(target=owner); owner_thread.start()
+            self.assertTrue(entered.wait(1))
+            cancel_thread = threading.Thread(target=lambda: cancel_result.append(module._cancel_production_stage(body, "assets")))
+            cancel_thread.start(); time.sleep(.05); release.set()
+            owner_thread.join(2); cancel_thread.join(2)
+            self.assertEqual(cancel_result, [0])
+            self.assertEqual(module.ACTIVE_PRODUCTION_STAGE_CANCEL_EVENTS, {})
+
     def test_waiting_memory_is_preserved_in_tasks_and_projected_as_graph_queued(self):
         root = Path(__file__).resolve().parents[2]
         backend = (root / "plugins/builtin/short_drama/backend/compat_server.py").read_text(encoding="utf-8")
@@ -695,6 +1184,34 @@ class ProductionControlTests(unittest.TestCase):
             ledger.upsert(payload); ledger.confirm(payload)
             changed = ledger.upsert({**payload, "content_fingerprint":"two"})
             self.assertIsNone(changed["confirmation"])
+
+    def test_reactivated_and_confirmed_scope_clears_stale_failure_error(self):
+        with TemporaryDirectory() as temporary:
+            ledger = ProductionLedger(Path(temporary) / "ledger.sqlite")
+            identity = {"tenant_id":"tenant", "user_id":"user", "project_id":"project"}
+            key = {**identity, "stage":"assets", "scope_type":"asset", "scope_id":"scene:room"}
+            failed = ledger.upsert({
+                **key, "lifecycle":"failed", "content_fingerprint":"scene-v1",
+                "audit_batch_id":"audit-v1", "error":"old generation failed",
+            })
+            self.assertEqual(failed["error"], "old generation failed")
+
+            reactivated = ledger.upsert({**key, "lifecycle":"pending_confirmation", "reactivate":True})
+            self.assertEqual(reactivated["error"], "")
+            confirmed = ledger.confirm(key)
+            self.assertEqual(confirmed["lifecycle"], "completed")
+            self.assertEqual(confirmed["error"], "")
+
+            pending_with_diagnostic = ledger.upsert({
+                **key, "lifecycle":"pending_confirmation", "error":"retry warning",
+            })
+            self.assertEqual(pending_with_diagnostic["error"], "retry warning")
+            confirmed_again = ledger.confirm(key)
+            self.assertEqual(confirmed_again["error"], "")
+            completed_directly = ledger.upsert({
+                **key, "lifecycle":"completed", "error":"must not survive success",
+            })
+            self.assertEqual(completed_directly["error"], "")
 
     def test_langgraph_checkpoint_resumes_project_state(self):
         with TemporaryDirectory() as temporary:
@@ -796,6 +1313,9 @@ class ProductionControlTests(unittest.TestCase):
         control.start(); audio.start()
         self.assertTrue(control_entered.wait(1)); self.assertTrue(audio_entered.wait(1))
         self.assertFalse(second_gpu_entered.is_set())
+        deadline = time.monotonic() + 1
+        while scheduler.snapshot()["pools"]["gpu"]["queued"] != 1 and time.monotonic() < deadline:
+            time.sleep(.005)
         snapshot = scheduler.snapshot()
         self.assertEqual(snapshot["pools"]["gpu"]["active"], 1)
         self.assertEqual(snapshot["pools"]["gpu"]["queued"], 1)

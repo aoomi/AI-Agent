@@ -1,0 +1,4 @@
+openai-agents==0.19.4
+openai==2.53.0
+Pillow==12.3.0
+numpy==2.4.6

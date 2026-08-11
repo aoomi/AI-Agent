@@ -1,0 +1,31 @@
+{
+  "prompt_id": "46356c27-a347-4e5d-88f0-452109b650e5",
+  "status": "success",
+  "completed": true,
+  "started_at_ms": 1786409043731,
+  "completed_at_ms": 1786409067135,
+  "elapsed_seconds": 23.404,
+  "node": "MiniMaxH3FL2VAPromptAgentOpenAIAPI",
+  "model": "qwen3-vl-h3-context-ir:latest",
+  "source_model": "qwen3-vl:32b-instruct",
+  "api_mode": "responses",
+  "frame_count": 192,
+  "input_prompt": "古风竖屏短剧镜头（最终非空验收）：白衣女子在桃花树下缓慢回头，花瓣随风，镜头稳定轻推，保持人物、服装、场景连续，并加入自然环境声。",
+  "optimized_prompt": "integrated_multimodal_description: [Shot 1] Live-action, cinematic, vertical composition, a medium-wide shot frames a woman in flowing white traditional Chinese attire standing beneath a blossoming peach tree. The camera pushes in with small amplitude at slow speed as she slowly turns her head over her shoulder toward the viewer, her long black hair gently swaying. Pink petals drift through the air around her, carried by a soft breeze that rustles the branches above. The scene maintains continuity in her clothing, posture, and the surrounding environment throughout.\n\noverall_soundscape: A gentle breeze stirs the peach blossoms as petals flutter down; distant birdsong blends with the subtle rustling of leaves and fabric movement.\n\nnon_diegetic_music: Soft plucked strings on a guqin accompanied by a delicate bamboo flute, playing in a slow tempo with gradual crescendo near the end.",
+  "selected_skills": ["h3-prompt-writing"],
+  "outputs_non_empty": {
+    "optimized_prompt": true,
+    "selected_skills": true,
+    "raw_json": true
+  },
+  "saved_outputs": [
+    "/Users/aoo/AI/ComfyUI-Shared/output/h3_context_ir/final_optimized_00001.txt",
+    "/Users/aoo/AI/ComfyUI-Shared/output/h3_context_ir/final_skills_00001.json",
+    "/Users/aoo/AI/ComfyUI-Shared/output/h3_context_ir/final_raw_00001.json"
+  ],
+  "saved_output_sha256": {
+    "final_optimized_00001.txt": "718b881471a225a90edd8120bbdff3fddee4b7c7681b1534ec5db69119c610af",
+    "final_skills_00001.json": "69fde775ea393b319dbda1a17ea3cce541a9610333d9e677f128ea360fa2e8dd",
+    "final_raw_00001.json": "d1f01246fdac78f8333ae4682cddc08614c35386fa479bc43b1e9875ecc27b81"
+  }
+}

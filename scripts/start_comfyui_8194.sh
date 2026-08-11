@@ -4,6 +4,8 @@ set -eu
 comfy_root="/Users/aoo/AI/Tools/ComfyUI/main/ComfyUI"
 shared_root="/Users/aoo/AI/ComfyUI-Shared"
 runtime_root="/Users/aoo/AI/Projects/ShortDramaPipeline"
+export OPENAI_AGENTS_DISABLE_TRACING="1"
+export PYTORCH_ENABLE_MPS_FALLBACK="1"
 
 exec "$comfy_root/.venv/bin/python3" "$comfy_root/main.py" \
   --listen 127.0.0.1 --port 8194 --disable-auto-launch --disable-manager-ui \

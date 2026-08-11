@@ -9,8 +9,11 @@ export type ProductionScopeKey = { stage:string; scope_type:ProductionScopeType;
 export type ProductionScopeRecord = ProductionScopeIdentity & ProductionScopeKey & {
   id:string; plugin_key:string; lifecycle:ProductionLifecycle; stage_substate:string;
   content_fingerprint:string; audit_batch_id:string;
+  generation:number; revision:number;
   confirmation:null | { content_fingerprint:string; audit_batch_id:string; confirmed_by:string; confirmed_at:string };
-  progress:{ completed:number; total:number }; checkpoint:string; error:string; created_at:string; updated_at:string;
+  progress:{ completed:number; total:number; [key:string]:unknown };
+  production_evidence?:unknown; audit_evidence?:unknown;
+  checkpoint:string; error:string; created_at:string; updated_at:string;
   confirmation_scope:ConfirmationScope; impact_scope:ImpactScope;
 };
 export type ProductionWorkflowState = {
@@ -30,7 +33,7 @@ export const productionLedgerService = {
   upsertMany(records:Array<ProductionScopeIdentity & ProductionScopeKey & Partial<ProductionScopeRecord> & { reactivate?:boolean }>, replaceBatchScopeSets = false) {
     return postJson<{ records:ProductionScopeRecord[] }>("/api/production/scopes/bulk", { records, replace_batch_scope_sets:replaceBatchScopeSets }, {}, "生产范围状态批量保存失败");
   },
-  confirm(payload:ProductionScopeIdentity & ProductionScopeKey) {
+  confirm(payload:ProductionScopeIdentity & ProductionScopeKey & { content_fingerprint?:string; audit_batch_id?:string; generation?:number }) {
     return postJson<{ record:ProductionScopeRecord }>("/api/production/scopes/confirm", payload, {}, "生产范围确认失败");
   },
   confirmAsset(payload:ProductionScopeIdentity & { scope_id:string; phase:"baseline" | "details"; production_evidence?:string[] }) {
@@ -62,6 +65,9 @@ export const productionLedgerService = {
   },
   runStage<T>(payload:ProductionScopeIdentity & { stage:string; context:Record<string, unknown>; [key:string]:unknown }, signal?:AbortSignal) {
     return postJson<{ result:T; workflow:ProductionWorkflowState }>("/api/production/run-stage", payload, { signal }, "服务端生产阶段执行失败");
+  },
+  stopStage(payload:ProductionScopeIdentity & { stage:string }) {
+    return postJson<{ stopped:boolean; stage_cancelled:boolean }>("/api/generation/stop", payload, {}, "服务端生产阶段停止失败");
   },
   withdrawConfirmation(payload:ProductionScopeIdentity & ProductionScopeKey & { user_confirmed:true; reason?:string }) {
     return postJson<{ records:ProductionScopeRecord[] }>("/api/production/confirmations/withdraw", payload, {}, "撤回确认失败");

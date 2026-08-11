@@ -1,9 +1,591 @@
+import ast
+import importlib.util
+import json
+import math
+import re
+import sys
+import tempfile
+import threading
+import types
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "plugins/builtin/short_drama/backend/compat_server.py"
 FRONTEND = ROOT / "plugins/builtin/short_drama/frontend/App.vue"
+
+
+def test_no_text_prop_prompt_removes_positive_glyph_cues_but_keeps_material_details() -> None:
+    tree = ast.parse(BACKEND.read_text(encoding="utf-8"))
+    function = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_sanitize_no_text_asset_prompt"
+    )
+    namespace: dict[str, object] = {"re": re}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(BACKEND), "exec"), namespace)
+    sanitize = namespace["_sanitize_no_text_asset_prompt"]
+
+    result = sanitize("一张泛黄信纸，表面有娟秀笔迹或手指按出的指纹压痕，边缘微卷，无文字干扰")
+
+    assert "娟秀笔迹" not in result
+    assert "指纹压痕" in result
+    assert "边缘微卷" in result
+    assert "无文字干扰" in result
+    assert result.endswith("道具表面必须完全无字、无字形、无标签、无标志、无水印。")
+    assert "铭文" not in sanitize("古铜器表面带铭文且无人持握，金属氧化纹理")
+    assert "金属氧化纹理" in sanitize("古铜器表面带铭文且无人持握，金属氧化纹理")
+    assert "禁止出现任何文字" in sanitize("纯灰背景，禁止出现任何文字")
+    assert "文字不得出现" in sanitize("纯灰背景，文字不得出现")
+
+
+def load_backend_for_character_http():
+    spec = importlib.util.spec_from_file_location("compat_server_character_http_test", BACKEND)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_post_generation_validation_keeps_durable_job_alive(monkeypatch) -> None:
+    module = load_backend_for_character_http()
+    release = threading.Event()
+    updates: list[dict] = []
+    checks: list[str] = []
+
+    def validator(_image):
+        assert release.wait(1)
+        return True, "accepted"
+
+    monkeypatch.setattr(module, "_assert_image_job_runnable", lambda job_id: checks.append(job_id))
+    monkeypatch.setattr(module, "_update_image_job", lambda job_id, **values: updates.append({"job_id":job_id, **values}))
+    timer = threading.Timer(0.04, release.set)
+    timer.start()
+    try:
+        result = module._run_image_validation(
+            "job-scene", "scene_validation", validator, {"url":"unused"},
+            timeout_seconds=1, heartbeat_seconds=0.01,
+        )
+    finally:
+        timer.cancel()
+
+    assert result == (True, "accepted")
+    assert checks.count("job-scene") >= 2
+    assert sum(item.get("phase") == "scene_validation" for item in updates) >= 2
+    assert all(item.get("pid") is None for item in updates)
+
+
+def test_post_generation_validation_observes_stop_and_has_bounded_timeout(monkeypatch) -> None:
+    module = load_backend_for_character_http()
+    release = threading.Event()
+    checks = 0
+    terminated: list[str] = []
+    cancelled: list[str] = []
+
+    def assert_runnable(_job_id):
+        nonlocal checks
+        checks += 1
+        if checks >= 2:
+            raise RuntimeError("图片任务已停止")
+
+    monkeypatch.setattr(module, "_assert_image_job_runnable", assert_runnable)
+    monkeypatch.setattr(module, "_update_image_job", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(module.RESOURCE_SCHEDULER, "cancel_job", lambda job_id: cancelled.append(job_id) or 1)
+    monkeypatch.setattr(
+        module, "_terminate_ollama_model",
+        lambda model: terminated.append(model) or release.set() or True,
+    )
+    with pytest.raises(RuntimeError, match="图片任务已停止"):
+        module._run_image_validation(
+            "job-stop", "prop_validation", lambda _image: release.wait(1), {},
+            timeout_seconds=1, heartbeat_seconds=0.01,
+        )
+    release.set()
+    assert terminated == ["llava:latest"]
+    assert cancelled == ["job-stop"]
+
+    monkeypatch.setattr(module, "_assert_image_job_runnable", lambda _job_id: None)
+    release = threading.Event()
+    with pytest.raises(RuntimeError, match="图片后验收超时.*scene_validation"):
+        module._run_image_validation(
+            "job-timeout", "scene_validation", lambda _image: release.wait(1), {},
+            timeout_seconds=0.03, heartbeat_seconds=0.01,
+        )
+    release.set()
+    assert terminated == ["llava:latest", "llava:latest"]
+    assert cancelled == ["job-stop", "job-timeout"]
+
+
+def test_scene_and_prop_validation_resource_tickets_are_owned_by_image_job() -> None:
+    backend = BACKEND.read_text(encoding="utf-8")
+    helper = backend[backend.index("def _run_image_validation"):backend.index("def _validate_prop_asset")]
+    prop = backend[backend.index("def _validate_prop_asset"):backend.index("def _validate_scene_asset")]
+    scene = backend[backend.index("def _validate_scene_asset"):backend.index("def _face_pose_angles")]
+    route = backend[backend.index('if parsed.path == "/api/characters/generate" and asset_kind == "prop"'):]
+
+    assert "RESOURCE_SCHEDULER.cancel_job(job_id)" in helper
+    assert '"audit", job_id or f"prop-audit-' in prop
+    assert '"audit", job_id or f"scene-audit-' in scene
+    assert "timeout=IMAGE_VALIDATION_TIMEOUT_SECONDS" in prop
+    assert "timeout=IMAGE_VALIDATION_TIMEOUT_SECONDS" in scene
+    assert "_validate_prop_asset(candidate, job_id=job_id)" in route
+    assert "_validate_scene_asset(candidate, job_id=job_id)" in route
+
+
+def test_post_comfy_memory_wait_is_bounded_and_keeps_job_cancellable(monkeypatch) -> None:
+    module = load_backend_for_character_http()
+    samples = iter([(False, {"available_gb":60.0,"required_gb":42.0,"reserve_gb":35.0}), (True, {"available_gb":80.0,"required_gb":42.0,"reserve_gb":35.0})])
+    updates: list[dict] = []
+    module.LAST_COMFY_FREE_AT = 100.0
+    clock = iter([101.0, 101.0, 102.0])
+    monkeypatch.setattr(module, "_memory_ready", lambda _estimated: next(samples))
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(module, "_assert_image_job_runnable", lambda job_id: updates.append({"checked":job_id}))
+    monkeypatch.setattr(module, "_update_image_job", lambda job_id, **values: updates.append({"job_id":job_id, **values}))
+
+    module._wait_for_post_comfy_memory(42 * module.GIB, job_id="job-1", timeout_seconds=10)
+
+    assert any(item.get("status") == "waiting_memory" for item in updates)
+    assert any(item.get("checked") == "job-1" for item in updates)
+    assert any(item.get("status") == "processing" and item.get("phase") == "memory_ready" for item in updates)
+
+
+def test_memory_wait_only_applies_to_recent_comfy_release_and_times_out(monkeypatch) -> None:
+    module = load_backend_for_character_http()
+    blocked = (False, {"available_gb":60.0,"required_gb":42.0,"reserve_gb":35.0})
+    immediate: list[int] = []
+    monkeypatch.setattr(module, "_memory_ready", lambda _estimated: blocked)
+    monkeypatch.setattr(module, "_require_memory", lambda estimated: immediate.append(estimated))
+    monkeypatch.setattr(module, "urlopen", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("unavailable")))
+    module.LAST_COMFY_FREE_AT = 0.0
+    module._wait_for_post_comfy_memory(42 * module.GIB)
+    assert immediate == [42 * module.GIB]
+
+    module.LAST_COMFY_FREE_AT = 100.0
+    clock = iter([101.0, 101.0, 103.0])
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(clock))
+    with pytest.raises(RuntimeError, match="等待Comfy释放超时"):
+        module._wait_for_post_comfy_memory(42 * module.GIB, timeout_seconds=1)
+
+
+def test_memory_wait_recovers_idle_comfy_cache_after_service_restart(monkeypatch) -> None:
+    module = load_backend_for_character_http()
+    samples = iter([(False, {"available_gb":60.0,"required_gb":42.0,"reserve_gb":35.0}), (True, {"available_gb":80.0,"required_gb":42.0,"reserve_gb":35.0})])
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+        def read(self): return b'{"queue_running":[],"queue_pending":[]}'
+    module.LAST_COMFY_FREE_AT = 0.0
+    clock = iter([100.0, 100.0, 101.0])
+    monkeypatch.setattr(module, "_memory_ready", lambda _estimated: next(samples))
+    monkeypatch.setattr(module, "urlopen", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr(module, "_free_comfy_memory", lambda: setattr(module, "LAST_COMFY_FREE_AT", 100.0))
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+
+    module._wait_for_post_comfy_memory(42 * module.GIB, timeout_seconds=10)
+
+
+def test_qwen_character_paths_use_bounded_post_comfy_memory_handshake() -> None:
+    backend = BACKEND.read_text(encoding="utf-8")
+    repair = backend.split("def _repair_schnell_output_with_qwen", 1)[1].split("def _reference_path", 1)[0]
+    variant = backend.split("def _generate_qwen_character_variant", 1)[1].split("def _latest_completed_asset_image_url", 1)[0]
+
+    assert "_wait_for_post_comfy_memory(60 * GIB, job_id=job_id)" in repair
+    assert "_require_memory(60 * GIB)" not in repair
+    assert "_wait_for_post_comfy_memory(60 * GIB, job_id=job_id)" in variant
+    assert "_require_memory(60 * GIB)" not in variant
+
+
+def test_character_frame_gate_requires_numeric_margin_evidence() -> None:
+    tree = ast.parse(BACKEND.read_text(encoding="utf-8"))
+    function = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_verified_character_frame_margins"
+    )
+    namespace: dict[str, object] = {}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(BACKEND), "exec"), namespace)
+    verify = namespace["_verified_character_frame_margins"]
+
+    assert verify({"normalized_variant_margins": True})[:2] == (False, False)
+    assert verify({
+        "normalized_variant_margins": True,
+        "deterministic_frame_metrics": {
+            "source": "yolo_person_box_fallback",
+            "top_margin_ratio": 0.09,
+            "bottom_margin_ratio": 0.05,
+            "top_margin_at_least_8_percent": True,
+            "bottom_margin_at_least_3_percent": True,
+        },
+    })[:2] == (False, False)
+    assert verify({
+        "normalized_variant_margins": True,
+        "deterministic_frame_metrics": {
+            "source": "grabcut_person_silhouette",
+            "top_margin_ratio": 0.079999,
+            "bottom_margin_ratio": 0.03,
+            "top_margin_at_least_8_percent": True,
+            "bottom_margin_at_least_3_percent": True,
+        },
+    })[:2] == (False, True)
+    assert verify({
+        "normalized_variant_margins": True,
+        "deterministic_frame_metrics": {
+            "source": "grabcut_person_silhouette",
+            "top_margin_ratio": 0.09,
+            "bottom_margin_ratio": 0.05,
+            "top_margin_at_least_8_percent": True,
+            "bottom_margin_at_least_3_percent": True,
+        },
+    })[:2] == (True, True)
+
+
+def test_front_full_orientation_uses_deterministic_pose_instead_of_vlm_false_negative() -> None:
+    backend = BACKEND.read_text(encoding="utf-8")
+    assert 'deterministic_orientation\n        if target_pose == "front_full"' in backend
+    branch = backend.rsplit('baseline_required_checks = (', 1)[1].split(')', 1)[0]
+    assert '"correct_orientation"' in branch
+    assert '"required_928x1664"' in branch
+    assert '"deterministic_full_frame"' in branch
+    assert "*CHARACTER_FULL_BODY_ANATOMY_CHECKS" in branch
+    anatomy_contract = backend[backend.index("CHARACTER_FULL_BODY_ANATOMY_CHECKS = ("):backend.index("def _character_variant_required_checks")]
+    assert '"hands_anatomically_valid"' in anatomy_contract
+    assert '"feet_anatomically_valid"' in anatomy_contract
+    assert '"no_fused_missing_or_extra_limbs_or_digits"' in anatomy_contract
+    assert '"plain_background"' not in branch
+    assert '"exactly_one_person"' not in branch
+
+
+def test_character_normalizer_measures_silhouette_instead_of_trusting_detector_box() -> None:
+    backend = BACKEND.read_text(encoding="utf-8")
+    normalizer = backend[backend.index("def _normalize_character_variant_margins"):backend.index("def _flux_identity_prompt")]
+    assert "cv2.grabCut" in normalizer
+    assert '"top_margin_ratio"' in normalizer
+    assert '"bottom_margin_ratio"' in normalizer
+    assert 'target_h=1664*0.86' in normalizer
+    assert 'top=int(round(ry-1664*0.09))' in normalizer
+    assert 'normalized_margin_contract_failed' in normalizer
+    assert 'foreground_segmentation_failed' in normalizer
+    assert 'yolo_person_box_fallback' not in normalizer
+
+
+def test_character_normalizer_fails_closed_when_segmentation_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    tree = ast.parse(BACKEND.read_text(encoding="utf-8"))
+    function = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_normalize_character_variant_margins"
+    )
+    script = next(
+        node.value for node in ast.walk(function)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and "from ultralytics import YOLO" in node.value
+    )
+
+    class FakeBoxes:
+        cls = [0]
+        conf = [0.9]
+        xyxy = [[100.0, 100.0, 800.0, 1500.0]]
+
+    class FakeYOLO:
+        def __init__(self, _model: str) -> None:
+            pass
+
+        def __call__(self, _source: str, *, verbose: bool):
+            return [types.SimpleNamespace(boxes=FakeBoxes())]
+
+    def fail_grabcut(*_args, **_kwargs):
+        raise RuntimeError("forced-grabcut-failure")
+
+    fake_cv2 = types.SimpleNamespace(
+        imread=lambda _source: types.SimpleNamespace(shape=(1664, 928, 3)),
+        grabCut=fail_grabcut,
+        GC_INIT_WITH_RECT=0,
+    )
+    fake_numpy = types.SimpleNamespace(
+        zeros=lambda _shape, _dtype: object(),
+        uint8=object(),
+        float64=object(),
+        floor=math.floor,
+        ceil=math.ceil,
+    )
+    monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
+    monkeypatch.setitem(sys.modules, "numpy", fake_numpy)
+    monkeypatch.setitem(sys.modules, "ultralytics", types.SimpleNamespace(YOLO=FakeYOLO))
+    monkeypatch.setattr(sys, "argv", ["normalizer", "/tmp/not-written.png"])
+
+    with pytest.raises(RuntimeError, match="foreground_segmentation_failed:RuntimeError:forced-grabcut-failure"):
+        exec(compile(script, "<forced-segmentation-failure>", "exec"), {})
+
+
+def test_character_full_frame_candidate_removes_failed_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    tree = ast.parse(BACKEND.read_text(encoding="utf-8"))
+    function = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_prepare_character_full_frame_candidate"
+    )
+    namespace: dict[str, object] = {}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(BACKEND), "exec"), namespace)
+    prepare = namespace["_prepare_character_full_frame_candidate"]
+    with tempfile.TemporaryDirectory() as directory:
+        candidate = Path(directory) / "candidate.png"
+        candidate.write_bytes(b"failed-candidate")
+        monkeypatch.setitem(prepare.__globals__, "_local_media_path", lambda _url: candidate)
+        monkeypatch.setitem(
+            prepare.__globals__, "_normalize_character_variant_margins",
+            lambda _path: (_ for _ in ()).throw(RuntimeError("foreground_segmentation_failed")),
+        )
+        normalized, evidence = prepare({"url": "/candidate.png"})
+        assert normalized is False
+        assert evidence["normalization_failed"] is True
+        assert evidence["source_removed"] is True
+        assert not candidate.exists()
+
+
+def test_character_baseline_normalization_failure_retries_in_formal_caller(monkeypatch: pytest.MonkeyPatch) -> None:
+    tree = ast.parse(BACKEND.read_text(encoding="utf-8"))
+    functions = [
+        node for node in tree.body if isinstance(node, ast.FunctionDef)
+        and node.name in {"_prepare_character_full_frame_candidate", "_run_character_full_frame_candidate_loop"}
+    ]
+    namespace: dict[str, object] = {"json": __import__("json")}
+    exec(compile(ast.Module(body=functions, type_ignores=[]), str(BACKEND), "exec"), namespace)
+    run_loop = namespace["_run_character_full_frame_candidate_loop"]
+    attempts = []
+    removed = []
+
+    def prepare(candidate: dict):
+        if candidate["id"] < 3:
+            removed.append(candidate["id"])
+            return False, {"normalization_failed": True, "source_removed": True}
+        candidate["normalized_variant_margins"] = True
+        return True, {"source": "grabcut_person_silhouette"}
+
+    monkeypatch.setitem(run_loop.__globals__, "_prepare_character_full_frame_candidate", prepare)
+    monkeypatch.setitem(run_loop.__globals__, "_local_media_path", lambda _url: types.SimpleNamespace(unlink=lambda **_kwargs: None))
+
+    def retry(retry_number: int, _evidence: str):
+        attempts.append(retry_number)
+        return {"id": retry_number, "url": f"/{retry_number}.png"}
+
+    image, _evidence, count = run_loop(
+        {"id": 1, "url": "/1.png"}, generate_retry=retry,
+        validate_candidate=lambda _candidate: (True, '{"valid":true}'), max_attempts=3,
+    )
+    assert image["id"] == 3
+    assert count == 3
+    assert attempts == [2, 3]
+    assert removed == [1, 2]
+
+
+def test_character_baseline_last_normalization_failure_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    tree = ast.parse(BACKEND.read_text(encoding="utf-8"))
+    function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_run_character_full_frame_candidate_loop")
+    namespace: dict[str, object] = {"json": __import__("json")}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(BACKEND), "exec"), namespace)
+    run_loop = namespace["_run_character_full_frame_candidate_loop"]
+    monkeypatch.setitem(
+        run_loop.__globals__, "_prepare_character_full_frame_candidate",
+        lambda _candidate: (False, {"normalization_failed": True, "source_removed": True}),
+    )
+    retries = []
+    with pytest.raises(RuntimeError, match="character_full_frame_candidates_exhausted"):
+        run_loop(
+            {"url": "/1.png"}, generate_retry=lambda number, _evidence: retries.append(number) or {"url": f"/{number}.png"},
+            validate_candidate=lambda _candidate: (True, ""), max_attempts=3,
+        )
+    assert retries == [2, 3]
+
+
+@pytest.mark.parametrize("successful_attempt,expected_status", [
+    (1, 200), (2, 200), (3, 200), (None, 502), ("validation_failure", 502),
+    ("hands_failure", 502), ("feet_failure", 502), ("no_fused_failure", 502),
+])
+@pytest.mark.parametrize("project_id", ["bug038-http-p1", "bug038-http-p2"])
+def test_character_baseline_http_retries_cleanup_and_terminal_state(
+    monkeypatch: pytest.MonkeyPatch, successful_attempt: int | str | None, expected_status: int, project_id: str,
+) -> None:
+    module = load_backend_for_character_http()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        module.OUTPUT_ROOT = root
+        module.IMAGE_JOBS_FILE = root / "image-jobs.json"
+        module.PROJECTS_FILE = root / "projects.json"
+        module.PROJECT_SNAPSHOTS_DIR = root / "snapshots"
+        module.ACTIVE_IMAGE_JOBS.clear(); module.ACTIVE_IMAGE_SUBJECTS.clear(); module.ACTIVE_IMAGE_WORKERS.clear()
+        module.PROJECTS_FILE.write_text(json.dumps({"projects": []}), encoding="utf-8")
+        generated: list[Path] = []
+
+        def generate(_capability: str, **_kwargs):
+            number = len(generated) + 1
+            target = root / "images" / f"candidate-{number}.png"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(f"candidate-{number}".encode())
+            generated.append(target)
+            return {"url": f"/api/result-media?filename={target.name}&subfolder=images", "filename": target.name, "subfolder": "images"}
+
+        def normalize(path: Path):
+            number = int(path.stem.rsplit("-", 1)[-1])
+            if successful_attempt not in {"validation_failure", "hands_failure", "feet_failure", "no_fused_failure"} and number != successful_attempt:
+                raise RuntimeError("foreground_segmentation_failed:forced-http-test")
+            return {
+                "source": "grabcut_person_silhouette", "top_margin_ratio": 0.09, "bottom_margin_ratio": 0.05,
+                "top_margin_at_least_8_percent": True, "bottom_margin_at_least_3_percent": True,
+                "output_width": 928, "output_height": 1664,
+            }
+
+        valid_evidence = json.dumps({
+            "exactly_one_person": True, "correct_orientation": True, "top_margin_at_least_8_percent": True,
+            "bottom_margin_at_least_3_percent": True, "plain_background": True, "required_928x1664": True,
+            "deterministic_full_frame": True,
+            "hands_anatomically_valid": True, "feet_anatomically_valid": True,
+            "no_fused_missing_or_extra_limbs_or_digits": True,
+        })
+        anatomy_failure_field = {
+            "hands_failure":"hands_anatomically_valid",
+            "feet_failure":"feet_anatomically_valid",
+            "no_fused_failure":"no_fused_missing_or_extra_limbs_or_digits",
+        }.get(successful_attempt)
+        anatomy_failure_verdict = json.loads(valid_evidence)
+        if anatomy_failure_field:
+            anatomy_failure_verdict[anatomy_failure_field] = False
+        anatomy_failure_evidence = json.dumps(anatomy_failure_verdict)
+        monkeypatch.setattr(module, "_invoke_production_capability", generate)
+        monkeypatch.setattr(module, "_normalize_character_variant_margins", normalize)
+        monkeypatch.setattr(
+            module, "_validate_character_variant",
+            lambda *_args, **_kwargs: (
+                (False, '{"correct_orientation":false,"plain_background":false}')
+                if successful_attempt == "validation_failure"
+                else (False, anatomy_failure_evidence)
+                if anatomy_failure_field
+                else (True, valid_evidence)
+            ),
+        )
+        monkeypatch.setattr(
+            module, "_local_media_path",
+            lambda url: root / "images" / str(url).split("filename=", 1)[1].split("&", 1)[0],
+        )
+        server = module.ThreadingHTTPServer(("127.0.0.1", 0), module.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        body = json.dumps({
+            "project_id": project_id, "name": "苏璃", "asset_subject": "苏璃", "asset_kind": "character",
+            "asset_phase": "baseline", "width": 928, "height": 1664, "prompt": "女性，中国人，0度正面全身",
+        }).encode()
+        request = Request(
+            f"http://127.0.0.1:{server.server_port}/api/characters/generate", data=body,
+            headers={"Content-Type": "application/json", "X-Production-Dispatched": "1"}, method="POST",
+        )
+        try:
+            if expected_status == 200:
+                with urlopen(request, timeout=10) as response:
+                    payload = json.loads(response.read())
+                    assert response.status == 200
+                assert payload["validation_attempts"] == successful_attempt
+                assert payload["image"]["validation_attempts"] == successful_attempt
+            else:
+                with pytest.raises(HTTPError) as captured:
+                    urlopen(request, timeout=10)
+                assert captured.value.code == 502
+                payload = json.loads(captured.value.read())
+                assert "自动生成3次仍未通过" in payload["error"]
+                assert "{" not in payload["error"]
+                assert payload["validation_attempts"] == 3
+        finally:
+            server.shutdown(); server.server_close(); thread.join(timeout=2)
+        actual_attempts = successful_attempt if isinstance(successful_attempt, int) else 3
+        assert len(generated) == actual_attempts
+        assert [path.exists() for path in generated] == ([False] * (actual_attempts - 1) + [True] if isinstance(successful_attempt, int) else [False] * 3)
+        jobs = json.loads(module.IMAGE_JOBS_FILE.read_text())["jobs"]
+        terminal = next(iter(jobs.values()))
+        assert terminal["validation_attempts"] == actual_attempts
+        assert terminal["project_id"] == project_id
+        assert terminal["subject_key"].startswith(f"{project_id}:")
+        assert terminal["status"] == ("completed" if expected_status == 200 else "failed")
+
+
+def test_character_variant_http_rejects_each_anatomy_gate_for_every_full_body_pose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_backend_for_character_http()
+    poses = ("left_45_full", "right_45_full", "side_90_full", "back_full")
+    anatomy_checks = (
+        "hands_anatomically_valid",
+        "feet_anatomically_valid",
+        "no_fused_missing_or_extra_limbs_or_digits",
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        baseline = root / "images" / "baseline.png"
+        baseline.parent.mkdir(parents=True, exist_ok=True)
+        baseline.write_bytes(b"baseline")
+        module.OUTPUT_ROOT = root
+        module.IMAGE_JOBS_FILE = root / "image-jobs.json"
+        module.PROJECTS_FILE = root / "projects.json"
+        module.PROJECT_SNAPSHOTS_DIR = root / "snapshots"
+        module.ACTIVE_IMAGE_JOBS.clear(); module.ACTIVE_IMAGE_SUBJECTS.clear(); module.ACTIVE_IMAGE_WORKERS.clear()
+        module.PROJECTS_FILE.write_text(json.dumps({"projects": []}), encoding="utf-8")
+        case = {"pose": poses[0], "failed_check": None, "generated": []}
+
+        def generate(_capability: str, **_kwargs):
+            target = root / "images" / f"{case['pose']}-{case['failed_check'] or 'valid'}-{len(case['generated']) + 1}.png"
+            target.write_bytes(b"candidate")
+            case["generated"].append(target)
+            return {"url": f"/api/result-media?filename={target.name}&subfolder=images", "filename": target.name, "subfolder": "images"}
+
+        def validate(_reference_url: str, _image: dict, target_pose: str, _clothing_url: str):
+            required = module._character_variant_required_checks(target_pose, True)
+            verdict = {key: True for key in required}
+            failed_check = case["failed_check"]
+            if failed_check:
+                verdict[failed_check] = False
+            return module._character_variant_verdict_passes(verdict, target_pose, True), json.dumps(verdict)
+
+        monkeypatch.setattr(module, "_invoke_production_capability", generate)
+        monkeypatch.setattr(module, "_reference_path", lambda _url: baseline)
+        monkeypatch.setattr(module, "_prepare_character_full_frame_candidate", lambda _image: (True, {"source":"grabcut_person_silhouette"}))
+        monkeypatch.setattr(module, "_validate_character_variant", validate)
+        monkeypatch.setattr(
+            module, "_local_media_path",
+            lambda url: root / "images" / str(url).split("filename=", 1)[1].split("&", 1)[0],
+        )
+        server = module.ThreadingHTTPServer(("127.0.0.1", 0), module.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        try:
+            for pose in poses:
+                for failed_check in (*anatomy_checks, None):
+                    case.update({"pose": pose, "failed_check": failed_check, "generated": []})
+                    body = json.dumps({
+                        "project_id": f"bug038-{pose}-{failed_check or 'valid'}",
+                        "name": "苏璃", "asset_subject": f"苏璃-{pose}-{failed_check or 'valid'}",
+                        "asset_kind": "character", "asset_phase": "variant", "target_pose": pose,
+                        "width": 928, "height": 1664, "prompt": "中国女性，固定角度全身",
+                        "references": [{"url":"/api/result-media?filename=baseline.png&subfolder=images"}],
+                        "clothing_reference_url":"/api/result-media?filename=baseline.png&subfolder=images",
+                    }).encode()
+                    request = Request(
+                        f"http://127.0.0.1:{server.server_port}/api/characters/generate", data=body,
+                        headers={"Content-Type":"application/json", "X-Production-Dispatched":"1"}, method="POST",
+                    )
+                    if failed_check:
+                        with pytest.raises(HTTPError) as captured:
+                            urlopen(request, timeout=10)
+                        assert captured.value.code == 502
+                        assert len(case["generated"]) == 2
+                        assert all(not path.exists() for path in case["generated"])
+                    else:
+                        with urlopen(request, timeout=10) as response:
+                            payload = json.loads(response.read())
+                            assert response.status == 200
+                        assert payload["image"]["validation_passed"] is True
+                        assert len(case["generated"]) == 1
+                        assert case["generated"][0].exists()
+        finally:
+            server.shutdown(); server.server_close(); thread.join(timeout=2)
 
 
 def test_flux_scene_prop_variants_force_klein9b_cfg_1_5_and_20_steps() -> None:
@@ -24,7 +606,7 @@ def test_flux_scene_prop_variants_force_klein9b_cfg_1_5_and_20_steps() -> None:
         assert token in final_metadata
 
 
-def test_qwen_character_dossier_supports_left_right_45_and_fixed_seed() -> None:
+def test_qwen_character_dossier_supports_left_right_45_and_command_stable_retry_seed() -> None:
     backend = BACKEND.read_text(encoding="utf-8")
     frontend = FRONTEND.read_text(encoding="utf-8")
     qwen = backend.split("def _generate_qwen_character_variant(", 1)[1].split("def _generate_ipadapter_image", 1)[0]
@@ -32,7 +614,8 @@ def test_qwen_character_dossier_supports_left_right_45_and_fixed_seed() -> None:
         assert f'"{pose}"' in qwen
     assert 'character_sheet_urls: list[str] | None = None' in qwen
     assert 'graph["14"]["inputs"]["image3"]' in qwen
-    assert 'fixed_seed = int(hashlib.sha256(identity_source.read_bytes()).hexdigest()[:8], 16)' in qwen
+    assert 'seed_material = identity_source.read_bytes() + target_pose.encode("utf-8") + str(prompt).encode("utf-8")' in qwen
+    assert 'fixed_seed = int(hashlib.sha256(seed_material).hexdigest()[:8], 16)' in qwen
     assert 'graph["19"]["inputs"]["seed"] = fixed_seed' in qwen
     assert 'sheet_input.unlink(missing_ok=True)' in qwen
     assert 'except Exception:\n        identity_input.unlink(missing_ok=True)' in qwen
@@ -275,8 +858,8 @@ def test_fixed_angles_use_qwen_2511_official_multiple_angles_workflow() -> None:
     assert 'face_similarity >= 0.35' in backend
     assert 'clothing_similarity >= 0.82' in backend
     assert 'dimensions == (928, 1664)' in backend
-    assert '"top_margin_about_5_percent"' in backend
-    assert '"bottom_margin_about_5_percent"' in backend
+    assert '"top_margin_at_least_8_percent"' in backend
+    assert '"bottom_margin_at_least_3_percent"' in backend
     assert '"face_height_40_to_50_percent"' in backend
     assert '"head_to_body_ratio_7_to_7_8"' in backend
     assert 'deterministic_orientation' in backend
@@ -284,7 +867,7 @@ def test_fixed_angles_use_qwen_2511_official_multiple_angles_workflow() -> None:
     assert '"body_shape_consistent"' in backend
     assert 'for path in [reference, candidate]' in backend
     assert 'for path in [strict_clothing_reference, candidate]' in backend
-    assert '_validate_character_variant(image.get("url", ""), image, "left_45_full")' in backend
+    assert '_validate_character_variant(candidate.get("url", ""), candidate, "front_full")' in backend
     assert '"gender_and_age_match"' in backend
     assert '"face_hair_match"' in backend
     assert '"clothing_match"' in backend
@@ -299,9 +882,15 @@ def test_fixed_angles_use_qwen_2511_official_multiple_angles_workflow() -> None:
     qwen_end = backend.index('def _latest_completed_asset_image_url', qwen_start)
     qwen_angle = backend[qwen_start:qwen_end]
     assert '"unet_name":"qwen_image_edit_2511_bf16.safetensors"' in qwen_angle
-    assert '"lora_name":"qwen-image-edit-2511-multiple-angles-lora.safetensors","strength_model":1.0' in qwen_angle
+    assert 'angle_lora_weight = 0.35 if target_pose in {"left_45_full", "right_45_full"} else 1.0' in qwen_angle
+    assert '"lora_name":"qwen-image-edit-2511-multiple-angles-lora.safetensors","strength_model":angle_lora_weight' in qwen_angle
     assert '"lora_name":"Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors","strength_model":1.0' in qwen_angle
     assert '"steps":4,"cfg":1.0' in qwen_angle
+    asset_spec = (ROOT / "docs/specs/短剧3D资产生产规范.md").read_text(encoding="utf-8")
+    assert "提示目标为从正面向对应方向转动35°" in asset_spec
+    assert "左`+30°—+60°`、右`-60°—-30°`" in asset_spec
+    assert "角度LoRA文件/权重、采样步数和CFG必须作为同一版本化配置整体锁定" in asset_spec
+    assert "粘连、缺失、多余、重复、断裂、融化或不自然连接" in asset_spec
     assert '"image1":["3",0],"image2":["6",0]' in qwen_angle
     assert '"reference_latents_method":"index_timestep_zero"' in qwen_angle
     assert 'stage="qwen_variant"' in qwen_angle

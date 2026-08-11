@@ -1,0 +1,21 @@
+diff --git a/nodes.py b/nodes.py
+index d354724..57a9196 100644
+--- a/nodes.py
++++ b/nodes.py
+@@ -364,10 +364,15 @@ def _run_agent(
+     resolved_reasoning = _resolve_reasoning_effort(reasoning_effort)
+     duration = _duration_seconds(length)
+     tools = _make_style_tools(skills_root)
++    model_settings = (
++        ModelSettings()
++        if resolved_model == "qwen3-vl-h3-context-ir:latest"
++        else ModelSettings(reasoning=Reasoning(effort=resolved_reasoning))
++    )
+     agent = Agent(
+         name=f"MiniMax H3 {mode} Prompt Agent",
+         model=resolved_model,
+-        model_settings=ModelSettings(reasoning=Reasoning(effort=resolved_reasoning)),
++        model_settings=model_settings,
+         instructions=_system_instructions(mode_family, mode, skill_text, guide_text),
+         tools=tools,
+     )

@@ -18,6 +18,58 @@ TRIPOSR_PYTHON = TRIPOSR_ROOT / ".venv/bin/python"
 TRIPOSR_MODEL = Path("/Users/aoo/Code/AI Agent/models/3d/TripoSR")
 
 
+def _seal_simple_boundary_loops(mesh) -> int:
+    """Cap closed, non-branching boundary loops left behind by holes_fill."""
+    boundary_edges = {edge for edge in mesh.edges if edge.is_boundary}
+    sealed = 0
+    while boundary_edges:
+        seed = next(iter(boundary_edges))
+        component_edges = {seed}
+        component_vertices = set(seed.verts)
+        frontier = list(seed.verts)
+        while frontier:
+            vertex = frontier.pop()
+            for edge in vertex.link_edges:
+                if edge not in boundary_edges or edge in component_edges:
+                    continue
+                component_edges.add(edge)
+                other = edge.other_vert(vertex)
+                if other not in component_vertices:
+                    component_vertices.add(other)
+                    frontier.append(other)
+        boundary_edges.difference_update(component_edges)
+        if len(component_edges) < 3 or any(
+            sum(edge in component_edges for edge in vertex.link_edges) != 2
+            for vertex in component_vertices
+        ):
+            continue
+        first_edge = next(iter(component_edges))
+        ordered_vertices = [first_edge.verts[0], first_edge.verts[1]]
+        previous_edge = first_edge
+        current_vertex = first_edge.verts[1]
+        while len(ordered_vertices) < len(component_vertices):
+            next_edges = [
+                edge for edge in current_vertex.link_edges
+                if edge in component_edges and edge is not previous_edge
+            ]
+            if len(next_edges) != 1:
+                ordered_vertices = []
+                break
+            previous_edge = next_edges[0]
+            current_vertex = previous_edge.other_vert(current_vertex)
+            if current_vertex is ordered_vertices[0]:
+                break
+            ordered_vertices.append(current_vertex)
+        if len(ordered_vertices) != len(component_vertices):
+            continue
+        try:
+            mesh.faces.new(ordered_vertices)
+        except ValueError:
+            continue
+        sealed += 1
+    return sealed
+
+
 def _run(command: list[str], *, cwd: Path, timeout: int) -> None:
     result = subprocess.run(command, cwd=cwd, text=True, capture_output=True, timeout=timeout)
     if result.returncode:
@@ -90,6 +142,10 @@ def clean_and_render(raw_mesh: Path, output: Path, *, kind: str) -> dict:
     boundary_edges = [edge for edge in repair_mesh.edges if edge.is_boundary]
     if boundary_edges:
         bmesh.ops.holes_fill(repair_mesh, edges=boundary_edges, sides=0)
+    # Blender's batch holes_fill can leave a valid microscopic closed loop
+    # untouched. Cap only simple degree-two loops; branching/open corruption
+    # remains visible to the fail-closed manifold audit below.
+    _seal_simple_boundary_loops(repair_mesh)
     bmesh.ops.recalc_face_normals(repair_mesh, faces=list(repair_mesh.faces))
     repair_mesh.to_mesh(asset.data); repair_mesh.free(); asset.data.update()
     if len(asset.data.polygons) > face_limit:

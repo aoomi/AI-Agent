@@ -37,11 +37,11 @@ import NarrativeCollectionHeader from "./components/business/NarrativeCollection
 import UnifiedAssetCard, { type UnifiedAssetSlide } from "./components/business/UnifiedAssetCard.vue";
 import NarrativeItemActions from "./components/business/NarrativeItemActions.vue";
 
-type ChatItem = { side: "left" | "right"; text: string; status?: string; media?: UploadAsset[]; createdAt?: number; durationSeconds?: number; typing?: boolean };
+type ChatItem = { side: "left" | "right"; text: string; status?: string; media?: UploadAsset[]; createdAt?: number; durationSeconds?: number; typing?: boolean; notice?: boolean };
 type AssetScope = "临时参考" | "全局公共" | "本集私有";
 type UploadAsset = { id: string; name: string; url: string; mediaType: "image" | "video" | "audio"; scope: AssetScope; label: string; aspect?: "portrait" | "landscape"; file?: File };
 type VisionResponse = { description: string };
-type AssistantResponse = { reply: string; intent?: "chat" | "question" | "create" | "rewrite" };
+type AssistantResponse = { reply: string; intent?: "chat" | "question" | "create" | "rewrite"; sources?:Array<{ title:string; url:string; snippet:string }>; search?:{ query:string; provider_id:string; searched_at:string; cache_hit?:boolean; cache_recovered_at?:string; live_attempts?:Array<Record<string, unknown>> } };
 type MentionAgent = { id:"main_developer" | "software_tester" | "inspector"; label:"主力开发" | "软件测试" | "代码稽查"; description:string };
 type AgentExecutionResponse = { reply:string; agent:string; execution_mode:"workspace-write" | "read-only" };
 type AgentRouteResponse = { execute:boolean; agent:"main_developer" | "software_tester" | "inspector"; label:"主力开发" | "软件测试" | "代码稽查" };
@@ -166,7 +166,6 @@ const mentionMenuOpen = computed(() => mentionCandidates.value.length > 0);
 const activeProjectRecord = computed(() => projectRecords.value.find(project => project.id === appRuntime.projectStore.state.currentProjectId) || null);
 const projectEpisodeOptions = computed(() => Array.from({ length:activeProjectRecord.value?.episode_count || 0 }, (_, index) => `第${String(index + 1).padStart(2, "0")}集`));
 const projectMenuOpen = ref(false);
-const toast = ref("");
 const copiedChatIndex = ref<number | null>(null);
 const copiedEpisodeKey = ref("");
 const chatFeedback = ref<Record<number, "up" | "down" | "">>({});
@@ -222,6 +221,7 @@ const regeneratePosition = ref({ top:16, left:16 });
 const isDragging = ref(false);
 const uploadedAssets = ref<UploadAsset[]>([]);
 const stagedAssets = ref<UploadAsset[]>([]);
+const webSearchEnabled = ref(false);
 const lastBatch = ref<UploadAsset[]>([]);
 type ProjectComposerState = { input:string; uploadedAssets:UploadAsset[]; stagedAssets:UploadAsset[]; lastBatch:UploadAsset[] };
 const composerStateByProject = new Map<string, ProjectComposerState>();
@@ -447,6 +447,17 @@ const galleryResourceOptions = ["人物定妆图", "场景布景图", "道具图
 const workflowNavigation = ["大纲", "剧本", "分镜脚本", "资产", "分镜画面", "分镜视频", "成片", "导出"] as const;
 const workflowDockNavigation = workflowNavigation;
 const workflowDockLabel = (kind:WorkflowNavigation) => kind;
+const versionStageMap:Record<string,string> = { requirements:"需求", outline:"大纲", script:"剧本", storyboard:"分镜", assets:"资产", image:"图片", video:"视频", audio:"音频", subtitle:"字幕", composition:"合成", review_export:"审核导出" };
+const versionScopeMap:Record<string,string> = { project:"项目", story_arc_batch:"故事弧批次", episode_batch:"集批次", episode:"集", scene:"场景", shot:"镜头", line:"台词", asset:"资产" };
+const versionScopeIdPrefixMap:Record<string,string> = { character:"人物", scene:"场景", prop:"道具" };
+const versionStatusMap:Record<string,string> = { current:"当前", stale:"已失效", withdrawn:"待复审", expired:"已过期", superseded:"已替代" };
+function versionDisplayLabel(v:{stage:string;scope_type:string;scope_id:string;version_status:string}) {
+  const stage = versionStageMap[v.stage] ?? v.stage;
+  const scopeType = versionScopeMap[v.scope_type] ?? v.scope_type;
+  const scopeId = v.scope_id.replace(/^(character|scene|prop):/, (_,k) => `${versionScopeIdPrefixMap[k] ?? k}:`);
+  return `${stage} / ${scopeType} / ${scopeId}`;
+}
+function versionStatusLabel(status:string) { return versionStatusMap[status] ?? status; }
 const generatedEpisodeCount = ref(0);
 const outlinePlan = ref<OutlinePlan | null>(null);
 const outlineEpisodes = ref<EpisodeOutline[]>([]);
@@ -658,22 +669,49 @@ const visibleAssetGroups = computed(() => activeAssetCategory.value === "人物"
     ? [{ title:"道具", kind:"prop" as const, items:propProfiles.value }]
     : [{ title:"场景", kind:"scene" as const, items:sceneProfiles.value }]);
 const assetController = ref<AbortController>();
+const assetBatchController = ref<AbortController>();
+let assetBatchFlight:Promise<void> | undefined;
+let assetBatchFlightKey = "";
 const assetVariantControllers = new Map<string, AbortController>();
-const characterViewContract = "character-0-90-180-fullbody-front-half-v2";
+const characterViewContract = "character-front-baseline-left-right-side-back-half-v3";
 const assetBatchGenerating = ref(false);
 const assetBatchPaused = ref(false);
 const activeAssetGenerationKey = ref("");
+let activeAssetBatchToken = "";
+let assetBatchEpoch = 0;
+function reclaimAssetBatchProjection(flight:Promise<void> | undefined, controller:AbortController | undefined, token:string) {
+  if (assetBatchFlight !== flight || assetBatchController.value !== controller || activeAssetBatchToken !== token) return false;
+  controller?.abort();
+  assetBatchFlight = undefined; assetBatchFlightKey = ""; assetBatchController.value = undefined; activeAssetBatchToken = "";
+  assetBatchGenerating.value = false; assetBatchPaused.value = false; activeAssetGenerationKey.value = "";
+  if (assetStatus.value === "generating") assetStatus.value = "pending";
+  for (const item of allAssetProfiles.value) if (item.status === "generating") item.status = item.image_url ? "waiting_confirmation" : "pending";
+  return true;
+}
 const assetSourceEpisodes = ref<number[]>([]);
 const allAssetProfiles = computed(() => [...characterProfiles.value, ...propProfiles.value, ...sceneProfiles.value]);
+const assetStageError = computed(() => {
+  const message = String(assetError.value || "").trim();
+  if (!message) return "";
+  return allAssetProfiles.value.some(item => message.startsWith(`${item.name}：`)) ? "" : message;
+});
 const generatedAssetCount = computed(() => allAssetProfiles.value.filter(item => Boolean(item.image_url)).length);
 const assetImagesRunning = computed(() => assetStatus.value === "generating" || assetBatchGenerating.value || allAssetProfiles.value.some(item => item.status === "generating"));
-const assetImageActionLabel = computed(() => generatedAssetCount.value === 0 ? "生成图片" : generatedAssetCount.value < allAssetProfiles.value.length ? "继续生成" : "重新生成图片");
+const assetImageActionLabel = computed(() => generatedAssetCount.value === 0 ? "生成图片" : "继续生成图片");
 const assetGenerationReady = computed(() => storyboardHasCompleteEpisode.value || allAssetProfiles.value.length > 0);
 const shotImageController = ref<AbortController>();
 let shotImageRefreshTimer = 0;
 const shotVideoController = ref<AbortController>();
 const mergeController = ref<AbortController>();
 const finalAuditController = ref<AbortController>();
+const exportController = ref<AbortController>();
+const upscaleController = ref<AbortController>();
+let upscaleFlight:Promise<void> | undefined;
+let upscaleFlightKey = "";
+let upscaleFlightEpoch = 0;
+let exportFlight:Promise<void> | undefined;
+let exportFlightProjectId = "";
+let exportFlightEpoch = 0;
 const workflowReadStorageKey = "drama-pipeline:workflow-completion-read:v1";
 const workflowReadSignatures = ref<Record<string, Partial<Record<WorkflowNavigation, string>>>>((() => {
   try { return JSON.parse(window.localStorage.getItem(workflowReadStorageKey) || "{}"); }
@@ -759,6 +797,11 @@ function compactFingerprint(value:unknown) {
   return `fnv1a-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
+function finalAuditLedgerEvidence(item:EpisodeAudit) {
+  const master = episodeMasters.value.find(value => value.episode === item.episode);
+  return { episode:item.episode, status:item.status, issues:item.issues, attempts:item.attempts, confirmed:item.confirmed, audited_path:master?.path || master?.video_url || "", production_evidence:master?.production_evidence || "" };
+}
+
 let productionLedgerSaveTimer = 0;
 function scheduleProductionLedgerSync() {
   window.clearTimeout(productionLedgerSaveTimer);
@@ -770,7 +813,7 @@ function scheduleProductionLedgerSync() {
 async function syncProductionLedger(project:StoredProject) {
   if (activeProjectRecord.value?.id !== project.id) return;
   const identity = { ...projectIdentity, project_id:project.id };
-  const records:Array<{ stage:string; scope_type:ProductionScopeType; scope_id:string; lifecycle:ProductionLifecycle; stage_substate:string; content_fingerprint:string; audit_batch_id:string; progress:{ completed:number; total:number }; confirmation_scope:{ scope_type:ProductionScopeType; scope_ids:string[] }; impact_scope:Array<{ stage:string; scope_type:ProductionScopeType; scope_id:string }>; checkpoint:string; error:string }> = [];
+  const records:Array<{ stage:string; scope_type:ProductionScopeType; scope_id:string; lifecycle:ProductionLifecycle; stage_substate:string; content_fingerprint?:string; audit_batch_id?:string; progress:{ completed:number; total:number }; confirmation_scope:{ scope_type:ProductionScopeType; scope_ids:string[] }; impact_scope:Array<{ stage:string; scope_type:ProductionScopeType; scope_id:string }>; checkpoint:string; error:string }> = [];
   const add = (stage:string, scopeType:ProductionScopeType, scopeId:string, status:string, content:unknown, audit:unknown, progress:{ completed:number; total:number }, error = "", substate = "", confirmationScope = { scope_type:scopeType, scope_ids:[scopeId] } as { scope_type:ProductionScopeType; scope_ids:string[] }) => records.push({
     stage, scope_type:scopeType, scope_id:scopeId, lifecycle:ledgerLifecycle(status), stage_substate:substate,
     content_fingerprint:compactFingerprint(content), audit_batch_id:compactFingerprint(audit), progress,
@@ -804,8 +847,16 @@ async function syncProductionLedger(project:StoredProject) {
   for (const item of shotVideos.value) add("audio", "shot", `${item.episode}:${item.shot_number}`, item.voice_status === "completed" || item.voice_status === "not_applicable" ? "completed" : item.voice_status === "failed" ? "failed" : item.status, item.audio_url || item, mediaPackageBatch(item), { completed:item.voice_status === "completed" || item.voice_status === "not_applicable" ? 1 : 0, total:1 }, item.voice_status === "failed" ? item.error || "配音失败" : "");
   for (const item of shotVideos.value) add("subtitle", "shot", `${item.episode}:${item.shot_number}`, item.subtitle_status === "completed" || item.subtitle_status === "not_applicable" ? "completed" : item.subtitle_status === "failed" ? "failed" : item.status, item.subtitle_status || item, mediaPackageBatch(item), { completed:item.subtitle_status === "completed" || item.subtitle_status === "not_applicable" ? 1 : 0, total:1 }, item.subtitle_status === "failed" ? item.error || "字幕失败" : "");
   for (const item of episodeMasters.value) add("composition", "episode", String(item.episode), item.status, item.path || item.video_url || item, "merge-audit", { completed:item.status === "confirmed" ? 1 : 0, total:1 }, mergeError.value);
-  for (const item of episodeAudits.value) add("review_export", "episode", `review:${item.episode}`, item.confirmed ? "confirmed" : item.status === "pass" ? "waiting_confirmation" : "failed", item, item, { completed:item.confirmed ? 1 : 0, total:1 }, item.status === "pass" ? "" : item.issues.join("；"), "review");
-  for (const item of enhancedEpisodes.value) add("review_export", "episode", `upscale:${item.episode}`, item.status, item.path || item.video_url || item, "upscale-audit", { completed:["confirmed", "skipped"].includes(item.status) ? 1 : 0, total:1 }, upscaleError.value, "upscale");
+  for (const item of episodeAudits.value) { const evidence = finalAuditLedgerEvidence(item); add("review_export", "episode", `review:${item.episode}`, item.confirmed ? "confirmed" : item.status === "pass" ? "waiting_confirmation" : "failed", evidence, evidence, { completed:item.confirmed ? 1 : 0, total:1 }, item.status === "pass" ? "" : item.issues.join("；"), "review"); }
+  for (const item of enhancedEpisodes.value) {
+    records.push({
+      stage:"review_export", scope_type:"episode", scope_id:`upscale:${item.episode}`,
+      lifecycle:ledgerLifecycle(item.status), stage_substate:"upscale",
+      progress:{ completed:["confirmed", "skipped"].includes(item.status) ? 1 : 0, total:1 },
+      confirmation_scope:{ scope_type:"episode", scope_ids:[`upscale:${item.episode}`] }, impact_scope:[],
+      checkpoint:"", error:upscaleError.value,
+    });
+  }
   for (const item of exportFiles.value) add("review_export", "episode", `export:${item.episode}`, exportStatus.value, item.path, exportManifestUrl.value, { completed:exportStatus.value === "confirmed" ? 1 : 0, total:1 }, exportError.value, "export");
   for (const batch of createEpisodeBatches(project.episode_count)) {
     const masters = episodeMasters.value.filter(item => batch.episodes.includes(item.episode));
@@ -905,7 +956,7 @@ function abortProjectWork() {
     outlineGenerationId.value = "";
     void Promise.allSettled([
       persistOutlineState(interruptedProject),
-      narrativeService.stop("outline", { project_id:interruptedProject.id, client_generation_id:interruptedOutlineGenerationId }),
+      narrativeService.stop("outline", { ...productionTaskContext(interruptedProject), client_generation_id:interruptedOutlineGenerationId }),
     ]);
   }
   if (interruptedProject && scriptStatus.value === "generating") {
@@ -919,7 +970,7 @@ function abortProjectWork() {
     scriptHeartbeatTimer = undefined;
     void Promise.allSettled([
       persistScriptState(interruptedProject),
-      narrativeService.stop("script", { project_id:interruptedProject.id, client_generation_id:interruptedGenerationId }),
+      narrativeService.stop("script", { ...productionTaskContext(interruptedProject), client_generation_id:interruptedGenerationId }),
     ]);
   }
   if (interruptedProject && storyboardStatus.value === "generating") {
@@ -940,12 +991,24 @@ function abortProjectWork() {
   scriptController.value?.abort();
   storyboardController.value?.abort();
   assetController.value?.abort();
+  assetOperationEpoch += 1;
+  queuedAssetOperationOwners.clear();
+  queuedAssetOperationCount.value = 0;
+  reclaimAssetBatchProjection(assetBatchFlight, assetBatchController.value, activeAssetBatchToken);
+  assetBatchEpoch += 1;
   for (const controller of assetVariantControllers.values()) controller.abort();
   assetVariantControllers.clear();
   shotImageController.value?.abort();
   shotVideoController.value?.abort();
   mergeController.value?.abort();
   finalAuditController.value?.abort();
+  exportFlightEpoch += 1;
+  exportController.value?.abort();
+  upscaleController.value?.abort();
+  upscaleController.value = undefined;
+  upscaleFlightEpoch += 1;
+  upscaleFlight = undefined; upscaleFlightKey = "";
+  exportController.value = undefined; exportFlight = undefined; exportFlightProjectId = "";
 }
 
 function isCurrentProjectSession(projectId:string, session:number) {
@@ -1268,7 +1331,7 @@ function persistChatHistory() {
   const project = activeProjectRecord.value;
   if (!project || chatProjectId.value !== project.id) return;
   chatHistorySaveTimer = window.setTimeout(() => {
-    const messages = chats.value.map(chat => ({
+    const messages = chats.value.filter(chat => !chat.notice).map(chat => ({
       role:chat.side === "right" ? "user" : "assistant",
       content:chat.text,
       status:chat.status,
@@ -1458,8 +1521,14 @@ function toggleLightboxZoom() {
 }
 
 function notify(message: string, duration = 1800) {
-  toast.value = message;
-  window.setTimeout(() => (toast.value = ""), duration);
+  const text = String(message || "").trim();
+  if (!text) return;
+  const last = chats.value.at(-1);
+  if (last?.notice && last.text === text) return;
+  chats.value.push({ side:"left", text, status:"系统提示", createdAt:Date.now(), notice:true });
+  void nextTick(() => {
+    if (chatScroll.value) chatScroll.value.scrollTop = chatScroll.value.scrollHeight;
+  });
 }
 
 async function writeClipboardText(text:string) {
@@ -2006,6 +2075,7 @@ function assetPhotoSlides(kind:"character" | "scene" | "prop", item:CharacterPro
     variant,
   });
   if (kind === "character") {
+    const left45 = takeVariant(/左\s*45\s*[°度]|left[_\s-]*45/u);
     const front = takeVariant(/0\s*[°度].*正面全身|front[_\s-]*full/u);
     const right45 = takeVariant(/右\s*45\s*[°度]|right[_\s-]*45/u);
     const side = takeVariant(/侧面|90\s*度|侧视/u);
@@ -2013,8 +2083,8 @@ function assetPhotoSlides(kind:"character" | "scene" | "prop", item:CharacterPro
     const half = takeVariant(/半身|front[_\s-]*half/u);
     return [
       variantSlide("0°正面半身", half),
-      variantSlide("0°正面全身", front),
-      { key:"baseline:left45", label:"左45°全身", imageUrl:item.image_url, previewId:item.image_url ? `asset:${item.name}` : undefined, status:item.status || "pending" },
+      { key:"baseline:front", label:"0°正面全身", imageUrl:item.image_url, previewId:item.image_url ? `asset:${item.name}` : undefined, status:item.status || "pending" },
+      variantSlide("左45°全身", left45),
       variantSlide("右45°全身", right45),
       variantSlide("90°侧面全身", side),
       variantSlide("180°背面全身", back),
@@ -2060,12 +2130,12 @@ function acceptUnifiedAssetSlide(item:CharacterProfile | SceneProfile | PropProf
 
 const fixedAssetAngles = {
   character:[
-    { label:"左45°全身", prompt:"人物相对镜头向左旋转45度的完整全身基准照，同时清晰展示正面与侧面结构，正常人眼高度，从完整头顶到鞋底全部入画，双手自然下垂，清晰展示脸型、五官、发型、体型、服装层次、鞋履和配饰，纯中性灰背景，禁止右45度" },
-    { label:"0°正面全身", prompt:"0度正面完整全身照，人物正对镜头，身份、五官、妆发、服装、配饰、体型与左45度基准图完全一致" },
-    { label:"右45°全身", prompt:"人物相对镜头向右旋转45度的完整全身照，明确展示正面与人物右侧，身份、五官、妆发、服装、配饰、体型与0度正面基准图完全一致，禁止左45度" },
-    { label:"90°侧面全身", prompt:"人物向侧面旋转90度的完整侧视图，身份、妆发、服装、体型与0度正面基准图完全一致" },
-    { label:"180°背面全身", prompt:"人物完整180度背面全身照，展示后脑发型、服装背部结构和配饰，身份与造型严格一致" },
-    { label:"0°正面半身", prompt:"特写型0度正面平视半身照，人物位于画面正中央，从完整头顶到腰部裁切，头顶仅保留微小留白，手部完全在画面之外；头部至腰部主体占画面高度约75%，双肩完整且不触碰左右边缘，左右留白适中；背景为完全纯净的中性灰纯色，无任何杂物。与0度、90度、180度全身图共同锁定同一人物的五官、妆发、体型、服装、配饰和视角连续性；半身照补强脸部、领口、近景、表情与口型，不作为TripoSR几何输入" },
+    { label:"0°正面全身", prompt:"严格0度正面平视完整全身基准照。脸、双肩、胸口、骨盆、双膝和双脚全部正对镜头，头部偏航角与翻滚角均接近0度；人物居中自然A-Pose，从完整发顶到完整鞋底全部入画，双手自然下垂且可见；发顶上方纯背景留白至少为画高8%，鞋底下方纯背景留白至少为画高3%，两者都是最低值而非固定值。纯中性灰无缝背景，中性表情，禁止左45度、右45度、侧面、背面、近照、半身、俯拍、仰拍、动作、道具、多人、拼图、文字和裁切" },
+    { label:"左45°全身", prompt:"基于已确认0度正面全身基准图，将同一人物相对镜头只向人物左侧旋转45度；脸部偏航角必须为正30至60度，同时展示正面和人物左侧结构。保持平视、自然A-Pose和完整全身构图，发顶上方纯背景留白至少8%、鞋底下方纯背景留白至少3%（均为最低值而非固定值），身份、五官、发型、体型、服装、鞋履与配饰完全一致。禁止0度正面、右45度、90度侧面、背面、近照、半身、镜像、动作、道具、多人、拼图和裁切" },
+    { label:"右45°全身", prompt:"基于已确认0度正面全身基准图，将同一人物相对镜头只向人物右侧旋转45度；脸部偏航角必须为负30至负60度，同时展示正面和人物右侧结构。保持平视、自然A-Pose和完整全身构图，发顶上方纯背景留白至少8%、鞋底下方纯背景留白至少3%（均为最低值而非固定值），身份、五官、发型、体型、服装、鞋履与配饰完全一致。禁止0度正面、左45度、90度侧面、背面、近照、半身、镜像、动作、道具、多人、拼图和裁切" },
+    { label:"90°侧面全身", prompt:"基于已确认人物档案生成严格90度纯侧面平视完整全身照；脸部、鼻梁、胸口、骨盆和双脚朝向同一侧，脸部只保留侧面轮廓，不得出现正面双眼。保持自然A-Pose、完整发顶至鞋底，发顶上方纯背景留白至少8%、鞋底下方纯背景留白至少3%（均为最低值而非固定值），身份、妆发、体型、服装与配饰一致。禁止0度正面、45度斜侧、背面、近照、半身、动作、道具、多人、拼图和裁切" },
+    { label:"180°背面全身", prompt:"基于已确认人物档案生成严格180度纯背面平视完整全身照；后脑、后颈、双肩背面、服装背部、双腿后侧和鞋跟正对镜头，脸和五官必须完全不可见。保持自然A-Pose、完整发顶至鞋底，发顶上方纯背景留白至少8%、鞋底下方纯背景留白至少3%（均为最低值而非固定值），体型、发型背部、服装和配饰一致。禁止正面脸、侧脸、回头、45度、90度、近照、半身、动作、道具、多人、拼图和裁切" },
+    { label:"0°正面半身", prompt:"基于已确认0度正面全身基准图生成严格0度正面平视半身照；脸和双肩正对镜头，偏航角与翻滚角均接近0度。人物居中，从完整发顶到腰部裁切，头顶仅微小留白，双手完全出画，头部至腰部约占画高75%，双肩不触边；身份、五官、妆发、肤色、年龄、领口、服装和配饰完全一致，纯中性灰背景。禁止全身远景、左45度、右45度、侧面、背面、俯仰角、动作、道具、多人和拼图" },
   ],
   scene:[
     { label:"45°空场景全景", prompt:"正常人眼高度45度空场景全景，完整展示空间纵深、入口、墙地关系、固定陈设和主要遮挡，画面内严格无人、无人体、无文字、无拼图、无鱼眼畸变" },
@@ -2092,7 +2162,11 @@ function assetCategoryImageTotal(category:AssetCategory) {
 function baselineIdentityPrompt(prompt:string) {
   return prompt
     .replace(/(?:分别|依次|同时)?生成[^。；\n]*(?:正面|侧面|背面|全身|近照|视图)[^。；\n]*/gu, "")
+    .replace(/(?:单人物\s*)?(?:(?:0\s*[°度]\s*)?正面|左\s*45\s*[°度]?|右\s*45\s*[°度]?|90\s*[°度]?\s*侧面|侧面\s*90\s*[°度]?|180\s*[°度]?\s*背面|背面\s*180\s*[°度]?)\s*(?:完整\s*)?(?:近照|半身\s*(?:照)?|全身\s*(?:照|视图)?|视图)?/gu, "")
+    .replace(/(?:单人物\s*)?(?:完整\s*)?(?:近照|半身\s*照|全身\s*(?:照|视图)|多角度\s*视图)/gu, "")
     .replace(/(?:多视图|多角度|四视图|三视图|拼图|宫格|分栏|接触表)/gu, "")
+    .replace(/，{2,}/gu, "，")
+    .replace(/^，|，$/gu, "")
     .replace(/[。；\s]+$/u, "")
     .trim();
 }
@@ -2102,11 +2176,94 @@ function assetSlideGenerationKey(kind:"character" | "scene" | "prop", name:strin
 }
 
 function baselineSlideKey(kind:"character" | "scene" | "prop") {
-  return kind === "character" ? "baseline:left45" : "baseline";
+  return kind === "character" ? "baseline:front" : "baseline";
 }
 
 function canAcceptAssetBaseline(item:CharacterProfile | SceneProfile | PropProfile) {
   return Boolean(item.image_url) && item.status !== "confirmed" && item.status !== "generating";
+}
+
+let assetOperationTail:Promise<void> = Promise.resolve();
+let assetOperationEpoch = 0;
+const queuedAssetOperationOwners = new Map<string, string>();
+const queuedAssetOperationCount = ref(0);
+
+function enqueueAssetOperation(key:string, label:string, operation:() => void | Promise<void>) {
+  const project = activeProjectRecord.value;
+  if (!project || queuedAssetOperationOwners.has(key)) return assetOperationTail;
+  const session = projectSession;
+  const epoch = assetOperationEpoch;
+  const ownerToken = crypto.randomUUID();
+  const queuedBehindAnother = queuedAssetOperationCount.value > 0 || assetImagesRunning.value;
+  queuedAssetOperationOwners.set(key, ownerToken);
+  queuedAssetOperationCount.value += 1;
+  if (queuedBehindAnother) notify(`${label}已加入任务队列，将按顺序执行`);
+  const scheduled = assetOperationTail.catch(() => undefined).then(async () => {
+    if (epoch !== assetOperationEpoch || !isCurrentProjectSession(project.id, session)) return;
+    while (assetImagesRunning.value) {
+      await new Promise(resolve => window.setTimeout(resolve, 250));
+      if (epoch !== assetOperationEpoch || !isCurrentProjectSession(project.id, session)) return;
+    }
+    await operation();
+  }).catch(error => {
+    if (epoch === assetOperationEpoch && isCurrentProjectSession(project.id, session)) notify(error instanceof Error ? error.message : `${label}执行失败`);
+  }).finally(() => {
+    if (queuedAssetOperationOwners.get(key) === ownerToken) {
+      queuedAssetOperationOwners.delete(key);
+      queuedAssetOperationCount.value = Math.max(0, queuedAssetOperationCount.value - 1);
+    }
+  });
+  assetOperationTail = scheduled.then(() => undefined, () => undefined);
+  return scheduled;
+}
+
+function queueGenerateAllAssetImages() {
+  const project = activeProjectRecord.value;
+  if (!project) return;
+  const session = projectSession;
+  return enqueueAssetOperation(`${project.id}:generate-all`, "生成资产图片", () => generateAllAssetImages(project, session));
+}
+
+function queueAssetSlideAcceptance(item:CharacterProfile | SceneProfile | PropProfile, slide:UnifiedAssetSlide) {
+  const project = activeProjectRecord.value;
+  if (!project) return;
+  return enqueueAssetOperation(`${project.id}:accept:${item.name}:${slide.key}`, `确认${item.name}${slide.label}`, () => acceptUnifiedAssetSlide(item, slide));
+}
+
+function queueAssetBaselineAcceptance(item:CharacterProfile | SceneProfile | PropProfile) {
+  const project = activeProjectRecord.value;
+  if (!project) return;
+  return enqueueAssetOperation(`${project.id}:accept:${item.name}:baseline`, `确认${item.name}定位基准图`, () => confirmAsset(item));
+}
+
+function queueAssetSlideRegeneration(kind:"character" | "scene" | "prop", item:CharacterProfile | SceneProfile | PropProfile, slide:UnifiedAssetSlide) {
+  const project = activeProjectRecord.value;
+  if (!project) return;
+  return enqueueAssetOperation(`${project.id}:regenerate:${kind}:${item.name}:${slide.key}`, `重做${item.name}${slide.label}`, () => regenerateUnifiedAssetSlide(kind, item, slide));
+}
+
+function queueAssetSlideRepair(kind:"character" | "scene" | "prop", item:CharacterProfile | SceneProfile | PropProfile, slide:UnifiedAssetSlide) {
+  const project = activeProjectRecord.value;
+  if (!project) return;
+  return enqueueAssetOperation(`${project.id}:repair:${kind}:${item.name}:${slide.key}`, `修复${item.name}${slide.label}`, () => repairAssetPhotoSlide(kind, item, assetSlide(slide)));
+}
+
+function queueAsset3D(kind:"character" | "scene" | "prop", item:CharacterProfile | SceneProfile | PropProfile) {
+  const project = activeProjectRecord.value;
+  if (!project) return;
+  return enqueueAssetOperation(`${project.id}:3d:${kind}:${item.name}`, `生成${item.name} 3D资产`, () => generateAsset3D(kind, item));
+}
+
+function queueAsset3DConfirmation(item:CharacterProfile | SceneProfile | PropProfile) {
+  const project = activeProjectRecord.value;
+  if (!project) return;
+  return enqueueAssetOperation(`${project.id}:confirm-3d:${item.name}`, `确认${item.name} 3D资产`, () => confirmAsset3D(item));
+}
+
+function queueAssetUpscale(name:string, imageUrl?:string) {
+  const project = activeProjectRecord.value;
+  if (!project) return;
+  return enqueueAssetOperation(`${project.id}:upscale:${name}`, `${name}图片超分`, () => upscaleWorkflowImage(name, imageUrl));
 }
 
 function isAssetSlideGenerating(kind:"character" | "scene" | "prop", name:string, slideKey:string) {
@@ -2313,11 +2470,14 @@ async function processAssistantMessage(value:string, assets:UploadAsset[], proje
   if (await applyImageGenerationInstruction(value, project, controller.signal, requestStartedAt)) return scrollChat();
   if (await applyScopeInstruction(value, localDuration)) return scrollChat();
   if (await applyResourceQuery(value, localDuration)) return scrollChat();
-  thinking.value = "正在理解指令并匹配当前项目资源";
+  const localContextQuestion = /(?:当前|现在)(?:项目|资源|分镜|任务|剧本|大纲|卡片|页面|生成)/i.test(value);
+  const needsWebSearch = webSearchEnabled.value || /(?:联网|网上|全网|搜索|搜一下|查一下|查找|官网|网页|新闻|来源|网址)/i.test(value) || (/(?:最新|最近|今天|截至|价格|版本|许可|授权|商用)/i.test(value) && !localContextQuestion);
+  thinking.value = needsWebSearch ? "正在联网搜索并核验来源" : "正在理解指令并匹配当前项目资源";
   startThinkingTimer();
   try {
     const result = await assistantService.understand<AssistantResponse>({
       message: value,
+      ...(webSearchEnabled.value ? { web_search:true } : {}),
       model:selectedAssistantModel.value || undefined,
       context: {
         ...assistantContext(project),
@@ -2800,10 +2960,24 @@ function selectProject(projectName:string) {
   void Promise.all([loadResources(project, session), loadTasks(project, session), loadProjectVersions(project, session)]);
 }
 
+function resetProjectFlowProjection(session:number) {
+  void loadOutlineState(null, session);
+  void loadScriptState(null, session);
+  void loadStoryboardState(null, session);
+  void loadAssetState(null, session);
+  void loadShotImageState(null, session);
+  void loadShotVideoState(null, session);
+  void loadMergeState(null, session);
+  void loadFinalAuditState(null, session);
+  void loadUpscaleState(null, session);
+  void loadExportState(null, session);
+}
+
 async function loadProjectFlowState() {
   const project = activeProjectRecord.value;
   if (!project) return;
   const session = projectSession;
+  resetProjectFlowProjection(session);
   projectLoadIsolation.begin(project.id, session);
   if (chatProjectId.value !== project.id) isolateChatProject(project);
   await loadSkillBindings(project, session);
@@ -3026,59 +3200,81 @@ async function enterStoryboardGeneration() {
 }
 
 let assetEntryPromise:Promise<void> | undefined;
+let assetEntryPromiseKey = "";
 function enterAssetGeneration():Promise<void> {
-  if (assetEntryPromise) return assetEntryPromise;
+  const project = activeProjectRecord.value;
+  const session = projectSession;
+  if (!project || !storyboardHasCompleteEpisode.value) return Promise.resolve();
+  const entryKey = `${project.id}:${session}`;
+  if (assetEntryPromise && assetEntryPromiseKey === entryKey) return assetEntryPromise;
   const transaction = (async () => {
-    const project = activeProjectRecord.value;
-    if (!project || !storyboardHasCompleteEpisode.value) return;
     if (storyboardStatus.value !== "confirmed") {
       const confirmed = await confirmStoryboards();
       if (!confirmed || String(storyboardStatus.value) !== "confirmed") return;
     }
-    if (activeProjectRecord.value?.id !== project.id) return;
-    if (!allAssetProfiles.value.length) await prepareAssetProfilesFromStoryboard(project);
-    if (activeProjectRecord.value?.id !== project.id) return;
-    for (const item of allAssetProfiles.value) {
-      item.image_url = undefined;
-      item.detail_image_urls = [];
-      item.detail_generation_evidence = [];
-      item.detail_assets = [];
-      item.confirmation_phase = undefined;
-      item.view_contract = undefined;
-      item.generation_nonce = crypto.randomUUID();
-      item.status = "pending";
-      item.error = "";
+    if (!isCurrentProjectSession(project.id, session)) return;
+    let authoritativeAssets = await projectService.readStage<AssetStageData>({ ...projectIdentity, id:project.id, stage:"assets" }).catch(() => null);
+    let authoritativeWorkflow = await productionLedgerService.workflow(productionTaskContext(project)).catch(() => null);
+    if (!isCurrentProjectSession(project.id, session)) return;
+    const assetAuthorityReady = () => successfulAssetStageStatuses.has(String(authoritativeAssets?.stage?.data.status || ""))
+      && ["pending_confirmation", "completed"].includes(String(authoritativeWorkflow?.workflow.stages.assets || ""));
+    if (!allAssetProfiles.value.length || !assetAuthorityReady()) {
+      await prepareAssetProfilesFromStoryboard(project);
+      if (!isCurrentProjectSession(project.id, session)) return;
+      authoritativeAssets = await projectService.readStage<AssetStageData>({ ...projectIdentity, id:project.id, stage:"assets" }).catch(() => null);
+      authoritativeWorkflow = await productionLedgerService.workflow(productionTaskContext(project)).catch(() => null);
     }
-    assetStatus.value = "pending";
-    assetError.value = "";
+    if (!isCurrentProjectSession(project.id, session)) return;
+    if (!assetAuthorityReady()) {
+      assetError.value ||= "资产权威阶段尚未完成，请先重试资产提取";
+      await persistAssetState(project, session);
+      return;
+    }
     assetIntroOpen.value = "";
-    await persistAssetState();
+    await persistAssetState(project, session);
     selectWorkflowNavigation("资产");
     await nextTick();
-    notify("资产上传槽已创建，请上传全部人物四视图、场景和道具后生成分镜画面");
+    notify("已根据分镜脚本创建资产卡片，系统将按队列自动生成缺失的人物、道具和场景基准图，无需手动上传");
+    if (!isCurrentProjectSession(project.id, session)) return;
+    await enqueueAssetOperation(`${project.id}:generate-all`, "生成资产图片", () => generateAllAssetImages(project, session));
   })();
-  const singleFlight = transaction.finally(() => { if (assetEntryPromise === singleFlight) assetEntryPromise = undefined; });
+  const singleFlight = transaction.finally(() => {
+    if (assetEntryPromise === singleFlight && assetEntryPromiseKey === entryKey) {
+      assetEntryPromise = undefined;
+      assetEntryPromiseKey = "";
+    }
+  });
   assetEntryPromise = singleFlight;
+  assetEntryPromiseKey = entryKey;
   return singleFlight;
 }
 
 async function stopAllAssetGeneration() {
+  const project = activeProjectRecord.value;
+  const session = projectSession;
   assetBatchPaused.value = true;
+  assetOperationEpoch += 1;
+  queuedAssetOperationOwners.clear();
+  queuedAssetOperationCount.value = 0;
   assetController.value?.abort();
+  reclaimAssetBatchProjection(assetBatchFlight, assetBatchController.value, activeAssetBatchToken);
+  const stopEpoch = ++assetBatchEpoch;
+  if (project) await assetService.stopImages({ ...productionTaskContext(project), stage:"assets", all:true }).catch(() => undefined);
+  if (!project || !isCurrentProjectSession(project.id, session) || assetBatchEpoch !== stopEpoch) return;
   for (const item of [...characterProfiles.value, ...sceneProfiles.value, ...propProfiles.value]) {
     if (item.status === "generating") item.status = item.image_url ? "waiting_confirmation" : "pending";
   }
   assetBatchGenerating.value = false;
   assetStatus.value = "pending";
   assetError.value = "已暂停，可继续生成";
-  await persistAssetState();
+  await persistAssetState(project, session);
 }
 
 async function stopOutline() {
   const project = activeProjectRecord.value;
   const clientGenerationId = outlineGenerationId.value;
   outlineController.value?.abort();
-  await narrativeService.stop("outline", { project_id:project?.id || "", client_generation_id:clientGenerationId }).catch(() => undefined);
+  await narrativeService.stop("outline", { ...productionTaskContext(project), client_generation_id:clientGenerationId }).catch(() => undefined);
   outlineStatus.value = "failed";
   outlineAuditStopped.value = false;
   outlinePhase.value = "";
@@ -3091,7 +3287,7 @@ async function stopOutlineAudit() {
   const project = activeProjectRecord.value;
   const clientGenerationId = outlineGenerationId.value;
   outlineController.value?.abort();
-  await Promise.allSettled([narrativeService.stopAudit(), narrativeService.stop("outline", { project_id:project?.id || "", client_generation_id:clientGenerationId })]);
+  await Promise.allSettled([narrativeService.stopAudit(), narrativeService.stop("outline", { ...productionTaskContext(project), client_generation_id:clientGenerationId })]);
   outlineStatus.value = "failed";
   outlineAuditStopped.value = true;
   outlinePhase.value = "";
@@ -3282,7 +3478,7 @@ async function stopScripts() {
   const project = activeProjectRecord.value;
   const generationId = scriptGenerationId.value;
   scriptController.value?.abort();
-  await narrativeService.stop("script", { project_id:project?.id || "", client_generation_id:generationId }).catch(() => undefined);
+  await narrativeService.stop("script", { ...productionTaskContext(project), client_generation_id:generationId }).catch(() => undefined);
   scriptStatus.value = "failed";
   scriptPhase.value = "";
   scriptError.value = "已停止生成，可从未完成集数继续";
@@ -3297,6 +3493,20 @@ async function stopScripts() {
 type StoryboardStageData = { shots:StoryboardShot[]; status:typeof storyboardStatus.value; error:string; audits:OutlineAudit[]; streaming_episode?:number };
 function storyboardShotSignature(shot:Pick<StoryboardShot, "visual" | "action">) {
   return `${shot.visual}|${shot.action}`.replace(/[^\p{L}\p{N}]+/gu, "").toLowerCase();
+}
+function mergeStoryboardEpisodeResults(existingShots:StoryboardShot[], incomingShots:StoryboardShot[], replacedEpisodes:number[]) {
+  const replace = new Set(replacedEpisodes);
+  const preserved = existingShots.filter(shot => !replace.has(shot.episode));
+  const replacements = incomingShots.filter(shot => replace.has(shot.episode));
+  const merged = [...preserved, ...replacements].sort((left, right) => left.episode - right.episode || left.shot_number - right.shot_number);
+  const keys = new Set<string>();
+  for (const shot of merged) {
+    if (!Number.isInteger(shot.episode) || shot.episode <= 0 || !Number.isInteger(shot.shot_number) || shot.shot_number <= 0) throw new Error("分镜响应包含非法镜头编号");
+    const key = `${shot.episode}:${shot.shot_number}`;
+    if (keys.has(key)) throw new Error(`分镜响应包含重复镜头：${key}`);
+    keys.add(key);
+  }
+  return merged;
 }
 function storyboardEpisodeError(shots:StoryboardShot[], targetDuration:number) {
   if (shots.length < 15 || shots.length > 23) return `分镜数量必须为15-23个，当前为${shots.length}个`;
@@ -3369,6 +3579,7 @@ async function generateStoryboards(_recovering:boolean | Event = false) {
   const project = activeProjectRecord.value;
   if (!project || !scripts.value.length || storyboardStatus.value === "generating") return;
   const session = projectSession;
+  const existingShots:StoryboardShot[] = [...storyboardShots.value];
   const controller = new AbortController(); storyboardController.value?.abort(); storyboardController.value = controller;
   const watchController = new AbortController();
   const stopWatch = () => watchController.abort();
@@ -3403,15 +3614,16 @@ async function generateStoryboards(_recovering:boolean | Event = false) {
     }
   })();
   try {
-    const response = await productionLedgerService.runStage<{ shots:StoryboardShot[]; audits:OutlineAudit[] }>({
+    const response = await productionLedgerService.runStage<{ shots:StoryboardShot[]; audits:OutlineAudit[]; generated_episodes:number[] }>({
       ...productionTaskContext(project), stage:"storyboard", audit_enabled:narrativeAuditEnabled.value, scripts:scripts.value, characters:outlinePlan.value?.characters || [],
+      shots:existingShots, audits:storyboardAudits.value,
       context:{ ...productionTaskContext(project), topic:project.topic, style:project.style, language:project.language, duration:Math.round((project.duration_min + project.duration_max) / 2), aspect:"9:16" },
     }, controller.signal);
     polling = false;
     await cancelActiveWatch();
     await progressPoll.catch(() => undefined);
     if (!isCurrentProjectSession(project.id, session) || controller.signal.aborted) return;
-    storyboardShots.value = response.result.shots;
+    storyboardShots.value = mergeStoryboardEpisodeResults(existingShots, response.result.shots, response.result.generated_episodes || []);
     storyboardAudits.value = (response.result.audits || []).map(normalizeOutlineAudit);
     storyboardStatus.value = !narrativeAuditEnabled.value || narrativeAuditsPassed(storyboardAudits.value) ? "confirmed" : "waiting_confirmation";
     await persistStoryboardState(project);
@@ -3425,7 +3637,7 @@ async function generateStoryboards(_recovering:boolean | Event = false) {
       notify("全剧分镜脚本已生成，请确认后提取资产框架");
     }
   } catch (error) {
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted || !isCurrentProjectSession(project.id, session)) return;
     storyboardStatus.value = "failed"; storyboardError.value = error instanceof Error ? error.message : "分镜脚本生成失败"; await persistStoryboardState(project).catch(() => undefined);
   } finally {
     polling = false;
@@ -3484,6 +3696,63 @@ async function stopStoryboards() {
 
 type AssetStageData = { characters:CharacterProfile[]; scenes:SceneProfile[]; props:PropProfile[]; status:AssetStatus; error:string; source_episodes?:number[]; census_version?:number };
 
+const successfulAssetStageStatuses = new Set(["waiting_confirmation", "confirmed", "completed"]);
+const deferredAssetConfirmationError = "previous stage is not completed: storyboard";
+const circularAssetConstructionError = "previous stage is not completed: assets";
+const isDeferredAssetConfirmationError = (value:unknown) => {
+  const message = String(value || "").trim();
+  return [deferredAssetConfirmationError, circularAssetConstructionError].some(error => (
+    message === error || message.endsWith(`：${error}`) || message.endsWith(`: ${error}`)
+  ));
+};
+
+function clearResolvedAssetStageConflict<T extends CharacterProfile | SceneProfile | PropProfile>(item:T, authoritativeSuccess = false) {
+  const itemError = String(item.error || "").trim();
+  if (authoritativeSuccess && itemError === "production stage is already running: assets") {
+    item.status = item.image_url ? "waiting_confirmation" : "pending";
+    item.error = "";
+  } else if (isDeferredAssetConfirmationError(itemError)) {
+    item.status = item.image_url ? "waiting_confirmation" : "pending";
+    item.error = "";
+  }
+  for (const variant of item.detail_assets || []) {
+    if (!isDeferredAssetConfirmationError(variant.error)) continue;
+    variant.status = variant.image_url ? "waiting_confirmation" : "pending";
+    variant.error = "";
+  }
+  return item;
+}
+
+function isReusableSceneAssetName(value:unknown) {
+  const name = String(value || "").trim();
+  const characterNames = new Set([
+    ...(outlinePlan.value?.characters || []).map(character => String(character.name || "").trim()),
+    ...characterProfiles.value.map(character => String(character.name || "").trim()),
+  ].filter(Boolean));
+  if (!name || !/(?:试炼场|练武场|广场|大殿|殿内|殿外|庭院|院落|房间|卧室|书房|藏经阁|阁楼|楼阁|大厅|走廊|山门|后山|山谷|树林|街道|巷道|地牢|牢房|擂台|秘境|洞府|城门|村落|湖畔|河岸|桥上|厨房|客厅|餐厅|饭店|卫生间|浴室|医院|诊所|病房|学校|教室|办公室|会议室|公司|商场|超市|酒店|旅馆|车站|候车室|机场|候机厅|码头|仓库|工厂|车间|寺庙|道观|教堂|咖啡馆|图书馆|博物馆|体育馆|停车场|公园|花园|游乐园|电影院|剧院|舞台|摄影棚|实验室|工作室|店铺|住宅|公寓|别墅|宿舍|天台|屋顶|地下室|电梯间|楼梯间|前台|操场|球场|海滩|沙漠|草原|雪原)$/.test(name) || [...characterNames].some(character => name.includes(character)) || /(?:弟子|众人|人群|长老|侍卫|士兵|百姓|村民|男人|女人|男子|女子|孩童|全宗门)/.test(name) || /(?:被(?:夺走|抢走|推进|带进|送进|关进|困在|藏进|打伤|杀死|击倒)|(?:藏|推|冲|闯|逃|跑|走|驶|搬|抬|送|带)(?:进|入|向|到)|失控|夺走|抢走|打斗|追逐|爆炸|起火|坍塌|倒塌|发生|后(?:藏|走|进入|来到))/.test(name)) return false;
+  return !/(?:跪(?:下|在|着)|坐(?:下|在|着)|躺(?:下|在|着)|站立|倒地|转身|回头|低头|抬头|走(?:进|出|向|到)|跑(?:进|出|向|到)|冲(?:进|出|向)|追赶|挥(?:手|剑)|抱住|看向|望向|哭泣|大笑|说话|喊道|进入|离开)/.test(name);
+}
+
+function sceneLocationFromShot(shot:StoryboardShot) {
+  if (isReusableSceneAssetName(shot.scene)) return String(shot.scene).trim();
+  const text = `${shot.visual || ""}，${shot.action || ""}，${shot.image_prompt || ""}`;
+  const background = text.match(/(?:背景(?:是|为)|地点(?:在|是|为|[:：]))([^，。；]{2,24})/)?.[1] || "";
+  const candidates = [background, ...(text.match(/[\u4e00-\u9fff]{0,10}(?:试炼场|练武场|广场|大殿|殿内|殿外|庭院|院落|房间|卧室|书房|藏经阁|阁楼|楼阁|大厅|走廊|山门|后山|山谷|树林|街道|巷道|地牢|牢房|擂台|秘境|洞府|城门|村落|湖畔|河岸|桥上|厨房|客厅|餐厅|饭店|卫生间|浴室|医院|诊所|病房|学校|教室|办公室|会议室|公司|商场|超市|酒店|旅馆|车站|候车室|机场|候机厅|码头|仓库|工厂|车间|寺庙|道观|教堂|咖啡馆|图书馆|博物馆|体育馆|停车场|公园|花园|游乐园|电影院|剧院|舞台|摄影棚|实验室|工作室|店铺|住宅|公寓|别墅|宿舍|天台|屋顶|地下室|电梯间|楼梯间|前台|操场|球场|海滩|沙漠|草原|雪原)/g) || [])];
+  for (const candidate of candidates) {
+    const cleaned = candidate.replace(/^(?:一座|一处|古色古香的|宏伟的|昏暗的|宽阔的|空旷的|远处的)+/, "").trim();
+    if (isReusableSceneAssetName(cleaned)) return cleaned;
+  }
+  return "";
+}
+
+function normalizeEmptySceneProfiles(items:SceneProfile[]) {
+  return items.filter(item => isReusableSceneAssetName(item.name)).map(item => ({
+    ...item,
+    location:String(item.location || item.name).trim(),
+    image_prompt:[item.location || item.name, item.layout, item.lighting, ...(item.fixed_elements || [])].filter(Boolean).join("，") + "，45度空场景全景，纯环境与建筑，无人物、无人形、无人体、无文字",
+  }));
+}
+
 function assetBaselineJobName(projectId:string, kind:"character" | "scene" | "prop", item:CharacterProfile | SceneProfile | PropProfile) {
   return `${projectId}_${item.generation_nonce || "legacy"}_${kind}_${item.name}_baseline`;
 }
@@ -3501,11 +3770,20 @@ async function loadAssetState(project = activeProjectRecord.value, session = pro
     if (!isCurrentProjectSession(project.id, session)) return;
     if (!result.stage) return;
     assetSourceEpisodes.value = result.stage.data.source_episodes || [];
-    const storedCharacters = result.stage.data.characters || [];
+    const storedProfiles = [...(result.stage.data.characters || []), ...(result.stage.data.scenes || []), ...(result.stage.data.props || [])];
+    const authoritativeSuccess = successfulAssetStageStatuses.has(String(result.stage.data.status));
+    const resolvedStageConflict = storedProfiles.some(item => (
+      (authoritativeSuccess && String(item.error || "").trim() === "production stage is already running: assets")
+      || isDeferredAssetConfirmationError(item.error)
+      || (item.detail_assets || []).some(variant => isDeferredAssetConfirmationError(variant.error))
+    ));
+    const storedCharacters = (result.stage.data.characters || []).map(item => clearResolvedAssetStageConflict(item, authoritativeSuccess));
     characterProfiles.value = storedCharacters;
-    sceneProfiles.value = result.stage.data.scenes || [];
-    propProfiles.value = result.stage.data.props || [];
-    let recovered = characterProfiles.value.length !== storedCharacters.length;
+    const storedScenes = (result.stage.data.scenes || []).map(item => clearResolvedAssetStageConflict(item, authoritativeSuccess));
+    sceneProfiles.value = normalizeEmptySceneProfiles(storedScenes);
+    const removedInvalidScenes = sceneProfiles.value.length !== storedScenes.length;
+    propProfiles.value = (result.stage.data.props || []).map(item => clearResolvedAssetStageConflict(item, authoritativeSuccess));
+    let recovered = resolvedStageConflict || removedInvalidScenes;
     for (const group of [
       { kind:"character", items:characterProfiles.value },
       { kind:"scene", items:sceneProfiles.value },
@@ -3514,6 +3792,7 @@ async function loadAssetState(project = activeProjectRecord.value, session = pro
       if (group.kind === "character" && item.image_url && item.view_contract !== characterViewContract) {
         item.image_url = undefined;
         item.detail_assets = [];
+        item.generation_nonce = crypto.randomUUID();
         item.confirmation_phase = undefined;
         item.status = "pending";
         item.error = "人物视图规范已更新，请重新生成0°正面全身基准图";
@@ -3578,6 +3857,7 @@ async function loadAssetState(project = activeProjectRecord.value, session = pro
       return;
     }
     if (recovered) await persistAssetState();
+    if (removedInvalidScenes && storyboardShots.value.length) await seedAssetCardsFromStoryboard(project, storyboardShots.value, session);
   } catch (error) { assetError.value = error instanceof Error ? error.message : "资产数据加载失败"; }
 }
 
@@ -3628,31 +3908,55 @@ async function recoverCompletedAssetImages() {
       { kind:"prop", items:propProfiles.value },
       { kind:"scene", items:sceneProfiles.value },
     ] as const) for (const item of group.items) {
-      if (item.image_url) continue;
-      const jobName = assetBaselineJobName(project.id, group.kind, item);
-      const completed = await assetService.characterResult<{ status:string; image?:{ url:string }; error?:string }>(jobName).catch(() => null);
-      if (activeProjectRecord.value?.id !== project.id) return;
-      if (completed?.ok && completed.data.status === "completed" && completed.data.image?.url) {
-        item.image_url = completed.data.image.url;
-        item.status = "waiting_confirmation";
-        item.error = "";
-        recovered = true;
-        await revealCompletedUnit();
-      } else if (completed?.ok && completed.data.status === "failed" && item.status === "generating") {
-        item.status = "pending";
-        item.error = userFacingGenerationError(completed.data.error);
-        recovered = true;
-        const interrupted = String(completed.data.error || "").includes("图片任务已中断");
-        if (interrupted && !autoResumedInterruptedAssetJobs.has(jobName)) {
-          autoResumedInterruptedAssetJobs.add(jobName);
-          shouldResumeInterruptedJob = true;
+      if (!item.image_url) {
+        const jobName = assetBaselineJobName(project.id, group.kind, item);
+        const completed = await assetService.characterResult<{ status:string; image?:{ url:string }; error?:string }>(jobName).catch(() => null);
+        if (activeProjectRecord.value?.id !== project.id) return;
+        if (completed?.ok && completed.data.status === "completed" && completed.data.image?.url) {
+          item.image_url = completed.data.image.url;
+          item.status = "waiting_confirmation";
+          item.error = "";
+          recovered = true;
+          await revealCompletedUnit();
+        } else if (completed?.ok && completed.data.status === "failed" && item.status === "generating") {
+          // A completed backend failure is a real terminal result. Keep it
+          // visible until the user explicitly retries; presenting it as pending
+          // hides the quality-gate reason and makes a stopped batch look idle.
+          item.status = "failed";
+          item.error = userFacingGenerationError(completed.data.error);
+          recovered = true;
+          const interrupted = String(completed.data.error || "").includes("图片任务已中断");
+          if (interrupted && !autoResumedInterruptedAssetJobs.has(jobName)) {
+            autoResumedInterruptedAssetJobs.add(jobName);
+            shouldResumeInterruptedJob = true;
+          }
+        }
+      }
+      if (!item.image_url) continue;
+      for (const [variantIndex, variant] of (item.detail_assets || []).entries()) {
+        if (variant.image_url || variant.status !== "generating") continue;
+        const variantJobName = `${project.id}_${item.generation_nonce || "legacy"}_${group.kind}_${item.name}_angle_${variantIndex + 2}`;
+        const completed = await assetService.characterResult<{ status:string; image?:{ url:string }; error?:string }>(variantJobName).catch(() => null);
+        if (activeProjectRecord.value?.id !== project.id) return;
+        if (completed?.ok && completed.data.status === "completed" && completed.data.image?.url) {
+          variant.image_url = completed.data.image.url;
+          variant.status = "waiting_confirmation";
+          variant.error = "";
+          recovered = true;
+          await revealCompletedUnit();
+        } else if (completed?.ok && completed.data.status === "failed") {
+          variant.status = "failed";
+          variant.error = userFacingGenerationError(completed.data.error);
+          item.status = "failed";
+          item.error = `部分固定角度图片生成失败，可继续生成`;
+          recovered = true;
         }
       }
     }
     if (recovered) {
       const profiles = [...characterProfiles.value, ...sceneProfiles.value, ...propProfiles.value];
       assetStatus.value = profiles.every(item => item.status === "confirmed") ? "confirmed" : profiles.some(item => item.status === "generating") ? "generating" : profiles.some(item => item.image_url) ? "waiting_confirmation" : "pending";
-      const failedProfile = profiles.find(item => item.status === "failed" && !item.image_url);
+      const failedProfile = profiles.find(item => item.status === "failed");
       assetError.value = profiles.some(item => item.status === "generating") ? "" : failedProfile ? `${failedProfile.name}：${failedProfile.error || "定位基准图生成失败，请继续生成"}` : "";
       await persistAssetState();
     }
@@ -3666,25 +3970,28 @@ async function recoverCompletedAssetImages() {
   }
 }
 const assetResultRecoveryTimer = window.setInterval(() => {
-  if (rightPanelMode.value === "assets" && [...characterProfiles.value, ...sceneProfiles.value, ...propProfiles.value].some(item => !item.image_url)) void recoverCompletedAssetImages();
+  const needsReconciliation = [...characterProfiles.value, ...sceneProfiles.value, ...propProfiles.value].some(item => (
+    !item.image_url || item.status === "generating" || (item.detail_assets || []).some(variant => variant.status === "generating")
+  ));
+  if (rightPanelMode.value === "assets" && needsReconciliation) void recoverCompletedAssetImages();
 }, 2000);
 onBeforeUnmount(() => window.clearInterval(assetResultRecoveryTimer));
 
-function mergeAssetProfiles<T extends CharacterProfile | SceneProfile | PropProfile>(existing:T[], incoming:T[]) {
+function mergeAssetProfiles<T extends CharacterProfile | SceneProfile | PropProfile>(existing:T[], incoming:T[], authoritativeSuccess = false) {
   const key = (item:T) => item.name.trim().replace(/\s+/g, "").toLocaleLowerCase("zh-CN");
   const oldByName = new Map(existing.map(item => [key(item), item]));
   const merged = incoming.map(item => {
     const old = oldByName.get(key(item));
     if (!old) return { ...item, status:"pending", generation_nonce:crypto.randomUUID() } as T;
     oldByName.delete(key(item));
-    return {
+    return clearResolvedAssetStageConflict({
       ...old,
       ...item,
       status:old.status || "pending",
       image_url:old.image_url,
       error:old.error,
       ...("episodes" in item ? { episodes:[...new Set([...(Array.isArray((old as SceneProfile | PropProfile).episodes) ? (old as SceneProfile | PropProfile).episodes : []), ...(Array.isArray((item as SceneProfile | PropProfile).episodes) ? (item as SceneProfile | PropProfile).episodes : [])])].sort((a, b) => a - b) } : {}),
-    } as T;
+    } as T, authoritativeSuccess);
   });
   return [...merged, ...oldByName.values()];
 }
@@ -3726,8 +4033,8 @@ async function seedAssetCardsFromStoryboard(project:StoredProject, shots:Storybo
     .map(outlineCharacterProfile);
   const firstEpisodeByScene = new Map<string, number>();
   for (const shot of shots) {
-    const name = String(shot.scene || "").trim();
-    if (name && !firstEpisodeByScene.has(name)) firstEpisodeByScene.set(name, shot.episode);
+    const name = sceneLocationFromShot(shot);
+    if (isReusableSceneAssetName(name) && !firstEpisodeByScene.has(name)) firstEpisodeByScene.set(name, shot.episode);
   }
   const scenes:SceneProfile[] = [...firstEpisodeByScene].map(([name, firstEpisode]) => ({
     name,
@@ -3759,6 +4066,11 @@ function queueStoryboardAssetExtraction(project:StoredProject, session:number, e
   storyboardAssetExtractionQueue = storyboardAssetExtractionQueue.catch(() => undefined).then(async () => {
     if (!isCurrentProjectSession(project.id, session)) return;
     await runProductionAssetExtraction("manual", project, session, [episode], false);
+    if (!isCurrentProjectSession(project.id, session) || assetStatus.value === "failed") return;
+    // A completed episode must immediately continue from asset-card extraction to
+    // baseline generation. The shared promise keeps episodes and heavy image work
+    // strictly serial while the storyboard producer may continue in parallel.
+    await enqueueAssetOperation(`${project.id}:generate-all`, "生成资产图片", () => generateAllAssetImages(project, session));
   }).finally(() => queuedStoryboardAssetEpisodes.delete(key));
 }
 
@@ -3848,9 +4160,9 @@ async function runProductionAssetExtraction(source:"outline" | "script" | "manua
       await projectService.createVersion({ ...projectIdentity, project_id:project.id, project_name:project.name, stage:"before-assets-merge", reason:"全剧资产增量合并前归档" });
     }
     if (!isCurrentProjectSession(project.id, session) || controller.signal.aborted) return;
-    characterProfiles.value = mergeAssetProfiles(characterProfiles.value, reconcileOutlineCharacters(result.characters || [], requiredCharacters));
-    sceneProfiles.value = mergeAssetProfiles(sceneProfiles.value, result.scenes || []);
-    propProfiles.value = mergeAssetProfiles(propProfiles.value, result.props || []);
+    characterProfiles.value = mergeAssetProfiles(characterProfiles.value, reconcileOutlineCharacters(result.characters || [], requiredCharacters), commitStage);
+    sceneProfiles.value = mergeAssetProfiles(sceneProfiles.value, normalizeEmptySceneProfiles(result.scenes || []), commitStage);
+    propProfiles.value = mergeAssetProfiles(propProfiles.value, result.props || [], commitStage);
     assetSourceEpisodes.value = [...new Set([...assetSourceEpisodes.value, ...targetEpisodes])].sort((a, b) => a - b);
     assetStatus.value = commitStage ? "waiting_confirmation" : "pending";
     if (!isCurrentProjectSession(project.id, session) || controller.signal.aborted) return;
@@ -3876,9 +4188,9 @@ async function runProductionAssetExtraction(source:"outline" | "script" | "manua
           return;
         }
         if (controller.signal.aborted || !isCurrentProjectSession(project.id, session)) return;
-        characterProfiles.value = mergeAssetProfiles(characterProfiles.value, data.characters || []);
-        sceneProfiles.value = mergeAssetProfiles(sceneProfiles.value, data.scenes || []);
-        propProfiles.value = mergeAssetProfiles(propProfiles.value, data.props || []);
+        characterProfiles.value = mergeAssetProfiles(characterProfiles.value, data.characters || [], true);
+        sceneProfiles.value = mergeAssetProfiles(sceneProfiles.value, normalizeEmptySceneProfiles(data.scenes || []), true);
+        propProfiles.value = mergeAssetProfiles(propProfiles.value, data.props || [], true);
         assetSourceEpisodes.value = [...new Set([...(assetSourceEpisodes.value || []), ...(data.source_episodes || [])])].sort((left, right) => left - right);
         assetStatus.value = data.status || "waiting_confirmation";
         assetError.value = data.error || "";
@@ -3896,14 +4208,18 @@ async function runProductionAssetExtraction(source:"outline" | "script" | "manua
   } finally { if (assetController.value === controller) assetController.value = undefined; }
 }
 
-async function generateAssetBaseline(kind:"character" | "scene" | "prop", item:CharacterProfile | SceneProfile | PropProfile) {
+async function generateAssetBaseline(kind:"character" | "scene" | "prop", item:CharacterProfile | SceneProfile | PropProfile, project = activeProjectRecord.value, session = projectSession, signal?:AbortSignal) {
   if (item.status === "generating") return;
-  const project = activeProjectRecord.value;
-  if (!project) return;
+  if (!project || !isCurrentProjectSession(project.id, session) || signal?.aborted) return;
   item.generation_nonce = crypto.randomUUID();
   const generationNonce = item.generation_nonce;
   const jobName = assetBaselineJobName(project.id, kind, item);
   const generationKey = assetSlideGenerationKey(kind, item.name, baselineSlideKey(kind));
+  // A regeneration is a new immutable media generation.  Keep the currently
+  // published image alive until the replacement has completed and its URL is
+  // durably projected; purge-first made completed jobs and snapshots point at
+  // deleted files when a queued regeneration followed a batch generation.
+  const previousImageUrl = item.image_url;
   activeAssetGenerationKey.value = generationKey;
   item.baseline_confirmed_at = undefined;
   item.status = "generating";
@@ -3911,16 +4227,16 @@ async function generateAssetBaseline(kind:"character" | "scene" | "prop", item:C
   assetStatus.value = "generating";
   assetError.value = "";
   try {
-    await persistAssetState();
-    await assetService.purgeGenerated({ project_id:project.id, asset_kind:kind, asset_name:item.name });
+    await persistAssetState(project, session);
+    if (!isCurrentProjectSession(project.id, session) || signal?.aborted) return;
     const angles = fixedAssetAngles[kind];
     const subjectRule = kind === "character"
-      ? "首张定位基准图，只生成一张独立图片且画面内只能有一个人物；严格左45度完整全身照，同时展示正面和侧面结构，正常人眼高度，中性无表情，从完整头顶到鞋底全部入画，双手自然下垂，纯净中性灰背景；严禁右45度、裁切头脚、多人、多姿势、多视角、拼图、宫格、分栏、接触表、同图重复人物"
+      ? "首张定位基准图，只生成一张独立图片且画面内只能有一个人物；严格0度正面平视完整全身照，脸、双肩、胸口、骨盆、双膝和双脚全部正对镜头，头部偏航角与翻滚角均接近0度，中性无表情，从完整发顶到完整鞋底全部入画，双手自然下垂，纯净中性灰背景；严禁左45度、右45度、侧面、背面、近照、半身、俯拍、仰拍、裁切头脚、多人、多姿势、多视角、拼图、宫格、分栏、接触表和同图重复人物"
       : kind === "scene" ? "只生成一张正常人眼高度45度空场景全景，展示空间纵深、墙地关系和固定陈设；人物数量严格为零，禁止人体、剪影、倒影中的人、镜中人、照片人物、海报人物、屏幕人物、雕像人形、文字、水印、拼图和鱼眼畸变" : "只生成一张单一完整道具45度三分之二视图，同时展示正面、顶面和侧面结构；纯中性灰背景，禁止人物、手、支架、文字、水印和额外物体";
     const identityPrompt = kind === "character" ? baselineIdentityPrompt(item.image_prompt) : item.image_prompt;
     const character = kind === "character" ? item as CharacterProfile : undefined;
-    const result = await assetService.generateCharacter<{ image:{ url:string; character_lora?:{ id:string; path:string; sha256:string; base_model:string } } }>({ ...productionTaskContext(project), name:jobName, asset_kind:kind, asset_subject:item.name, asset_phase:"baseline", identity_prompt:kind === "character" ? item.image_prompt : "", character_gender:character?.gender || "", character_lora_id:character?.character_lora_id || "", prompt:`${subjectRule}。${angles[0].prompt}。${identityPrompt}`, orientation:"portrait", width:928, height:1664, lora_mode:project.lora_mode, lora_id:project.lora_id });
-    if (item.generation_nonce !== generationNonce) return;
+    const result = await assetService.generateCharacter<{ image:{ url:string; character_lora?:{ id:string; path:string; sha256:string; base_model:string } } }>({ ...productionTaskContext(project), name:jobName, asset_kind:kind, asset_subject:item.name, asset_phase:"baseline", identity_prompt:kind === "character" ? identityPrompt : "", character_gender:character?.gender || "", character_lora_id:character?.character_lora_id || "", prompt:`${subjectRule}。${angles[0].prompt}。${identityPrompt}`, orientation:"portrait", width:928, height:1664, lora_mode:project.lora_mode, lora_id:project.lora_id }, signal);
+    if (!isCurrentProjectSession(project.id, session) || signal?.aborted || item.generation_nonce !== generationNonce) return;
     item.image_url = result.image.url;
     if (character) item.view_contract = characterViewContract;
     if (character && result.image.character_lora) {
@@ -3933,9 +4249,11 @@ async function generateAssetBaseline(kind:"character" | "scene" | "prop", item:C
     item.confirmation_phase = "baseline";
     item.status = "waiting_confirmation";
     item.error = "";
-    await persistAssetState();
+    await persistAssetState(project, session);
+    if (!isCurrentProjectSession(project.id, session) || signal?.aborted) return;
     await revealCompletedUnit();
   } catch (error) {
+    if (!isCurrentProjectSession(project.id, session) || signal?.aborted) return;
     const payload = error && typeof error === "object" && "payload" in error ? (error as { payload?:unknown }).payload : null;
     const activeJob = payload && typeof payload === "object" && "active_job" in payload ? String((payload as { active_job?:unknown }).active_job || "") : "";
     const noncePrefix = `${project.id}_`;
@@ -3946,27 +4264,28 @@ async function generateAssetBaseline(kind:"character" | "scene" | "prop", item:C
       item.error = "";
       assetStatus.value = "generating";
       assetError.value = "";
-      await persistAssetState().catch(() => undefined);
+      await persistAssetState(project, session).catch(() => undefined);
       return;
     }
-    item.status = "failed";
+    item.status = previousImageUrl ? "waiting_confirmation" : "failed";
     item.error = userFacingGenerationError(error instanceof Error ? error.message : "资产图生成失败");
-    await persistAssetState().catch(() => undefined);
+    await persistAssetState(project, session).catch(() => undefined);
   } finally {
-    if (activeAssetGenerationKey.value === generationKey) activeAssetGenerationKey.value = "";
+    if (isCurrentProjectSession(project.id, session) && !signal?.aborted && activeAssetGenerationKey.value === generationKey) activeAssetGenerationKey.value = "";
   }
 }
 
 async function generateAsset3D(kind:"character" | "scene" | "prop", item:CharacterProfile | SceneProfile | PropProfile) {
   const project = activeProjectRecord.value;
   if (!project || item.model3d_status === "generating") return;
+  const session = projectSession;
   if (!item.image_url || !item.baseline_confirmed_at) {
-    notify(`请先确认${kind === "character" ? "人物左45°全身" : kind === "prop" ? "道具45°三分之二" : "场景45°空场景全景"}基准图，再生成3D资产`);
+    notify(`请先确认${kind === "character" ? "人物0°正面全身" : kind === "prop" ? "道具45°三分之二" : "场景45°空场景全景"}基准图，再生成3D资产`);
     return;
   }
   item.model3d_status = "generating";
   item.model3d_error = "";
-  await persistAssetState();
+  await persistAssetState(project, session);
   try {
     const accepted = await assetService.generate3D<{ job_id:string; status:string; phase:string }>({
       ...productionTaskContext(project),
@@ -3975,7 +4294,7 @@ async function generateAsset3D(kind:"character" | "scene" | "prop", item:Charact
       asset_name:item.name,
       asset_prompt:item.image_prompt,
       source_baseline_url:item.image_url || "",
-      reference_angle:kind === "character" ? "left_45_full" : "three_quarter_45",
+      reference_angle:kind === "character" ? "front_full" : "three_quarter_45",
       baseline_confirmed:Boolean(item.baseline_confirmed_at),
       dimensions:kind === "character" ? { height_m:1.7, inferred:true }
         : kind === "prop" ? { width_m:0.3, depth_m:0.3, height_m:0.3, inferred:true, category:(item as PropProfile).category }
@@ -3989,40 +4308,50 @@ async function generateAsset3D(kind:"character" | "scene" | "prop", item:Charact
       } : {}),
       scene_layout:kind === "scene" ? { layout:(item as SceneProfile).layout, fixed_elements:(item as SceneProfile).fixed_elements } : undefined,
     });
+    if (!isCurrentProjectSession(project.id, session)) return;
     item.model3d_job_id = accepted.job_id;
-    await persistAssetState();
+    await persistAssetState(project, session);
     let result:Asset3DResult | undefined;
     while (item.model3d_status === "generating") {
       await new Promise(resolve => window.setTimeout(resolve, 1500));
+      if (!isCurrentProjectSession(project.id, session)) return;
       const job = await assetService.status3D<{ status:string; error?:string; result?:Asset3DResult }>(accepted.job_id);
+      if (!isCurrentProjectSession(project.id, session)) return;
       if (job.status === "completed" && job.result) { result = job.result; break; }
       if (job.status === "failed") throw new Error(job.error || "3D资产生成失败");
     }
     if (!result || item.model3d_status !== "generating") return;
+    if (!isCurrentProjectSession(project.id, session)) return;
     item.model3d_result = result;
     item.model3d_status = "waiting_confirmation";
     item.model3d_error = "";
-    await persistAssetState();
+    await persistAssetState(project, session);
   } catch (error) {
+    if (!isCurrentProjectSession(project.id, session)) return;
     const payload = error && typeof error === "object" && "payload" in error ? (error as { payload?:unknown }).payload : undefined;
     if (payload && typeof payload === "object" && "job_id" in payload) item.model3d_job_id = String((payload as { job_id?:unknown }).job_id || "");
     item.model3d_status = "failed";
     item.model3d_error = error instanceof Error ? error.message : "3D资产生成失败";
-    await persistAssetState().catch(() => undefined);
+    await persistAssetState(project, session).catch(() => undefined);
   }
 }
 
 async function confirmAsset3D(item:CharacterProfile | SceneProfile | PropProfile) {
   const project = activeProjectRecord.value;
   if (!project || !item.model3d_result || !item.model3d_job_id) return;
+  const session = projectSession;
   const kind = characterProfiles.value.includes(item as CharacterProfile) ? "character" : sceneProfiles.value.includes(item as SceneProfile) ? "scene" : "prop";
-  item.model3d_result = await assetService.confirm3D<Asset3DResult>({ project_id:project.id, asset_kind:kind, asset_name:item.name, job_id:item.model3d_job_id });
+  const result = await assetService.confirm3D<Asset3DResult>({ project_id:project.id, asset_kind:kind, asset_name:item.name, job_id:item.model3d_job_id });
+  if (!isCurrentProjectSession(project.id, session)) return;
+  item.model3d_result = result;
   item.model3d_status = "confirmed";
-  await persistAssetState();
+  await persistAssetState(project, session);
 }
 
 async function stopAsset3D(item:CharacterProfile | SceneProfile | PropProfile) {
-  if (item.model3d_job_id) await assetService.stop3D(item.model3d_job_id).catch(() => undefined);
+  const project = activeProjectRecord.value;
+  if (!project) return;
+  if (item.model3d_job_id) await assetService.stop3D(item.model3d_job_id, productionTaskContext(project)).catch(() => undefined);
   item.model3d_status = "failed";
   item.model3d_error = "3D资产任务已停止";
   await persistAssetState().catch(() => undefined);
@@ -4068,7 +4397,7 @@ async function generateAssetVariantsFromConfirmedBaseline(kind:"character" | "sc
       const angleIndex = angles.findIndex(angle => angle.label === variant.label);
       const angle = angles[angleIndex > 0 ? angleIndex : index + 1];
       targetPose = kind === "character"
-        ? angle.label === "0°正面全身" ? "front_full" : angle.label === "右45°全身" ? "right_45_full" : angle.label === "90°侧面全身" ? "side_90_full" : angle.label === "180°背面全身" ? "back_full" : angle.label === "0°正面半身" ? "front_half" : ""
+        ? angle.label === "左45°全身" ? "left_45_full" : angle.label === "右45°全身" ? "right_45_full" : angle.label === "90°侧面全身" ? "side_90_full" : angle.label === "180°背面全身" ? "back_full" : angle.label === "0°正面半身" ? "front_half" : ""
         : "";
       const clothingReferenceUrl = kind === "character"
         ? (item as CharacterProfile).clothing_reference_url || item.image_url
@@ -4082,10 +4411,10 @@ async function generateAssetVariantsFromConfirmedBaseline(kind:"character" | "sc
         asset_phase:"variant",
         character_gender:kind === "character" ? (item as CharacterProfile).gender : "",
         character_lora_id:kind === "character" ? (item as CharacterProfile).character_lora_id || "" : "",
-        prompt:`以已确认的0度、左45度、右45度、90度、180度全身角度档案共同锁定同一人物。Maintain consistent character identity and costume details across all angles. Refer to the confirmed character dossier for front, left, right, side and back views.${kind === "character" ? (targetPose === "front_half" ? "严格0度正面平视、特写型半身构图；人物居中，从完整头顶到腰部裁切，头顶仅微小留白，手部完全出画；头部至腰部占画高约75%，双肩不触碰左右边缘且两侧留白适中；锁定眼型、眉形、鼻型、嘴型、脸型、耳形、发际线、妆容、发型、发色、肤色、年龄、体型、领口、服装和配饰；完全纯色无杂物背景。" : "必须是同一个人：眼型、眉形、鼻型、嘴型、脸型、耳形、发际线、发型、发色、肤色、年龄、服装、领口、领带及身体比例全部与基准图完全一致；严格从头顶到鞋底完整入画，双手、双腿、双脚完整，不得坐下、倚靠、手持物品或执行剧情动作；纯净单色背景，禁止场景、家具、道具和其他人物。") : "严格锁定主体身份、材质、颜色、布局和全部可见细节，只改变镜头角度。"}${kind === "scene" ? "必须保持纯空场景，人物数量为零，禁止任何真人、人形、人体局部、剪影、倒影、照片、海报或屏幕中的人物。" : ""}${angle.prompt}。${kind === "character" ? baselineIdentityPrompt(item.image_prompt) : item.image_prompt}`,
+        prompt:`以已确认的0度正面全身基准图及当前已确认角度共同锁定同一人物。Maintain consistent character identity and costume details across all angles using only the confirmed front baseline and confirmed angle references.${kind === "character" ? (targetPose === "front_half" ? "严格0度正面平视、特写型半身构图；人物居中，从完整头顶到腰部裁切，头顶仅微小留白，手部完全出画；头部至腰部占画高约75%，双肩不触碰左右边缘且两侧留白适中；锁定眼型、眉形、鼻型、嘴型、脸型、耳形、发际线、妆容、发型、发色、肤色、年龄、体型、领口、服装和配饰；完全纯色无杂物背景。" : "必须是同一个人：眼型、眉形、鼻型、嘴型、脸型、耳形、发际线、发型、发色、肤色、年龄、服装、领口、领带及身体比例全部与正面基准图完全一致；严格从头顶到鞋底完整入画，双手、双腿、双脚完整；发顶上方纯背景留白至少8%，鞋底下方纯背景留白至少3%，两者均为最低值而非固定值；不得坐下、倚靠、手持物品或执行剧情动作；纯净单色背景，禁止场景、家具、道具和其他人物。") : "严格锁定主体身份、材质、颜色、布局和全部可见细节，只改变镜头角度。"}${kind === "scene" ? "必须保持纯空场景，人物数量为零，禁止任何真人、人形、人体局部、剪影、倒影、照片、海报或屏幕中的人物。" : ""}${angle.prompt}。${kind === "character" ? baselineIdentityPrompt(item.image_prompt) : item.image_prompt}`,
         orientation:"portrait", width:928, height:1664,
         references:[
-          { name:`${item.name}-已确认左45度基准图`, url:identityReferenceUrl },
+          { name:`${item.name}-已确认0度正面全身基准图`, url:identityReferenceUrl },
           ...(kind === "character" ? (item.detail_assets || []).filter(asset => asset.image_url && asset.status === "confirmed" && asset !== variant).map(asset => ({ name:`${item.name}-${asset.label}`, url:asset.image_url! })) : []),
         ],
         clothing_reference_url:clothingReferenceUrl,
@@ -4132,18 +4461,23 @@ async function generateAssetVariantsFromConfirmedBaseline(kind:"character" | "sc
 
 async function regenerateAssetPhotoSlide(kind:"character" | "scene" | "prop", item:CharacterProfile | SceneProfile | PropProfile, slide:AssetPhotoSlide) {
   if (slide.key.startsWith("baseline")) return generateAssetBaseline(kind, item);
+  const project = activeProjectRecord.value;
+  if (!project) return;
+  const session = projectSession;
   const variant = ensureAssetPhotoVariant(kind, item, slide);
   variant.image_url = undefined;
   variant.status = "pending";
   variant.error = "";
   item.confirmation_phase = "baseline";
-  await persistAssetState();
+  await persistAssetState(project, session);
+  if (!isCurrentProjectSession(project.id, session)) return;
   await generateAssetVariantsFromConfirmedBaseline(kind, item, variant);
 }
 
 async function repairAssetPhotoSlide(kind:"character" | "scene" | "prop", item:CharacterProfile | SceneProfile | PropProfile, slide:AssetPhotoSlide) {
   const project = activeProjectRecord.value;
   if (!project || !slide.imageUrl || item.status === "generating") return;
+  const session = projectSession;
   const issue = window.prompt("请输入需要局部修复的瑕疵，例如：修复左手手指，其他区域保持不变", "仅修复瑕疵区域，人物身份、发型、服装、姿势、构图和背景保持不变");
   if (!issue?.trim()) return;
   const variant = slide.key.startsWith("baseline") ? undefined : ensureAssetPhotoVariant(kind, item, slide);
@@ -4151,7 +4485,7 @@ async function repairAssetPhotoSlide(kind:"character" | "scene" | "prop", item:C
   activeAssetGenerationKey.value = generationKey;
   item.status = "generating";
   if (variant) variant.status = "generating";
-  await persistAssetState();
+  await persistAssetState(project, session);
   try {
     const result = await assetService.generateCharacter<{ image:{ url:string } }>({
       ...productionTaskContext(project),
@@ -4163,16 +4497,20 @@ async function repairAssetPhotoSlide(kind:"character" | "scene" | "prop", item:C
       references:[{ name:`${item.name}-${slide.label}`, url:slide.imageUrl }],
       orientation:"portrait", width:928, height:1664,
     });
+    if (!isCurrentProjectSession(project.id, session)) return;
     if (variant) { variant.image_url = result.image.url; variant.status = "confirmed"; variant.error = ""; }
     else { item.image_url = result.image.url; item.baseline_confirmed_at = undefined; item.confirmation_phase = "baseline"; item.status = "waiting_confirmation"; }
     item.error = "";
   } catch (error) {
+    if (!isCurrentProjectSession(project.id, session)) return;
     if (variant) { variant.status = "failed"; variant.error = error instanceof Error ? error.message : "局部修复失败"; }
     item.status = "failed";
     item.error = error instanceof Error ? error.message : "局部修复失败";
   } finally {
-    if (activeAssetGenerationKey.value === generationKey) activeAssetGenerationKey.value = "";
-    await persistAssetState();
+    if (isCurrentProjectSession(project.id, session)) {
+      if (activeAssetGenerationKey.value === generationKey) activeAssetGenerationKey.value = "";
+      await persistAssetState(project, session);
+    }
   }
 }
 
@@ -4194,55 +4532,101 @@ function openAssetPhotoReplacement(kind:"character" | "scene" | "prop", item:Cha
   openAssetReplacement(item, slide.key.startsWith("baseline") ? undefined : ensureAssetPhotoVariant(kind, item, slide));
 }
 
-async function generateAllAssetImages() {
+function generateAllAssetImages(project = activeProjectRecord.value, session = projectSession) {
+  if (!project || !isCurrentProjectSession(project.id, session)) return;
+  const flightKey = `${project.id}:${session}`;
+  if (assetBatchFlight && assetBatchFlightKey === flightKey) return assetBatchFlight;
+  if (assetBatchFlight && assetBatchFlightKey !== flightKey) reclaimAssetBatchProjection(assetBatchFlight, assetBatchController.value, activeAssetBatchToken);
   if (assetImagesRunning.value) return;
+  const controller = new AbortController(); assetBatchController.value?.abort(); assetBatchController.value = controller;
+  assetBatchEpoch += 1;
+  const batchToken = crypto.randomUUID(); activeAssetBatchToken = batchToken; assetBatchFlightKey = flightKey;
+  const transaction = runAssetImageBatch(project, session, controller, batchToken);
+  const singleFlight = transaction.finally(async () => {
+    const ownsProjection = assetBatchFlight === singleFlight && assetBatchController.value === controller && activeAssetBatchToken === batchToken;
+    if (ownsProjection && isCurrentProjectSession(project.id, session)) {
+      assetBatchGenerating.value = false; activeAssetGenerationKey.value = ""; activeAssetBatchToken = "";
+      await persistAssetState(project, session).catch(() => undefined);
+    }
+    if (assetBatchFlight === singleFlight) { assetBatchFlight = undefined; assetBatchFlightKey = ""; }
+    if (assetBatchController.value === controller) assetBatchController.value = undefined;
+  });
+  assetBatchFlight = singleFlight;
+  return singleFlight;
+}
+
+async function runAssetImageBatch(project:StoredProject, session:number, controller:AbortController, batchToken:string) {
+  const isCurrentBatch = () => isCurrentProjectSession(project.id, session) && !controller.signal.aborted && activeAssetBatchToken === batchToken;
+  if (!isCurrentBatch()) return;
+  assetBatchGenerating.value = true;
+  const authoritativeAssetStageReady = async () => {
+    const [projection, workflow] = await Promise.all([
+      projectService.readStage<AssetStageData>({ ...projectIdentity, id:project.id, stage:"assets" }).catch(() => null),
+      productionLedgerService.workflow(productionTaskContext(project)).catch(() => null),
+    ]);
+    return successfulAssetStageStatuses.has(String(projection?.stage?.data.status || ""))
+      && ["pending_confirmation", "completed"].includes(String(workflow?.workflow.stages.assets || ""));
+  };
+  if (!await authoritativeAssetStageReady()) {
+    await runProductionAssetExtraction("manual", project, session);
+    if (!isCurrentBatch()) return;
+    if (!await authoritativeAssetStageReady()) {
+      assetBatchGenerating.value = false;
+      assetStatus.value = "failed";
+      assetError.value ||= "资产权威阶段尚未完成，请先重试资产提取";
+      await persistAssetState(project, session).catch(() => undefined);
+      return;
+    }
+  }
+  if (String(assetError.value || "").trim() === "production stage is already running: assets") {
+      const authoritative = await projectService.readStage<AssetStageData>({ ...projectIdentity, id:project.id, stage:"assets" }).catch(() => null);
+      if (!isCurrentBatch()) return;
+      const stage = authoritative?.stage?.data;
+      if (stage && stage.status !== "generating" && !String(stage.error || "").trim()) {
+        if (!isCurrentBatch()) return;
+        characterProfiles.value = mergeAssetProfiles(characterProfiles.value, stage.characters || [], successfulAssetStageStatuses.has(stage.status));
+        sceneProfiles.value = mergeAssetProfiles(sceneProfiles.value, normalizeEmptySceneProfiles(stage.scenes || []), successfulAssetStageStatuses.has(stage.status));
+        propProfiles.value = mergeAssetProfiles(propProfiles.value, stage.props || [], successfulAssetStageStatuses.has(stage.status));
+        if (!isCurrentBatch()) return;
+        assetStatus.value = stage.status || "pending";
+        assetError.value = "";
+        if (!isCurrentBatch()) return;
+        await persistAssetState(project, session).catch(() => undefined);
+      }
+  }
   if (!allAssetProfiles.value.length) {
-    await extractProductionAssets("manual");
+    await runProductionAssetExtraction("manual", project, session);
+    if (!isCurrentBatch()) return;
     if (assetStatus.value === "failed") return;
     if (!allAssetProfiles.value.length) return;
   }
   assetBatchPaused.value = false;
-  assetBatchGenerating.value = true;
+  if (!isCurrentBatch()) return;
   assetStatus.value = "generating";
   assetError.value = "";
-  await persistAssetState().catch(() => undefined);
-  const regenerateAll = generatedAssetCount.value === allAssetProfiles.value.length;
-  if (regenerateAll) {
-    try {
-      await assetService.purgeGenerated({ project_id:activeProjectRecord.value?.id });
-      for (const item of allAssetProfiles.value) {
-        item.image_url = undefined;
-        item.detail_image_urls = [];
-        item.detail_generation_evidence = [];
-        item.detail_assets = [];
-        item.confirmation_phase = undefined;
-        item.status = "pending";
-        item.error = "";
-      }
-      await persistAssetState();
-    } catch (error) {
-      assetBatchGenerating.value = false;
-      assetStatus.value = "failed";
-      assetError.value = error instanceof Error ? error.message : "旧图片和任务缓存清理失败";
-      await persistAssetState().catch(() => undefined);
-      return;
-    }
-  }
+  if (!isCurrentBatch()) return;
+  await persistAssetState(project, session).catch(() => undefined);
+  if (!isCurrentBatch()) return;
+  // The page-level action is resumable only: preserve every completed asset.
+  // A destructive replacement is allowed exclusively through the individual card regenerate action.
   // The generation queue must be identical to the order rendered on the asset page.
   // Do not reprioritize by role, gender or any model-derived metadata.
   const targets:Array<{ kind:"character" | "scene" | "prop"; item:CharacterProfile | SceneProfile | PropProfile }> = [
     ...characterProfiles.value.map(item => ({ kind:"character" as const, item })),
     ...propProfiles.value.map(item => ({ kind:"prop" as const, item })),
     ...sceneProfiles.value.map(item => ({ kind:"scene" as const, item })),
-  ].filter(({ item }) => regenerateAll || !item.image_url);
+  ].filter(({ item }) => !item.image_url);
   for (const { item } of targets) {
     if (!item.image_url) { item.status = "pending"; item.error = ""; }
   }
-  await persistAssetState();
+  if (!isCurrentBatch()) return;
+  await persistAssetState(project, session);
   try {
     for (const target of targets) {
-      if (assetBatchPaused.value) break;
-      await generateAssetBaseline(target.kind, target.item);
+      if (assetBatchPaused.value || !isCurrentBatch()) break;
+      if (!isCurrentBatch()) return;
+      await generateAssetBaseline(target.kind, target.item, project, session, controller.signal);
+      if (!isCurrentBatch()) return;
       if (!target.item.image_url) {
         assetBatchPaused.value = true;
         assetError.value = `${target.item.name}：${target.item.error || "定位基准图生成失败，请继续生成"}`;
@@ -4257,9 +4641,12 @@ async function generateAllAssetImages() {
       assetStatus.value = "waiting_confirmation";
     }
   } finally {
-    assetBatchGenerating.value = false;
-    activeAssetGenerationKey.value = "";
-    await persistAssetState().catch(() => undefined);
+    if (isCurrentBatch()) {
+      assetBatchGenerating.value = false;
+      activeAssetGenerationKey.value = "";
+      activeAssetBatchToken = "";
+      await persistAssetState(project, session).catch(() => undefined);
+    }
   }
 }
 
@@ -4268,6 +4655,10 @@ async function confirmAsset(item:CharacterProfile | SceneProfile | PropProfile) 
   const project = activeProjectRecord.value;
   if (!project) { notify("当前项目尚未加载完成"); return; }
   const session = projectSession;
+  // A failed sibling remains on its own card. Clear only a card-scoped error;
+  // real stage errors must survive confirmation of an unrelated character.
+  const currentAssetError = String(assetError.value || "").trim();
+  if (allAssetProfiles.value.some(profile => currentAssetError.startsWith(`${profile.name}：`))) assetError.value = "";
   const character = characterProfiles.value.includes(item as CharacterProfile);
   const scene = sceneProfiles.value.includes(item as SceneProfile);
   const kind = character ? "character" : scene ? "scene" : "prop";
@@ -4289,9 +4680,10 @@ async function confirmAsset(item:CharacterProfile | SceneProfile | PropProfile) 
   }
   assetIntroOpen.value = "";
   notify(`已确认${item.name}定位基准图，正在生成其余角度`);
-  await persistAssetState();
+  await persistAssetState(project, session);
   try {
     await productionLedgerService.upsert({ ...identity, stage:"assets", scope_type:"asset", scope_id:scopeId, lifecycle:"pending_confirmation", stage_substate:"baseline_pending_confirmation", content_fingerprint:baselineFingerprint, audit_batch_id:"manual-confirmation", progress:{ completed:1, total:1 } });
+    if (!isCurrentProjectSession(project.id, session)) return;
     await productionLedgerService.confirmAsset({ ...identity, scope_id:scopeId, phase:"baseline" });
   } catch (error) {
     if (!isCurrentProjectSession(project.id, session)) return;
@@ -4299,44 +4691,54 @@ async function confirmAsset(item:CharacterProfile | SceneProfile | PropProfile) 
     for (const variant of item.detail_assets) if (!variant.image_url) variant.status = "pending";
     item.error = error instanceof Error ? error.message : "基准图确认同步失败";
     assetError.value = `${item.name}：${item.error}`;
-    await persistAssetState().catch(() => undefined);
+    await persistAssetState(project, session).catch(() => undefined);
     return;
   }
   if (!isCurrentProjectSession(project.id, session)) return;
   item.baseline_confirmed_at = new Date().toISOString();
-  await persistAssetState().catch(() => undefined);
+  await persistAssetState(project, session).catch(() => undefined);
   if (kind === "scene" || kind === "prop") {
     item.detail_assets = [];
     item.status = "confirmed";
-    await persistAssetState().catch(() => undefined);
+    await persistAssetState(project, session).catch(() => undefined);
+    if (!isCurrentProjectSession(project.id, session)) return;
     await generateAsset3D(kind, item);
     return;
   }
+  if (!isCurrentProjectSession(project.id, session)) return;
   await generateAssetVariantsFromConfirmedBaseline(kind, item).catch(async error => {
     if (!isCurrentProjectSession(project.id, session)) return;
     item.status = "waiting_confirmation";
     item.error = error instanceof Error ? error.message : "固定角度图片生成失败";
     assetError.value = `${item.name}：${userFacingGenerationError(item.error)}`;
-    await persistAssetState().catch(() => undefined);
+    await persistAssetState(project, session).catch(() => undefined);
   });
 }
 
 async function confirmAssetVariant(item:CharacterProfile | SceneProfile | PropProfile, variant:AssetVariant) {
   if (variant.status !== "waiting_confirmation" || !variant.image_url) return;
+  const project = activeProjectRecord.value;
+  if (!project) return;
+  const session = projectSession;
   variant.status = "confirmed";
   const kind = characterProfiles.value.includes(item as CharacterProfile) ? "character" : sceneProfiles.value.includes(item as SceneProfile) ? "scene" : "prop";
   item.status = hasCompleteAssetVariants(kind, item) ? "confirmed" : "waiting_confirmation";
-  await persistAssetState();
+  await persistAssetState(project, session);
+  if (!isCurrentProjectSession(project.id, session)) return;
   if (item.status !== "confirmed") await generateAssetVariantsFromConfirmedBaseline(kind, item);
 }
 
 async function upscaleWorkflowImage(name:string, imageUrl?:string) {
   if (!imageUrl) return;
+  const project = activeProjectRecord.value;
+  if (!project) return;
+  const session = projectSession;
   try {
     const result = await mediaService.imageUpscale<{ image_url:string; path:string }>({ name, image_url:imageUrl });
+    if (!isCurrentProjectSession(project.id, session)) return;
     window.open(result.image_url, "_blank", "noopener,noreferrer");
     notify(`${name}增强版已生成，原图保持不变`);
-  } catch (error) { notify(error instanceof Error ? error.message : "图片超分失败"); }
+  } catch (error) { if (isCurrentProjectSession(project.id, session)) notify(error instanceof Error ? error.message : "图片超分失败"); }
 }
 
 async function refineShotIdentity(item:ShotImageItem, mode:"pulid"|"reactor") {
@@ -4362,10 +4764,16 @@ async function onAssetReplacement(event:Event) {
   const target = assetReplaceTarget.value; assetReplaceTarget.value = undefined;
   const project = activeProjectRecord.value;
   if (!file || !target || !project) return;
+  const session = projectSession;
   const validationError = await validateMediaFile(file);
+  if (!isCurrentProjectSession(project.id, session)) return;
   if (validationError || !file.type.startsWith("image/")) return notify(validationError || "只能替换为图片文件");
-  try {
-    const saved = await resourceService.save({ ...projectIdentity, plugin_key:"short-video-drama", scope:"project", project_id:project.id, kind:target.variant ? "asset_variant" : "asset_baseline", name:file.name, data_url:await readFileAsDataUrl(file), metadata:{ asset_name:target.item.name, variant_id:target.variant?.id || "baseline" } });
+  return enqueueAssetOperation(`${project.id}:import:${target.item.name}:${target.variant?.id || "baseline"}`, `导入${target.item.name}图片`, async () => {
+   try {
+    const dataUrl = await readFileAsDataUrl(file);
+    if (!isCurrentProjectSession(project.id, session)) return;
+    const saved = await resourceService.save({ ...productionTaskContext(project), plugin_key:"short-video-drama", scope:"project", project_id:project.id, kind:target.variant ? "asset_variant" : "asset_baseline", name:file.name, data_url:dataUrl, metadata:{ asset_name:target.item.name, variant_id:target.variant?.id || "baseline" } });
+    if (!isCurrentProjectSession(project.id, session)) return;
     const imageUrl = resourceService.mediaUrl(saved.resource, projectIdentity);
     const expected = target.variant?.prompt || target.item.image_prompt;
     const applyUploadedImage = (auditSummary = "") => {
@@ -4381,14 +4789,16 @@ async function onAssetReplacement(event:Event) {
     };
     if (!enabledSkills.value.includes("审核")) {
       applyUploadedImage();
-      await persistAssetState(); return;
+      await persistAssetState(project, session); return;
     }
     const audit = await assetService.semanticAudit<{ passed:boolean; summary:string }>({ ...productionTaskContext(project), image_url:imageUrl, expected_visual:expected, expected_characters:characterProfiles.value.includes(target.item as CharacterProfile) ? [target.item.name] : [] });
+    if (!isCurrentProjectSession(project.id, session)) return;
     if (audit.passed) applyUploadedImage(audit.summary);
     else if (target.variant) { target.variant.image_url = imageUrl; target.variant.audit_summary = audit.summary; target.variant.status = "failed"; target.variant.error = `替换图审核未通过：${audit.summary}`; }
     else { target.item.image_url = imageUrl; target.item.status = "failed"; target.item.error = `替换图审核未通过：${audit.summary}`; target.item.confirmation_phase = "baseline"; }
-    await persistAssetState();
-  } catch (error) { notify(error instanceof Error ? error.message : "替换图片失败"); }
+    await persistAssetState(project, session);
+   } catch (error) { if (isCurrentProjectSession(project.id, session)) notify(error instanceof Error ? error.message : "替换图片失败"); }
+  });
 }
 
 async function stopAssetGeneration(kind:"character" | "scene" | "prop", item:CharacterProfile | SceneProfile | PropProfile) {
@@ -4398,7 +4808,7 @@ async function stopAssetGeneration(kind:"character" | "scene" | "prop", item:Cha
   const jobName = generatingVariantIndex >= 0
     ? `${project.id}_${item.generation_nonce || "legacy"}_${kind}_${item.name}_angle_${generatingVariantIndex + 2}`
     : assetBaselineJobName(project.id, kind, item);
-  await assetService.stopCharacter(jobName).catch(() => undefined);
+  await assetService.stopCharacter(jobName, productionTaskContext(project)).catch(() => undefined);
   if (generatingVariantIndex >= 0 && item.detail_assets) item.detail_assets[generatingVariantIndex].status = "pending";
   item.status = "failed";
   item.error = "已停止生成";
@@ -4678,7 +5088,7 @@ async function onStandardImport(event:Event) {
         const importedScenes = Array.isArray(parsed.scenes) ? parsed.scenes as SceneProfile[] : [];
         const importedProps = Array.isArray(parsed.props) ? parsed.props as PropProfile[] : [];
         if (!importedCharacters.length && !importedScenes.length && !importedProps.length) throw new Error("资产素材缺少 characters、scenes 或 props");
-        characterProfiles.value = mergeAssetProfiles(characterProfiles.value, importedCharacters); sceneProfiles.value = mergeAssetProfiles(sceneProfiles.value, importedScenes); propProfiles.value = mergeAssetProfiles(propProfiles.value, importedProps); assetStatus.value = "waiting_confirmation"; await persistAssetState();
+        characterProfiles.value = mergeAssetProfiles(characterProfiles.value, importedCharacters); sceneProfiles.value = mergeAssetProfiles(sceneProfiles.value, normalizeEmptySceneProfiles(importedScenes)); propProfiles.value = mergeAssetProfiles(propProfiles.value, importedProps); assetStatus.value = "waiting_confirmation"; await persistAssetState();
       }
       notify(enabledSkills.value.includes("审核") ? "标准素材已导入，当前范围等待审核确认" : "标准素材已导入，等待人工确认");
       return;
@@ -5140,22 +5550,25 @@ async function auditFinalEpisodes() {
   if (!requireEnabledRobot("审核")) return;
   const project = activeProjectRecord.value;
   if (!project || !hasAuditableEpisode.value || finalAuditStatus.value === "generating") return;
+  const session = projectSession;
   const controller = new AbortController(); finalAuditController.value?.abort(); finalAuditController.value = controller;
   finalAuditStatus.value = "generating"; finalAuditError.value = ""; await persistFinalAuditState();
   try {
+    const commands:Array<Record<string, unknown>> = [];
     for (const master of episodeMasters.value.filter(value => value.status === "confirmed" && value.path && !episodeAudits.value.some(audit => audit.episode === value.episode && audit.status === "pass" && audit.confirmed)).sort((a, b) => a.episode - b.episode)) {
-      let audit:{ status:"pass" | "needs_fix"; issues:string[] } = { status:"needs_fix", issues:["尚未审核"] };
-      let attempts = 0;
+      if (!isCurrentProjectSession(project.id, session) || controller.signal.aborted) return;
       const payload = episodeMergePayload(project, master.episode);
       let subtitles = payload.subtitles.map(item => ({ ...item }));
       let ocrStatus = subtitles.length ? "pending" : "not_applicable";
       if (subtitles.length) {
         const textAudit = await mediaService.subtitleTextAudit<{ status:string; errors:Array<{ subtitle_index:number; suggestion:string }> }>({ ...productionTaskContext(project), subtitles }, controller.signal);
+        if (!isCurrentProjectSession(project.id, session) || controller.signal.aborted) return;
         for (const issue of textAudit.errors || []) {
           const subtitle = subtitles.find(item => item.index === issue.subtitle_index);
           if (subtitle && issue.suggestion) subtitle.text = issue.suggestion;
         }
         const speechAudit = await mediaService.subtitleSpeechAudit<{ status:string; alignments:Array<{ subtitle_index:number; matched:boolean; speech_start?:number; speech_end?:number; start_offset_ms?:number; end_offset_ms?:number }> }>({ ...productionTaskContext(project), path:master.path || master.clean_path, subtitles }, controller.signal);
+        if (!isCurrentProjectSession(project.id, session) || controller.signal.aborted) return;
         for (const alignment of speechAudit.alignments || []) {
           const subtitle = subtitles.find(item => item.index === alignment.subtitle_index);
           if (!subtitle || !alignment.matched) continue;
@@ -5165,33 +5578,37 @@ async function auditFinalEpisodes() {
         const subtitlesChanged = compactFingerprint(subtitles) !== compactFingerprint(payload.subtitles);
         if (subtitlesChanged) {
           const repaired = await mediaService.reburnSubtitles<{ video_url:string; path:string; clean_path:string }>({ ...productionTaskContext(project), episode:master.episode, clean_path:master.clean_path, subtitles, subtitle_style:payload.subtitle_style });
-          master.video_url = repaired.video_url; master.path = repaired.path; master.clean_path = repaired.clean_path; attempts += 1; await persistMergeState();
+          if (!isCurrentProjectSession(project.id, session) || controller.signal.aborted) return;
+          master.video_url = repaired.video_url; master.path = repaired.path; master.clean_path = repaired.clean_path; await persistMergeState();
         }
         const ocrAudit = await mediaService.subtitleOcrAudit<{ status:string; errors:Array<{ message:string }> }>({ ...productionTaskContext(project), path:master.path || master.clean_path, subtitles }, controller.signal);
+        if (!isCurrentProjectSession(project.id, session) || controller.signal.aborted) return;
         if (ocrAudit.status !== "pass") throw new Error(`第${master.episode}集字幕画面复检未通过：${(ocrAudit.errors || []).map(item => item.message).join("；")}`);
         ocrStatus = "pass";
       }
-      while (attempts <= 2) {
-        audit = await mediaService.finalAudit({
-          ...productionTaskContext(project), episode:master.episode, path:master.path || master.clean_path, subtitles,
-          process_audits:shotVideos.value.filter(item => item.episode === master.episode).map(item => ({ shot_number:item.shot_number, ...item.audit_evidence })),
-          ocr_status:ocrStatus,
-          content_compliance_status:outlineAudit.value?.status === "pass" && narrativeAuditsPassed(scriptAudits.value) && narrativeAuditsPassed(storyboardAudits.value) ? "pass" : "needs_fix",
-        }, controller.signal);
-        if (audit.status === "pass" || attempts >= 2) break;
-        const repaired = await autoRepairFinalEpisode(project, master, audit.issues || [], attempts, controller);
-        if (!repaired) break;
-        attempts += 1;
-      }
-      const existingAudit = episodeAudits.value.find(value => value.episode === master.episode);
-      const auditRecord = { episode:master.episode, status:audit.status, issues:audit.issues || [], attempts, confirmed:false } satisfies EpisodeAudit;
-      if (existingAudit) Object.assign(existingAudit, auditRecord); else episodeAudits.value.push(auditRecord);
-      await persistFinalAuditState();
-      if (audit.status !== "pass") throw new Error(`第${master.episode}集自动修复后仍未通过，已转人工处理：${audit.issues.join("；")}`);
+      commands.push({
+        episode:master.episode, path:master.path || master.clean_path, subtitles, max_attempts:2,
+        process_audits:shotVideos.value.filter(item => item.episode === master.episode).map(item => ({ shot_number:item.shot_number, ...item.audit_evidence })),
+        ocr_status:ocrStatus,
+        content_compliance_status:outlineAudit.value?.status === "pass" && narrativeAuditsPassed(scriptAudits.value) && narrativeAuditsPassed(storyboardAudits.value) ? "pass" : "needs_fix",
+      });
     }
+    if (!commands.length || !isCurrentProjectSession(project.id, session) || controller.signal.aborted) return;
+    const auditResponse = await productionLedgerService.runStage<{ items:Array<{ episode:number; status:"pass" | "needs_fix"; issues:string[]; attempts:number }> }>({
+      ...productionTaskContext(project), stage:"review_export", operation:"audit", context:productionTaskContext(project), commands,
+    }, controller.signal);
+    if (!isCurrentProjectSession(project.id, session) || controller.signal.aborted) return;
+    for (const audit of auditResponse.result.items) {
+      const existingAudit = episodeAudits.value.find(value => value.episode === audit.episode);
+      const auditRecord = { episode:audit.episode, status:audit.status, issues:audit.issues || [], attempts:audit.attempts || 0, confirmed:false } satisfies EpisodeAudit;
+      if (existingAudit) Object.assign(existingAudit, auditRecord); else episodeAudits.value.push(auditRecord);
+    }
+    await persistFinalAuditState();
+    const failed = auditResponse.result.items.filter(audit => audit.status !== "pass");
+    if (failed.length) throw new Error(failed.map(audit => `第${audit.episode}集未通过：${(audit.issues || []).join("；")}`).join(" | "));
     finalAuditStatus.value = episodeAudits.value.length === project.episode_count && episodeAudits.value.every(value => value.confirmed) ? "confirmed" : "waiting_confirmation"; await persistFinalAuditState();
   } catch (error) {
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted || !isCurrentProjectSession(project.id, session)) return;
     finalAuditStatus.value = "failed"; finalAuditError.value = error instanceof Error ? error.message : "成片审核失败"; await persistFinalAuditState().catch(() => undefined);
   } finally { if (finalAuditController.value === controller) finalAuditController.value = undefined; }
 }
@@ -5216,58 +5633,76 @@ async function loadUpscaleState(project = activeProjectRecord.value, session = p
     upscaleStatus.value = result.stage.data.status === "generating" ? "failed" : result.stage.data.status || "pending"; upscaleError.value = result.stage.data.status === "generating" ? "上次增强任务未完成，正在恢复" : result.stage.data.error || "";
   } catch (error) { upscaleError.value = error instanceof Error ? error.message : "增强数据加载失败"; }
 }
-async function persistUpscaleState() {
-  const project = activeProjectRecord.value; if (!project) return;
+async function persistUpscaleState(project = activeProjectRecord.value, session = projectSession) {
+  if (!project || !isCurrentProjectSession(project.id, session)) return;
   await projectService.writeStage({ ...projectIdentity, id:project.id, stage:"upscale", data:{ episodes:enhancedEpisodes.value, status:upscaleStatus.value, error:upscaleError.value } satisfies UpscaleStageData });
 }
 const hasUpscalableEpisode = computed(() => episodeMasters.value.some(master => master.status === "confirmed" && master.path && episodeAudits.value.some(audit => audit.episode === master.episode && audit.status === "pass" && audit.confirmed) && !enhancedEpisodes.value.some(item => item.episode === master.episode && ["confirmed", "waiting_confirmation", "generating", "skipped"].includes(item.status))));
-async function runUpscale() {
+function runUpscale() {
   if (!requireEnabledRobot("后期制作")) return;
   const project = activeProjectRecord.value;
-  if (!project || !hasUpscalableEpisode.value || upscaleStatus.value === "generating") return;
+  if (!project || !hasUpscalableEpisode.value) return;
+  const session = projectSession;
+  const flightKey = `${project.id}:${session}`;
+  if (upscaleFlight && upscaleFlightKey === flightKey) return upscaleFlight;
+  if (upscaleStatus.value === "generating") return;
+  if (upscaleFlight) { upscaleController.value?.abort(); upscaleFlightEpoch += 1; }
+  const controller = new AbortController(); upscaleController.value?.abort(); upscaleController.value = controller;
+  const epoch = ++upscaleFlightEpoch;
+  upscaleFlightKey = flightKey;
+  const flight = runUpscaleTransaction(project, session, controller, epoch);
+  upscaleFlight = flight;
+  void flight.finally(() => {
+    if (upscaleFlight === flight && upscaleController.value === controller && upscaleFlightEpoch === epoch) {
+      upscaleFlight = undefined; upscaleFlightKey = ""; upscaleController.value = undefined;
+    }
+  }).catch(() => undefined);
+  return flight;
+}
+async function runUpscaleTransaction(project:StoredProject, session:number, controller:AbortController, epoch:number) {
+  const isCurrentUpscale = () => upscaleFlightEpoch === epoch && isCurrentProjectSession(project.id, session) && !controller.signal.aborted && upscaleController.value === controller;
   const eligibleMasters = episodeMasters.value.filter(master => master.status === "confirmed" && master.path && episodeAudits.value.some(audit => audit.episode === master.episode && audit.status === "pass" && audit.confirmed));
   if (project.upscale === "不超分") {
     enhancedEpisodes.value = eligibleMasters.map(item => ({ episode:item.episode, video_url:item.video_url, path:item.path || item.clean_path, production_evidence:item.production_evidence, status:"skipped" }));
-    upscaleStatus.value = "skipped"; upscaleError.value = ""; await persistUpscaleState(); return;
+    upscaleStatus.value = "skipped"; upscaleError.value = ""; await persistUpscaleState(project, session); return;
   }
   const quote = await mediaService.upscaleQuote<{ duration_seconds:number; points:number; estimated_seconds:number }>({ ...productionTaskContext(project), paths:eligibleMasters.map(item => item.path || item.clean_path).filter(Boolean) });
+  if (!isCurrentUpscale()) return;
   notify(`预计消耗 ${quote.points} 积分，处理约 ${quote.estimated_seconds} 秒`, 5000);
   if (!window.confirm(`已按真实视频时长 ${quote.duration_seconds.toFixed(1)} 秒试算\n预计消耗 ${quote.points} 积分，处理约 ${quote.estimated_seconds} 秒\n确认执行超分降噪？`)) return;
-  upscaleStatus.value = "generating"; upscaleError.value = ""; await persistUpscaleState();
+  if (!isCurrentUpscale()) return;
+  upscaleStatus.value = "generating"; upscaleError.value = ""; await persistUpscaleState(project, session);
   try {
-    for (const master of eligibleMasters) {
-      let item = enhancedEpisodes.value.find(value => value.episode === master.episode);
-      if (item?.status === "confirmed" || item?.status === "waiting_confirmation") continue;
-      if (!item) { item = { episode:master.episode, status:"pending" }; enhancedEpisodes.value.push(item); }
-      item.status = "generating"; await persistUpscaleState();
-      const result = await mediaService.upscale<{ video_url:string; path:string; production_evidence:string }>({ ...productionTaskContext(project), episode:master.episode, path:master.path || master.clean_path });
+    const faceReferences = characterProfiles.value.filter(character => character.status === "confirmed" && character.image_url).map(character => character.image_url as string);
+    const commands = eligibleMasters.filter(master => !enhancedEpisodes.value.some(item => item.episode === master.episode && ["confirmed", "waiting_confirmation"].includes(item.status))).map(master => {
       const mergePayload = episodeMergePayload(project, master.episode);
-      let ocrStatus = "not_applicable";
-      if (mergePayload.subtitles.length) {
-        const ocrAudit = await mediaService.subtitleOcrAudit<{ status:string; errors:Array<{ message:string }> }>({ ...productionTaskContext(project), path:result.path, subtitles:mergePayload.subtitles });
-        if (ocrAudit.status !== "pass") throw new Error(`第${master.episode}集增强版字幕清晰度复检未通过：${(ocrAudit.errors || []).map(value => value.message).join("；")}`);
-        ocrStatus = "pass";
-      }
-      const faceReferences = characterProfiles.value.filter(character => character.status === "confirmed" && character.image_url).map(character => character.image_url as string);
-      if (faceReferences.length) {
-        const faceAudit = await mediaService.faceAudit<{ status:string; errors?:Array<{ message:string }> }>({ ...productionTaskContext(project), episode:master.episode, video_url:result.video_url, reference_urls:faceReferences });
-        if (faceAudit.status !== "pass") throw new Error(`第${master.episode}集增强版人脸复检未通过：${(faceAudit.errors || []).map(value => value.message).join("；")}`);
-      }
-      const audit = await mediaService.finalAudit<{ status:string; issues:string[] }>({
-        ...productionTaskContext(project), episode:master.episode, path:result.path, subtitles:mergePayload.subtitles, ocr_status:ocrStatus, content_compliance_status:"not_audited",
-        process_audits:shotVideos.value.filter(value => value.episode === master.episode).map(value => ({ shot_number:value.shot_number, ...value.audit_evidence })),
-      });
-      if (audit.status !== "pass") throw new Error(`第${master.episode}集增强复检未通过：${audit.issues.join("；")}`);
-      item.video_url = result.video_url; item.path = result.path; item.production_evidence = result.production_evidence; item.status = "waiting_confirmation"; await persistUpscaleState();
-    }
-    upscaleStatus.value = "waiting_confirmation"; await persistUpscaleState();
+      return { episode:master.episode, path:master.path || master.clean_path, source_version:"base", target:{ width:1080, height:1920, fps:30, mode:"quality" }, subtitles:mergePayload.subtitles, reference_urls:faceReferences, content_compliance_status:"not_audited", process_audits:shotVideos.value.filter(value => value.episode === master.episode).map(value => ({ shot_number:value.shot_number, ...value.audit_evidence })) };
+    });
+    const response = await productionLedgerService.runStage<{ items:EnhancedEpisode[] }>({ ...productionTaskContext(project), stage:"review_export", operation:"upscale", context:productionTaskContext(project), commands }, controller.signal);
+    if (!isCurrentUpscale()) return;
+    const replaced = new Set(response.result.items.map(item => item.episode));
+    enhancedEpisodes.value = [...enhancedEpisodes.value.filter(item => !replaced.has(item.episode)), ...response.result.items].sort((a, b) => a.episode - b.episode);
+    upscaleStatus.value = "waiting_confirmation"; await persistUpscaleState(project, session);
   } catch (error) {
-    enhancedEpisodes.value = eligibleMasters.map(item => ({ episode:item.episode, video_url:item.video_url, path:item.path || item.clean_path, production_evidence:item.production_evidence, status:"skipped" }));
-    upscaleStatus.value = "skipped"; upscaleError.value = `增强版失败，已保留基础母版可导出：${error instanceof Error ? error.message : "超分降噪失败"}`; await persistUpscaleState().catch(() => undefined);
+    if (!isCurrentUpscale()) return;
+    upscaleStatus.value = "failed"; upscaleError.value = error instanceof Error ? error.message : "超分降噪失败"; await persistUpscaleState(project, session).catch(() => undefined);
   }
+}
+async function stopUpscale() {
+  const project = activeProjectRecord.value; if (!project) return;
+  const session = projectSession;
+  upscaleFlightEpoch += 1;
+  upscaleController.value?.abort(); upscaleController.value = undefined;
+  upscaleFlight = undefined; upscaleFlightKey = "";
+  await productionLedgerService.stopStage({ ...productionTaskContext(project), stage:"review_export" });
+  if (!isCurrentProjectSession(project.id, session)) return;
+  upscaleStatus.value = "failed"; upscaleError.value = "增强任务已停止，可重新执行";
+  await persistUpscaleState(project, session);
 }
 async function confirmEnhancedEpisode(item:EnhancedEpisode) {
   if (item.status !== "waiting_confirmation") return;
+  const project = activeProjectRecord.value; if (!project || !item.content_fingerprint || !item.audit_batch_id || !item.generation) return;
+  await productionLedgerService.confirm({ ...productionTaskContext(project), stage:"review_export", scope_type:"episode", scope_id:`upscale:${item.episode}`, content_fingerprint:item.content_fingerprint, audit_batch_id:item.audit_batch_id, generation:item.generation });
   item.status = "confirmed";
   if (enhancedEpisodes.value.length === activeProjectRecord.value?.episode_count && enhancedEpisodes.value.every(value => value.status === "confirmed")) upscaleStatus.value = "confirmed";
   await persistUpscaleState();
@@ -5296,8 +5731,8 @@ async function loadExportState(project = activeProjectRecord.value, session = pr
     exportStatus.value = result.stage.data.status === "generating" ? "failed" : result.stage.data.status || "pending"; exportError.value = result.stage.data.status === "generating" ? "上次导出任务未完成，正在恢复" : result.stage.data.error || "";
   } catch (error) { exportError.value = error instanceof Error ? error.message : "导出记录加载失败"; }
 }
-async function persistExportState() {
-  const project = activeProjectRecord.value; if (!project) return;
+async function persistExportState(project = activeProjectRecord.value, session = projectSession) {
+  if (!project || !isCurrentProjectSession(project.id, session)) return;
   await projectService.writeStage({ ...projectIdentity, id:project.id, stage:"export", data:{ files:exportFiles.value, manifest_url:exportManifestUrl.value, status:exportStatus.value, error:exportError.value } satisfies ExportStageData });
 }
 function exportSourceItems() {
@@ -5324,25 +5759,74 @@ async function createAvailableExports() {
   if (canCreateExports("single")) return createExports("single");
   if (canCreateExports("batch")) return createExports("batch");
 }
-async function createExports(mode:"single" | "batch" | "all" = "all") {
+function createExports(mode:"single" | "batch" | "all" = "all") {
   if (!requireEnabledRobot("后期制作")) return;
   const project = activeProjectRecord.value;
+  if (project && exportFlight && exportFlightProjectId === project.id) return exportFlight;
   if (!project || !canCreateExports(mode)) return;
-  exportStatus.value = "generating"; exportError.value = ""; await persistExportState();
+  const session = projectSession;
+  const controller = new AbortController(); exportController.value?.abort(); exportController.value = controller;
+  const epoch = ++exportFlightEpoch;
+  const isCurrentExport = () => epoch === exportFlightEpoch && isCurrentProjectSession(project.id, session) && !controller.signal.aborted;
+  exportFlightProjectId = project.id;
+  const flight = (async () => {
+  if (!isCurrentExport()) return;
+  exportStatus.value = "generating"; exportError.value = ""; await persistExportState(project, session);
+  if (!isCurrentExport()) return;
   try {
     const requiredEpisodes = new Set(exportModeEpisodes(mode, project));
     const selected = exportSourceItems().filter(item => requiredEpisodes.has(item.episode));
-    const result = await mediaService.createExport<{ files:ExportFile[]; manifest_url:string }>({
-      ...productionTaskContext(project), project_name:project.name, mode, source_version:exportSourceVersion.value,
-      items:selected.map(item => ({ episode:item.episode, path:item.path, production_evidence:item.production_evidence, subtitles:episodeSubtitles(item.episode) })),
+    if (!isCurrentExport()) return;
+    const response = await productionLedgerService.runStage<{ files:ExportFile[]; manifest_url:string }>({
+      ...productionTaskContext(project), stage:"review_export", operation:"export", context:productionTaskContext(project), command:{
+      project_name:project.name, mode, source_version:exportSourceVersion.value,
+      items:selected.map(item => ({ episode:item.episode, path:item.path, content_fingerprint:exportSourceVersion.value === "enhanced" && "content_fingerprint" in item ? item.content_fingerprint : compactFingerprint(item.path), audit_batch_id:exportSourceVersion.value === "enhanced" && "audit_batch_id" in item ? item.audit_batch_id : undefined, generation:exportSourceVersion.value === "enhanced" && "generation" in item ? item.generation : undefined, production_evidence:item.production_evidence, subtitles:episodeSubtitles(item.episode) })),
       production_parameters:{ aspect:project.topic.includes("16:9") ? "16:9" : "9:16", duration_min:project.duration_min, duration_max:project.duration_max, language:project.language, subtitle:project.subtitle, upscale:project.upscale, fps:30, color_space:"Rec.709", audio:"48000Hz/16bit/-16LUFS" },
       ai_watermark:{ enabled:metadataAiLabel.value, text:aiWatermarkText.value, color:aiWatermarkColor.value, opacity:aiWatermarkOpacity.value, size:aiWatermarkSize.value, x:aiWatermarkX.value, y:aiWatermarkY.value },
       task_timings:{ outline_seconds:generationElapsedSeconds.value },
-      audit_results:episodeAudits.value.map(audit => ({ episode:audit.episode, status:audit.status, issues:audit.issues, attempts:audit.attempts, confirmed:audit.confirmed })),
+      audit_results:episodeAudits.value.map(audit => { const evidence = finalAuditLedgerEvidence(audit); return { episode:audit.episode, status:audit.status, confirmed:audit.confirmed, content_fingerprint:compactFingerprint(evidence), audit_batch_id:compactFingerprint(evidence) }; }),
+      audit_required:enabledSkills.value.includes("审核"),
       source_assets:[...characterProfiles.value, ...sceneProfiles.value, ...propProfiles.value].map(asset => ({ name:asset.name, image_url:asset.image_url || "", status:asset.status || "pending" })),
-    });
-    exportFiles.value = result.files; exportManifestUrl.value = result.manifest_url; exportStatus.value = "confirmed"; await persistExportState();
-  } catch (error) { exportStatus.value = "failed"; exportError.value = error instanceof Error ? error.message : "成果导出失败"; await persistExportState().catch(() => undefined); }
+    } }, controller.signal);
+    if (!isCurrentExport()) return;
+    const result = response.result;
+    exportFiles.value = result.files; exportManifestUrl.value = result.manifest_url; exportStatus.value = "confirmed";
+    if (!isCurrentExport()) return;
+    await persistExportState(project, session);
+  } catch (error) {
+    if (!isCurrentExport()) return;
+    exportStatus.value = "failed"; exportError.value = error instanceof Error ? error.message : "成果导出失败";
+    if (!isCurrentExport()) return;
+    await persistExportState(project, session).catch(() => undefined);
+  }
+  })().finally(() => {
+    if (exportFlight === flight) { exportFlight = undefined; exportFlightProjectId = ""; }
+    if (exportController.value === controller) exportController.value = undefined;
+  });
+  exportFlight = flight;
+  return flight;
+}
+
+async function stopExports() {
+  const project = activeProjectRecord.value;
+  if (!project || exportStatus.value !== "generating") return;
+  const session = projectSession;
+  const controller = exportController.value;
+  exportFlightEpoch += 1;
+  controller?.abort();
+  if (exportController.value === controller) exportController.value = undefined;
+  exportFlight = undefined; exportFlightProjectId = "";
+  try {
+    const stopped = await productionLedgerService.stopStage({ ...productionTaskContext(project), stage:"review_export" });
+    if (!isCurrentProjectSession(project.id, session)) return;
+    if (!stopped.stopped || !stopped.stage_cancelled) throw new Error("服务端未确认停止审核导出阶段");
+    exportStatus.value = "failed"; exportError.value = "已停止导出，可重新提交";
+    await persistExportState(project, session);
+  } catch (error) {
+    if (!isCurrentProjectSession(project.id, session)) return;
+    exportError.value = error instanceof Error ? `停止导出失败：${error.message}` : "停止导出失败";
+    await persistExportState(project, session).catch(() => undefined);
+  }
 }
 
 async function downloadExportBatch() {
@@ -5403,6 +5887,9 @@ async function saveProject() {
     appRuntime.projectStore.replace(projectRecords.value, result.project.id);
     selectedNode.value = result.project.name;
     newProjectOpen.value = false;
+    await loadProjectFlowState();
+    if (!isCurrentProjectSession(result.project.id, projectSession)) return;
+    await Promise.all([loadResources(result.project, projectSession), loadTasks(result.project, projectSession), loadProjectVersions(result.project, projectSession)]);
     notify(`项目“${result.project.name}”已${existing ? "保存设置" : "创建"}`);
     newProjectName.value = "";
     editingProjectName.value = "";
@@ -5742,6 +6229,7 @@ function startWatermarkDrag(event: PointerEvent) {
                 </div>
               </div>
               <span class="composer-spacer"></span>
+              <button :class="['mode-chip', { active:webSearchEnabled }]" type="button" :aria-pressed="webSearchEnabled" title="开启后本条消息强制联网搜索并附来源" @click="webSearchEnabled = !webSearchEnabled">联网</button>
               <nav class="workflow-navigation" aria-label="生产内容导航">
                 <button v-for="kind in workflowDockNavigation" :key="kind" :class="['mode-chip', 'workflow-dock-chip', { active: activeWorkflowNavigation === kind }]" @click="selectWorkflowNavigation(kind)">{{ workflowDockLabel(kind) }}<span v-if="workflowUnread[kind]" class="workflow-unread-dot" aria-label="有已完成内容"></span></button>
               </nav>
@@ -5762,10 +6250,10 @@ function startWatermarkDrag(event: PointerEvent) {
           <template #actions><div v-if="rightPanelMode === 'assets'" class="asset-category-tabs asset-category-tabs-header" role="tablist" aria-label="资产分类"><button v-for="category in (['人物', '道具', '场景'] as const)" :key="category" :class="{ active:activeAssetCategory === category }" role="tab" :aria-label="`${category}，共${assetCategoryImageTotal(category)}项资产`" :aria-selected="activeAssetCategory === category" @click="syncWorkflowAsset(category)"><span>{{ category }}</span><b>{{ assetCategoryImageTotal(category) }}</b></button></div><WorkflowEpisodeSelector :model-value="workflowEpisode" :episode-count="activeProjectRecord?.episode_count || 0" @update:model-value="selectWorkflowEpisode" /></template>
         </WorkflowStatusHeader>
         <div v-if="rightPanelMode === 'assets'" class="content-preview outline-preview asset-production-preview">
-          <WorkflowActionBar :running="assetImagesRunning" :primary-label="assetImageActionLabel" :primary-disabled="!assetGenerationReady" :next-label="assetsReadyForShotImages ? '生成分镜画面' : undefined" @import="importCurrentWorkflow" @primary="generateAllAssetImages" @pause="stopAllAssetGeneration" @next="enterShotImageGeneration" />
-          <p v-if="!assetGenerationReady" class="outline-error">请先生成分镜脚本</p><p v-if="assetError && !allAssetProfiles.some(item => item.status === 'generating')" class="outline-error">{{ userFacingGenerationError(assetError) }}</p>
+          <WorkflowActionBar :running="assetImagesRunning || queuedAssetOperationCount > 0" :primary-label="assetImageActionLabel" :primary-disabled="!assetGenerationReady" :next-label="assetsReadyForShotImages ? '生成分镜画面' : undefined" @import="importCurrentWorkflow" @primary="queueGenerateAllAssetImages" @pause="stopAllAssetGeneration" @next="enterShotImageGeneration" />
+          <p v-if="!assetGenerationReady" class="outline-error">请先生成分镜脚本</p><p v-if="assetStageError && !allAssetProfiles.some(item => item.status === 'generating')" class="outline-error">{{ userFacingGenerationError(assetStageError) }}</p>
           <section v-for="group in visibleAssetGroups" :key="group.kind" :class="['asset-profile-group', `asset-profile-group-${group.kind}`]">
-            <UnifiedAssetCard v-for="item in group.items" :key="item.name" :kind="group.kind" :item="item" :slides="unifiedAssetSlides(group.kind, item)" :intro-open="assetIntroOpen" :can-accept-baseline="canAcceptAssetBaseline(item)" :user-error="userFacingGenerationError(item.error)" @pointer-down="startAssetCarouselDrag" @pointer-move="moveAssetCarouselDrag" @pointer-up="endAssetCarouselDrag" @pointer-cancel="endAssetCarouselDrag" @toggle-intro="slide => toggleUnifiedAssetIntro(group.kind, item, slide)" @close-intro="assetIntroOpen = ''" @preview="slide => openAssetCarouselImage(slide.previewId)" @import="slide => openAssetPhotoReplacement(group.kind, item, assetSlide(slide))" @regenerate="slide => regenerateUnifiedAssetSlide(group.kind, item, slide)" @repair="slide => repairAssetPhotoSlide(group.kind, item, assetSlide(slide))" @reference="slide => referenceWorkflowMedia(`${item.name}-${slide.label}`, slide.imageUrl, 'image')" @accept="slide => acceptUnifiedAssetSlide(item, slide)" @confirm-baseline="confirmAsset(item)" @generate3d="generateAsset3D(group.kind, item)" @confirm3d="confirmAsset3D(item)" @stop3d="stopAsset3D(item)" @upscale="upscaleWorkflowImage(`${item.name}-基准图`, item.image_url)" />
+            <UnifiedAssetCard v-for="item in group.items" :key="item.name" :kind="group.kind" :item="item" :slides="unifiedAssetSlides(group.kind, item)" :intro-open="assetIntroOpen" :can-accept-baseline="canAcceptAssetBaseline(item)" :user-error="userFacingGenerationError(item.error)" @pointer-down="startAssetCarouselDrag" @pointer-move="moveAssetCarouselDrag" @pointer-up="endAssetCarouselDrag" @pointer-cancel="endAssetCarouselDrag" @toggle-intro="slide => toggleUnifiedAssetIntro(group.kind, item, slide)" @close-intro="assetIntroOpen = ''" @preview="slide => openAssetCarouselImage(slide.previewId)" @import="slide => openAssetPhotoReplacement(group.kind, item, assetSlide(slide))" @regenerate="slide => queueAssetSlideRegeneration(group.kind, item, slide)" @repair="slide => queueAssetSlideRepair(group.kind, item, slide)" @reference="slide => referenceWorkflowMedia(`${item.name}-${slide.label}`, slide.imageUrl, 'image')" @accept="slide => queueAssetSlideAcceptance(item, slide)" @confirm-baseline="queueAssetBaselineAcceptance(item)" @generate3d="queueAsset3D(group.kind, item)" @confirm3d="queueAsset3DConfirmation(item)" @stop3d="stopAsset3D(item)" @upscale="queueAssetUpscale(`${item.name}-基准图`, item.image_url)" />
           </section>
         </div>
         <div v-else-if="rightPanelMode === 'images'" class="preview-grid">
@@ -5848,7 +6336,7 @@ function startWatermarkDrag(event: PointerEvent) {
             <div class="shot-video-grid final-video-grid"><article v-for="item in visibleEpisodeMasters" :key="item.episode" class="shot-video-card"><div class="shot-video-frame"><video v-if="item.video_url" :src="item.video_url" title="点击放大预览" @click.prevent="openGeneratedImage(`episode-master:${item.episode}`)"></video><div v-else class="shot-video-placeholder">{{ item.status === 'generating' ? '生成中' : '待生成' }}</div><strong class="shot-video-title">第{{ item.episode }}集 · 基础成片</strong><MediaOverlayControls media-type="video" :generating="item.status === 'generating'" :show-play="Boolean(item.video_url)" :can-reference="Boolean(item.video_url)" @intro="assetIntroOpen = assetIntroOpen === `episode-master:${item.episode}` ? '' : `episode-master:${item.episode}`" @import="importEpisodeMaster(item)" @regenerate="regenerateEpisodeMaster(item)" @play="toggleShotVideoPlayback" @reference="referenceWorkflowMedia(`第${item.episode}集-基础成片`, item.video_url, 'video')" /><div v-if="assetIntroOpen === `episode-master:${item.episode}`" class="shot-media-intro-panel"><strong>第{{ item.episode }}集基础成片</strong><p>由本集全部分镜视频、配音、口型同步和字幕合并生成。</p></div></div><small>{{ item.status === 'confirmed' ? '已确认' : item.status === 'waiting_confirmation' ? '待确认' : item.status === 'generating' ? '生成中' : item.error || '待生成' }}</small></article></div>
           </template>
           <template v-else-if="activeWorkflowNavigation === '导出'">
-            <WorkflowActionBar :running="exportStatus === 'generating'" :primary-label="exportStatus === 'confirmed' ? '重新导出' : '导出可用成片'" :primary-disabled="!canCreateExports('all') && !canCreateExports('single') && !canCreateExports('batch')" @import="importCurrentWorkflow" @primary="createAvailableExports" @pause="notify('导出将在当前文件完成后暂停')"><template #status><StatusPulse v-if="exportStatus === 'generating'" class="script-stage-indicator" text="导出生成中......" /></template><button :disabled="exportStatus === 'generating'" @click="exportSourceVersion = 'base'">基础母版</button><button :disabled="!enhancedEpisodes.some(item => item.status === 'confirmed') || exportStatus === 'generating'" @click="exportSourceVersion = 'enhanced'">增强版</button><button :disabled="!canCreateExports('single')" @click="createExports('single')">导出本集</button><button :disabled="!canCreateExports('batch')" @click="createExports('batch')">导出已确认批次</button><button v-if="exportStatus === 'confirmed'" @click="downloadExportBatch">批量下载</button></WorkflowActionBar><p v-if="exportError" class="outline-error">{{ exportError }}</p>
+            <WorkflowActionBar :running="exportStatus === 'generating'" :primary-label="exportStatus === 'confirmed' ? '重新导出' : '导出可用成片'" :primary-disabled="!canCreateExports('all') && !canCreateExports('single') && !canCreateExports('batch')" @import="importCurrentWorkflow" @primary="createAvailableExports" @pause="stopExports"><template #status><StatusPulse v-if="exportStatus === 'generating'" class="script-stage-indicator" text="导出生成中......" /></template><button :disabled="exportStatus === 'generating'" @click="exportSourceVersion = 'base'">基础母版</button><button :disabled="!enhancedEpisodes.some(item => item.status === 'confirmed') || exportStatus === 'generating'" @click="exportSourceVersion = 'enhanced'">增强版</button><button :disabled="!canCreateExports('single')" @click="createExports('single')">导出本集</button><button :disabled="!canCreateExports('batch')" @click="createExports('batch')">导出已确认批次</button><button v-if="exportStatus === 'confirmed'" @click="downloadExportBatch">批量下载</button></WorkflowActionBar><p v-if="exportError" class="outline-error">{{ exportError }}</p>
             <article v-for="file in exportFiles" :key="file.path" class="shot-video-card"><strong>第{{ file.episode }}集 · {{ exportKindLabel(file.kind) }}</strong><a :href="file.url" download>{{ file.filename }}</a></article><a v-if="exportManifestUrl" :href="exportManifestUrl" download>下载交付清单</a>
           </template>
           <p v-else>该阶段将在对应主任务中接入真实产物</p>
@@ -5867,8 +6355,8 @@ function startWatermarkDrag(event: PointerEvent) {
           <div class="dialog-section-title">历史版本</div>
           <div v-if="productionVersions.length" class="task-tree">
             <div v-for="version in productionVersions" :key="`${version.id}:${version.versioned_at}`" class="task-tree-history">
-              <strong>{{ version.stage }}/{{ version.scope_type }}/{{ version.scope_id }}</strong>
-              <small>{{ version.version_status === 'stale' ? '已失效' : version.version_status === 'withdrawn' ? '待复审' : version.version_status }} · {{ new Date(version.versioned_at).toLocaleString('zh-CN') }}</small>
+              <strong>{{ versionDisplayLabel(version) }}</strong>
+              <small>{{ versionStatusLabel(version.version_status) }} · {{ new Date(version.versioned_at).toLocaleString('zh-CN') }}</small>
             </div>
           </div>
           <p v-else>暂无历史版本</p>
@@ -5997,6 +6485,5 @@ function startWatermarkDrag(event: PointerEvent) {
         <button type="button" aria-label="放大" :disabled="lightboxScale >= 5" @click="zoomLightbox(1)">＋</button>
       </div>
     </div>
-    <transition name="toast"><div v-if="toast" class="toast">{{ toast }}</div></transition>
   </div>
 </template>

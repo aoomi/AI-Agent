@@ -2,9 +2,943 @@
 
 本文件只用于提交、处理和关闭项目 BUG，不用于存放开发规范、需求或功能计划。
 
+当前状态唯一索引：`docs/product/当前开发状态.md`。本文件各条目的首个“状态”行须与索引一致；其后测试、退回和复测状态均为历史证据。
+
 ## 状态流转
 
 `待处理` → `修复中` → `待测试` → `待稽查` → `已关闭`
+
+### BUG-20260811-058：人物固定角度串行批次误判为并发内存超限
+
+- 状态：修复中
+- 关联任务：M9.198正式全链的image前序恢复，不扩展处理BUG039—041。
+- 正式复现：用户在正式资产页确认“林婉清”0°基准图后，左45°Qwen任务被拒绝为预计60GB且必须保留99GB；随后右45°、90°、180°和半身依次以90GB/81GB保留量失败，Comfy队列最终为空。
+- 首个事实：人物Qwen共用入口在取得串行image资源后仍直接调用`_require_memory(60GB)`；上一张Comfy任务结束后的`/free`是异步释放，该入口没有使用BUG052已建立的有限、可取消`waiting_memory`握手，于是把同一串行批次的前一模型驻留误算成新的非AI工作集。
+- 风险：任意连续人物固定角度或Qwen修复任务都会在上一Comfy权重释放窗口内确定性失败；资源池虽无并发超卖，业务批次仍无法完成。
+- 框架整改：人物Qwen固定角度与独立修复两个60GB公共入口统一改用`_wait_for_post_comfy_memory(..., job_id)`；保持空闲队列才允许主动`/free`、最长60秒、持续心跳、停止可取消、超时失败关闭的既有协议。
+- 下一状态：完成专项与关联回归，并在正式页面重试固定角度，确认每张任务串行、权重释放且人物图片链可继续后提交独立软件测试。
+
+### BUG-20260811-057：H3源视频重复生成无业务用途音轨
+
+- 状态：阻塞
+- 关联任务：M9.198
+- 正式事实：用户明确MiniMax H3视频不使用音频输入；现行Ref2VA graph虽然没有传入参考音频，却仍执行`VAEDecodeAudio`并将H3自生音轨写入MP4，后续独立Qwen TTS与口型链又会覆盖音频。
+- 首个事实：`MiniMaxH3ReferenceToVideo`官方节点要求`audio_vae`参与AV latent构造，不能直接删除必填输入；冗余发生在采样完成后的音频解码与`CreateVideo.audio`封装。
+- 风险：无用途音频解码增加显存/耗时，源视频混入非权威声音还可能污染审核、配音与最终混音边界。
+- 下一状态：保留官方节点必需audio VAE，删除H3音频解码与封装，明确源视频无音轨，音频只由后续独立台账阶段产生。
+- 主线实现：H3 graph移除`VAEDecodeAudio`与`CreateVideo.audio`，保留官方`MiniMaxH3ReferenceToVideo.audio_vae`必填输入；completed job写入`audio_mode=not_applicable_h3_source_video`，视频规范同步明确权威声音只来自后续TTS/口型/混音。
+- 开发自检：Comfy当前`CreateVideo`运行时确认audio为optional；H3、Context IR、媒体、3D及生产门禁关联`81 passed, 1 deselected`，无失败无skip，唯一deselect为用户跳过BUG038静态断言；Python编译和文档门禁通过。
+- 正式阻塞：资源空闲后通过正式`/api/videos/generate`提交隔离H3验证，服务返回409`production_gate_blocked: previous stage is not completed: image`。该项目image阶段完成依赖人物确认/多角度链，属于用户明确要求跳过的BUG038；不得绕过已修复的生产阶段门禁，也不得把未运行真实H3计为通过。
+- 下一状态：阻塞；需要用户允许完成BUG038人物确认链，或提供另一个image阶段已完成且具备已确认3D源视频/人物身份图的正式项目，之后才能真实生成并用ffprobe验证无音轨，再进入独立软件测试。
+
+### BUG-20260811-056：3D确认混用业务名称与文件安全名
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.198
+- 正式复现：道具“信纸/信件”正式3D job`d3783388-3b53-457e-9d94-159d8c340e17`已completed，报告9497顶点/18990面、非流形边0；调用正式确认接口却409`3D候选与资产不匹配`。
+- 首个事实：生成任务的`asset_name`和`subject_key`保留业务原名`信纸/信件`，确认入口先对请求名称执行`_safe_name`得到`信纸_信件`，再拿净化名比较业务身份与subject key，必然不一致；候选目录使用安全名本身正确。
+- 风险：任何包含斜杠、空格或其他需文件净化字符的合法资产都能生成但不能确认归档，3D结果永久停在待确认并阻断后续视频。
+- 下一状态：分离业务身份原名与文件/归档安全名，身份比较保持精确原名，路径仍只使用安全名并保持越界保护。
+- 根因：`_confirm_asset_3d_job`只保留净化后的`asset_name`，该变量同时用于业务身份、subject key、候选fallback和归档路径；文件安全规则错误侵入业务唯一身份比较。
+- 框架整改：确认入口分别维护`project_identity/asset_identity`与`project_id/asset_name`安全路径名；任务字段和subject key只按精确业务身份比较，候选fallback、普通资产归档和服装归档仍统一使用`_safe_name`，原有OUTPUT_ROOT越界保护不变。
+- 开发验证：新增含斜杠业务名成功确认归档为安全目录、不同业务名不能借净化通过的动态矩阵；3D及任务直接关联`32 passed`，Python编译、文档门禁通过。正式服务由PID`8480`重载至`13211`，原job确认成功，归档路径为`3d/props/信纸_信件`且不可变版本已创建。
+- 独立软件测试：通过。含斜杠原名确认后归档目录为安全名，相近不同业务名精确拒绝；任务身份、subject key、候选根目录越界保护、不可变版本与原正式job均通过。关联`56 passed, 1 deselected`，完整unit`581 passed, 1 deselected, 9 subtests passed`，无失败无skip；唯一deselect为用户明确跳过BUG038静态断言，与本次确认函数无调用关系。编译和文档门禁通过。
+- 下一状态：待只读代码稽查。
+- 最终只读稽查：通过。业务身份精确绑定job/project/subject，路径组件独立净化且候选必须位于受控OUTPUT_ROOT；相近名称、旧任务与越界候选均不能借安全名碰撞通过。正式原任务、不可变归档、测试与文档一致，BUG038隔离明确。
+- 下一状态：已关闭；M9.198继续服装道具3D及后续全链。
+
+### BUG-20260811-055：3D网格清理后残留非流形边阻断场景资产
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.198
+- 正式复现：确认“空房间”成功基准图后，通过正式`/api/assets/3d/generate`启动job`eb3eda72-a969-4334-9fd7-78c22b79ae41`；任务完成TripoSR重建并进入Blender清理，随后failed：`网格审核失败：仍有4条非流形边`。
+- 首个事实：任务心跳、阶段和失败终态均正常，阻断点是公共Blender清理/审核链在处理TripoSR开放或破损表面后仍留下4条非流形边，不是资源、超时或投影问题。
+- 风险：任何带孔洞、内部面或开放边界的单图重建网格都会确定性失败，重试同一输入无修复增量，场景/道具3D及后续视频全链无法推进。
+- 下一状态：定位asset_3d_worker清理顺序与非流形审核首个不变量，增加确定性封孔/内部几何清理并保留失败关闭。
+- 根因：TripoSR原始网格经去重、清游离、批量封孔及多面共边裁剪后，留下一个由4条边组成、每个顶点在该边界中度数均为2的微型闭环；Blender`bmesh.ops.holes_fill`对该闭环无动作，因此审核稳定报告4条边界非流形边。
+- 框架整改：公共worker在批量`holes_fill`后按边界连通分量识别简单闭合环，仅当分量不少于3边且所有顶点边界度严格为2时按拓扑顺序创建封口面；开放、分叉、重复面等复杂损坏不兜底，继续由最终非流形审核失败关闭。
+- 开发验证：同一正式GLB动态复现旧链`before=4`，公共兜底封闭1个简单环后`after=0`；3D工作流单测`19 passed`，Python编译通过。8787重载至PID`5838`后，正式重试job`fb1c04d2-f14f-4073-ac97-febc03ddc676`完成，报告10422顶点/20827面、`non_manifold_edges=0`、`loose_vertices=0`、7张审核图及24FPS/96帧/4秒源视频，资源池和重模型进程均为空。
+- 下一状态：待独立软件测试覆盖简单闭环、复杂边界失败关闭、正式产物和关联回归。
+- 独立软件测试：通过。Blender动态合成测试中，立方体单面缺失形成的4边简单环由`4→0`且封闭1环；两个三角面仅共享顶点形成的度4分叉边界保持`6→6`且封闭0环，证明异常复杂边界仍失败关闭。关联`61 passed, 1 deselected`，完整unit`576 passed, 1 deselected, 9 subtests passed`，无失败无skip；唯一deselect是用户明确跳过BUG038的人物静态断言，与本问题无调用关系。文档门禁、编译、正式report及资源终态通过。
+- 下一状态：待只读代码稽查。
+- 最终只读稽查：通过。修复位于场景/道具/人物共用worker并直接处理批量封孔遗漏的简单闭环；连通分量、边界度和闭环顺序门禁完整，复杂边界仍由最终审核失败关闭。无项目/资产特判，无公共契约变化；动态测试、正式报告、资源释放与记录一致，BUG038未执行项隔离明确。
+- 正式关闭：job`fb1c04d2-f14f-4073-ac97-febc03ddc676`已通过正式确认接口归档至项目hot区不可变版本，状态completed；BUG055关闭，M9.198继续道具3D及后续全链。
+
+### BUG-20260811-054：重新激活并确认的成功台账保留旧失败错误
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.198
+- 正式复现：BUG053关闭后通过正式API恢复“空房间”成功媒体，将原failed资产scope重新激活为pending_confirmation并确认；ledger lifecycle正确变为completed、confirmation已写入，但error仍为旧值`图片生成失败：图片任务已停止`。
+- 首个事实：`/api/production/scopes`重新激活请求未显式传error时沿用旧失败错误；随后`/api/production/assets/confirm`提交completed也未清除error，形成成功生命周期、有效确认和失败错误三者矛盾。
+- 风险：后续3D、阶段聚合、审核导出和manifest可能把已确认成功资产判为失败或输出过期故障证据；重试成功无法形成干净唯一终态。
+- 根因：`ProductionLedger.upsert`对未携带error的所有生命周期一律继承当前error；`confirm`的CAS SQL只写completed与confirmation，不更新error。因此旧失败诊断跨越重新激活并污染成功终态。
+- 框架整改：`reactivate=true`且目标非失败类生命周期时默认清空旧error；任何直接completed upsert及所有confirm CAS均原子写`error=''`。显式写入的pending_confirmation诊断继续保留，failed/cancelled/stale错误语义不变。
+- 开发验证：新增failed→reactivate→confirm以及pending显式诊断→confirm矩阵；ProductionLedger专项`84 passed`，台账及全部直接依赖`225 passed, 1 deselected`。唯一deselect为用户明确跳过BUG038的人物角度静态断言，现行代码新增肢体门禁但其断言未同步，与本次ProductionLedger无调用关系；未修改该问题。Python编译通过。
+- 正式验证：8787在Comfy资源空闲后重载至PID`3569`，再次确认原`scene:空房间`记录；返回lifecycle=completed、confirmation有效、error为空、revision=54，旧`图片任务已停止`不再残留。
+- 独立软件测试：通过。ProductionLedger及直接依赖`225 passed, 1 deselected`无失败无skip；唯一未执行项为用户明确跳过BUG038的已知人物静态断言，与本问题无调用关系。失败→reactivate→confirm、pending显式诊断、重复确认、CAS、回滚、增强/导出台账关联、正式原记录和构建门禁均通过。
+- 最终只读稽查：通过。reactivate、直接completed和confirm三个公共入口维护成功error为空不变量；显式completed错误不能覆盖，pending诊断、失败态、CAS、回滚、历史快照和正式记录边界均成立。BUG038未执行项范围隔离明确。
+- 下一状态：已关闭；M9.198继续正式全链。
+
+### BUG-20260811-053：场景候选子进程退出后任务停在无心跳processing
+
+- 状态：已关闭（最终复稽查通过）
+- 关联任务：M9.198
+- 正式复现：三个道具连续成功后自动生成“空房间”场景；界面持续“正在生成”超过六分钟。持久job为`processing/klein9b_baseline`，`pid=None`、`process_group=None`，heartbeat停在候选子进程退出时，后端无子进程且Ollama为空。
+- 首个事实：物理Klein候选已退出并记录`empty_scene_retry_2.png`，但候选后的场景验收/重试返回链没有继续心跳或受监督终态；只有人工暂停才清除非终态任务。
+- 风险：任何耗时验收、候选重试或结果回填若脱离子进程监督，可形成无执行者processing并永久占用界面批次。
+- 根因：图片监督器只在`_run_image_process`物理子进程存活期间写心跳；子进程成功退出后，道具/场景视觉验收改为同步`urlopen(timeout=600)`，既不写图片job心跳，也不检查停止或硬截止。请求处理worker虽仍存活，看门狗不会回收，但持久状态成为无PID、无心跳的processing，界面无法区分仍在验收与失去执行者。
+- 框架整改：新增统一后验收监督器，道具和场景均显式进入`prop_validation/scene_validation`，每两秒更新持久心跳并检查停止与图片任务硬截止；单次验收最长180秒。停止、硬截止或验收超时会终止`llava:latest` runner并等待验收线程释放资源，晚到结果没有持久写权限；成功、异常统一回到既有唯一终态提交。
+- 开发验证：新增阻塞验收心跳、停止、有限超时与模型终止回归；图片任务专项`33 passed`，关联`85 passed, 2 skipped, 3 subtests passed`（两项仅因未绑定Node），完整unit`570 passed, 2 skipped, 9 subtests passed`，补充绑定Node后原跳过文件`25 passed`。Python编译、文档门禁、Vue typecheck、83模块构建及diff-check通过。
+- 正式验证：资源空闲后8787重载至PID`94931`，重放原“空房间”持久请求得到job`5a5f555b-5620-4645-a2c6-a504b328ef27`；Klein PID退出后状态从`generating/klein9b_baseline`切到`processing/scene_validation`且PID为空、heartbeat持续推进，约2秒后`completed`。三项场景视觉验收均为true，Ollama已卸载；随后并行BUG038自行占用Comfy，不属于本问题且未介入。
+- 独立软件测试：通过。绑定Node运行时后关联`87 passed, 3 subtests passed`、完整unit`572 passed, 9 subtests passed`，无失败无skip；Python编译、Vue typecheck、83模块构建和文档门禁通过。正式job为completed/scene_validation，媒体存在且为2,462,708字节，PID/进程组及error为空，三项验收全真，Ollama为空；并行BUG038的Comfy任务不计入本BUG资源残留。
+- 首轮只读稽查退回：P1。验收线程使用随机`scene-audit/prop-audit`资源job并可排队900秒，而外层图片job只等待180秒；accelerator繁忙时外层可能先失败，后台票据仍在终态后获得资源并启动LLaVA，违反取消、晚到隔离和资源释放门禁。
+- 稽查整改：道具/场景验收资源票据统一绑定原图片`job_id`，资源排队上限同步为180秒；外层停止、硬截止或超时先调用`RESOURCE_SCHEDULER.cancel_job(job_id)`唤醒并撤销排队票据，再终止可能已活动的LLaVA。新增调用方job传递、票据所有权、取消和同界超时回归。
+- 稽查整改开发验证：图片专项`34 passed`、完整unit`573 passed, 9 subtests passed`无失败无skip，Python编译通过；原正式成功场景事实未变，未在并行BUG038重任务期间重复启动模型。
+- 稽查整改独立软件复测：通过。关联`88 passed, 3 subtests passed`、完整unit`573 passed, 9 subtests passed`无失败无skip；原心跳/停止/超时、资源票据job所有权、排队取消、活动模型终止、服务重启和正式场景证据均通过。Python编译、Vue typecheck、83模块构建及文档门禁通过。
+- 最终只读复稽查：通过。后验收作用于道具/场景共享链；阶段心跳、停止、硬截止、180秒有限超时、LLaVA活动终止、原job资源票据取消及终态晚到隔离闭环。正式成功场景、无skip复测和文档证据一致，无阻断缺陷。
+- 下一状态：已关闭；M9.198继续正式全链。
+
+### BUG-20260811-052：串行资产任务在前一模型释放完成前被内存门禁拒绝
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.198
+- 正式复现：正式“信纸/信件”成功并调用Comfy释放后，资产批次立即串行启动下一服装道具；下一任务被拒绝：`预计需要42GB，必须为系统保留58GB；任务需拆分后串行执行`，但当前本来就是单任务串行。
+- 首个事实：Schnell链在finally调用`/free`后立即返回，下一道具同步执行`_require_memory(42GB)`；Comfy释放为异步，前一权重/缓存尚未反映到available，门禁把可恢复的释放窗口直接判为业务失败。
+- 风险：任意混合模型串行批次可在上一模型刚释放时误失败，提示“拆分串行”却无法通过现有串行队列解决，阻断自动生产。
+- 框架整改：重任务准入不足时仅在最近120秒已有成功Comfy释放，或只读确认Comfy运行/等待队列均空后主动释放，才进入最长60秒`waiting_memory`；每秒复核任务可运行性、心跳和内存，满足后恢复processing，超时真实失败。Comfy有活动任务、队列查询失败或非释放窗口的真实不足继续立即拒绝。
+- 开发验证：覆盖近期释放后恢复、服务重启丢失时间戳后空闲Comfy主动释放、等待期间取消检查、60秒有限超时及非释放窗口立即拒绝；关联`139 passed`、完整unit`570 passed, 9 subtests passed`无skip，Python编译、Vue typecheck、83模块构建与文档门禁通过。
+- 正式验证：8787重载至PID`83178`后，从已完成信件继续同一串行队列；此前被42GB门禁拒绝的`costume_0153a6e9_daily@v1`成功，随后`林婉清-daily服装`也成功并自动进入场景，连续三道具无内存误拒绝。场景后续无心跳为下一独立问题，不属于本BUG。
+- 独立软件测试：通过。关联`139 passed`、完整unit`570 passed, 9 subtests passed`无失败无skip，编译、typecheck、83模块构建和文档门禁通过；正式项目无活动图片任务、无子进程、Ollama为空。
+- 最终只读稽查：通过。accelerator序列化池保证空闲检查与释放无并发重任务；近期/重启释放窗口、waiting_memory心跳与取消、有限超时和真实不足失败关闭均成立，正式连续道具及资源终态通过。
+- 下一状态：已关闭；M9.198继续真实全链。
+
+### BUG-20260811-051：道具提示词与无文字硬门禁互相冲突
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.198
+- 正式复现：正式项目“信纸/信件”连续两批均在有限候选后失败，错误为`道具图未通过：画面出现文字或招牌，请继续生成`，任务与模型均正常释放。
+- 首个事实：持久`image_prompt`同一段同时要求`表面有娟秀笔迹`与`无文字干扰`；后端又对全部道具强制`no_text_or_signage`，生成目标与验收契约不可同时满足。
+- 风险：资产提取模型只要给无文字类道具写入正向字迹/标签/铭文描述，后续有限重试仍沿用矛盾提示，形成确定性失败并阻断全链。
+- 框架整改：道具基准图和变体进入任一provider前统一拆分提示子句，移除正向笔迹、字迹、文字、书法、铭文、刻字、标签、标牌、招牌、logo等字形线索，保留同句非文字材质/形态片段和原有否定约束，并追加确定性无字硬约束；有限重试复用净化后的indexed prompt。
+- 开发验证：冲突样例确认移除“娟秀笔迹”且保留“指纹压痕/边缘微卷/无文字干扰”；关联`135 passed`、完整unit`566 passed, 9 subtests passed`无skip，Python编译、Vue typecheck、83模块构建与文档门禁通过。
+- 正式验证：8787空闲重载至PID`80071`后，同一正式项目再次生成“信纸/信件”成功，资产卡出现45°基准图和“就要这张”，不再触发文字质检失败；后续道具的独立内存保护拒绝不属于本BUG。
+- 独立软件测试：通过。关联`135 passed`、完整unit`566 passed, 9 subtests passed`无失败无skip，编译、typecheck、83模块构建及文档门禁通过；正式道具为`waiting_confirmation`、媒体URL存在、error为空，Ollama为空。
+- 首轮只读稽查退回：否定检测只要子句存在任意“无/禁止”就整体放行，例如“带铭文且无人”会因无关的“无人”保留正向铭文。整改要求逐个字形cue判断其紧邻前后是否为直接否定，无关否定不得旁路。
+- 稽查整改开发验证：每个字形cue分别检查前12字符及后16字符的直接否定；支持“禁止出现任何文字”“文字不得出现”等有限组合，“带铭文且无人”移除铭文且保留后续金属纹理。关联`135 passed`、完整unit`566 passed, 9 subtests passed`无skip，编译、typecheck、83模块构建及文档门禁通过。
+- 稽查整改独立软件复测：通过。关联`135 passed`、完整unit`566 passed, 9 subtests passed`无失败无skip，编译、typecheck、83模块构建和文档门禁通过；正式产物仍为waiting_confirmation且资源为空。
+- 最终只读复稽查：通过。逐cue直接否定覆盖前后短语与有限修饰，无关“无人”等否定不能旁路正向字形；正式产物、重试、资源释放和复测证据一致。
+- 下一状态：已关闭；M9.198继续真实全链。
+
+### BUG-20260811-050：资产生成失败状态和错误未投影到资产卡
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.198
+- 正式复现：BUG049关闭后在正式项目资产页点击“继续生成图片”；首个道具“信纸/信件”先显示正在生成，约一分钟后批次停止，卡片回到“等待生图”且没有失败原因或全局提示。
+- 首个事实：服务端项目持久数据已正确保存该道具`status=failed`和`error=道具图未通过：画面出现文字或招牌，请继续生成`，assets顶层也保存同一错误；浏览器投影却显示pending文案并隐藏错误，属于前端状态/错误投影分裂，不是模型卡死。
+- 风险：真实质量门禁失败被界面伪装为未开始，用户无法判断失败原因，重复点击只会盲目重跑并阻断自动资产队列。
+- 根因：`recoverCompletedAssetImages`轮询收到真实failed时把条目状态写成pending，随后批次聚合无法找到failed profile；`UnifiedAssetCard`又把`item.error`仅放在手动展开的简介层，卡片主体无失败可见性。
+- 框架整改：结果回填保留后端failed终态和脱敏错误，只有显式重试才清除；人物、道具、场景共用的`UnifiedAssetCard`在主体持续展示卡片级错误，简介层保留详细上下文。
+- 开发验证：关联`134 passed`、完整unit`565 passed, 9 subtests passed`无skip，Vue typecheck、83模块构建和文档门禁通过。
+- 首轮独立软件测试退回：代码回归`134 passed`、完整unit`565 passed, 9 subtests passed`，正式页面错误正文已持续显示；但无图占位仍显示“等待生图”，与failed终态矛盾。整改要求共享卡依据slide failed显示“生成失败”。
+- 退回整改开发验证：共享卡无图占位依据slide failed显示“生成失败”；关联`134 passed`、完整unit`565 passed, 9 subtests passed`无skip，typecheck、83模块构建和文档门禁通过。
+- 独立软件复测：通过。正式项目失败道具同时显示“生成失败”和`道具图未通过：画面出现文字或招牌，请继续生成`；关联`134 passed`、完整unit`565 passed, 9 subtests passed`无失败无skip，typecheck、83模块构建和文档门禁通过。
+- 最终只读稽查：通过。后端failed结果保持终态和脱敏错误，只有显式重试清除；共享资产卡依据slide状态显示“生成失败”，并在主体持续显示卡片级错误。正式页面、持久状态与测试证据一致。
+- 下一状态：已关闭；M9.198继续真实全链。
+
+### BUG-20260811-049：资产阶段完成后被晚到前端投影覆盖为无执行者运行态
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.198
+- 正式复现：正式项目分镜脚本生成并确认后自动提取资产；约两分钟后项目`assets.status=generating`、LangGraph `assets=running`且时间戳不再前进，但统一任务、阶段租约、资源池和Ollama均为空，资产人物/场景数据已经存在。
+- 根因：公开项目阶段写入直接调用内部`_write_project_stage`并同步改写ledger/LangGraph，缺少服务端generation围栏；恢复入口又把“已有预览卡片/项目status”误当资产权威成功，资产页主按钮可绕过LangGraph直接生图。首次真实恢复还暴露9B资产JSON截断没有有限重试。
+- 风险：任一已完成/待确认阶段可被排队或晚到的客户端`generating`快照倒退为无owner运行态，刷新后永久等待，并阻塞后续阶段。
+- 框架整改：公开`/api/projects/stage`改为projection-only，只保存界面数据且不写ledger/Graph；服务端generation终态拒绝晚到running/queued投影倒退。分镜入口和资产页批量入口均同时读取项目投影与LangGraph assets状态，只有`pending_confirmation/completed`才允许基准图；失败恢复必须重新执行正式assets。资产JSON解析失败只允许一次结构化重试，仍失败真实关闭。
+- 开发验证：动态覆盖晚到generating不能改Graph/终态、两个前端入口双权威门禁及一次有限JSON重试；关联`110 passed`，完整unit在显式Node运行时`565 passed, 9 subtests passed`无skip，Vue typecheck、83模块生产构建、Python编译与文档门禁通过。
+- 正式验证：服务重启回收无owner assets后，从分镜入口重试；首个generation 2真实返回截断JSON并failed，加载整改后generation 3一次重试成功，Graph assets保持`pending_confirmation`且generation=3，随后才启动人物基准图。人物0°图完成后启动下一资产；主动暂停后任务、租约、Ollama均释放，assets未被晚到图片投影倒退。
+- 独立软件测试：通过。关联`111 passed`、完整unit`565 passed, 9 subtests passed`，均无失败无skip；Vue typecheck、83模块生产构建、Python编译与文档门禁通过。正式任务、租约、Ollama为空，Graph assets仍为generation 3 `pending_confirmation`，未被图片暂停投影倒退。
+- 首轮只读稽查退回：generation终态保护仅覆盖status/error；晚到`generating`快照仍可用旧预览资产集合覆盖正式提取后的完整census，导致状态正确但人物/场景/道具丢失。整改要求终态下资产投影按名称合并并保留服务端现有集合，非资产阶段拒绝整个晚到数据快照。
+- 稽查整改开发验证：受保护的assets晚到投影强制进入既有名称合并路径，保留正式census中仅服务端存在的人物/场景/道具及媒体字段；非assets阶段保留当前完整权威数据。动态夹具覆盖旧快照仅含人物、正式状态另含场景/道具的删除风险；关联`111 passed`、完整unit`565 passed, 9 subtests passed`，Vue typecheck、83模块构建、Python编译及文档门禁通过。
+- 稽查整改独立软件复测：通过。关联`111 passed`、完整unit`565 passed, 9 subtests passed`，均无失败无skip；Vue typecheck、83模块构建、Python编译和文档门禁通过。
+- 最终只读复稽查：通过。公开projection-only不写ledger/Graph；受保护assets晚到快照按名称合并并保留正式census独有项及现有媒体字段，非assets保留当前完整权威数据；generation、生命周期和Graph均不倒退。软件复测证据完整，无阻断项。
+- 下一状态：已关闭；M9.198继续真实全链。
+
+### BUG-20260811-048：前端显示大纲已确认但权威工作流未完成
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.198
+- 正式复现：M9.198新项目真实大纲完成后点击“生成剧本”，界面提示“故事大纲已确认”，随即剧本入口返回`previous stage is not completed: outline`；项目stage_state为`confirmed`，ledger存在`completed`但无confirmation的outline scopes，LangGraph仍为`pending_confirmation`。
+- 根因：非upscale的公开`upsert_projection`直接调用权威`upsert`，允许不可信UI把scope lifecycle写成`completed`并携带generation/confirmation；前端确认循环却只对服务端返回的`pending_confirmation`调用确认接口，导致无确认的伪completed无法推进LangGraph，并与项目投影分裂。
+- 风险：大纲、剧本、分镜及其他非增强scope均可出现伪完成、确认断链或客户端伪造权威字段，下游永久阻塞或错误推进。
+- 框架整改：所有非upscale公开projection统一剥离客户端confirmation、generation及production/audit evidence；请求completed在无当前精确确认时降为pending_confirmation，必须走服务端确认接口；同fingerprint+audit batch的既有确认由服务端保留且不允许UI降级，新指纹自动清确认并重新等待确认。
+- 开发验证：伪generation 99/100、伪confirmation/证据、首次completed、同代降级和新指纹重确认动态通过；确认接口唯一推进LangGraph。关联`135 passed`、完整unit`564 passed, 9 subtests passed`、关键编译、文档门禁和diff-check通过。
+- 正式验证：8787重载后，既有项目stage_state confirmed、ledger completed无confirmation、LangGraph pending三方坏状态经UI同步自动收敛；outline全部权威scope带confirmation，LangGraph outline completed；真实32B剧本完成，script亦completed并推进storyboard，任务与模型均释放。
+- 独立软件测试：通过。关联`135 passed`、完整unit`564 passed, 9 subtests passed`，均无失败无skip；关键Python编译、文档状态门禁及限定diff-check通过。正式outline/script确认、工作流推进及资源空状态复核一致。
+- 最终只读代码稽查：通过。整改位于所有非upscale公开projection共用边界；不可信confirmation/generation/权威证据被剥离，completed必须服务端确认，同代确认不可被UI降级，新指纹清确认。事务锁、批量替换保护、正式旧数据收敛、真实剧本和无skip回归证据完整。
+- 关闭时间：2026-08-11（Asia/Shanghai）。
+- 下一状态：已关闭；M9.198继续分镜脚本至增强导出，BUG039—041保持排队未分析。
+
+### BUG-20260811-047：停止阶段后整个生产工作流无法重新生成
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.198
+- 正式复现：新项目大纲真实生成运行约1分钟后点击暂停，界面进入“已停止生成，可保留现有内容后重新生成”；资源和32B模型释放后再次点击“生成大纲”，正式接口返回`workflow is cancelled`。
+- 根因：阶段停止把统一LangGraph工作流写为cancelled终态，但重新生成入口没有按新generation显式重新激活同一项目工作流，前端恢复承诺与服务端状态机不一致。
+- 风险：任何阶段主动停止后项目永久无法继续生产，只能新建项目或改库，违反停止、恢复、局部重做与可恢复终态门禁。
+- 框架整改：统一工作流`begin`只允许目标阶段携带严格大于已取消代际的新generation重新激活；同代、generation 0及旧代晚到继续失败关闭，新代启动后状态回到running并保留generation围栏。
+- 开发验证：取消generation 4后，同代与generation 0均被拒；generation 5可恢复，随后旧generation 4取消响应被拒。定向`120 passed`、完整unit`558 passed, 9 subtests passed`、关键Python编译通过。正式8787重载后，同一project_id从持久`cancelled`点击生成，创建新outline generation，32B完成真实大纲并自动卸载；全程仅一个重负载任务。
+- 独立软件测试阻塞：显式Node运行时下定向`120 passed`且无skip，关键Python编译与diff-check通过；完整unit为`3 failed, 555 passed, 9 subtests passed`，三项失败全部来自并行BUG038的唯一索引为“开发完成，待独立软件测试”而Tracker首状态仍为“已关闭（最终稽查通过）”。连续只读核验未收敛；测试身份未改BUG038，按门禁不提交稽查。
+- 独立软件复测：通过。并行BUG038状态收敛后，显式Node运行时定向`120 passed`、完整unit`560 passed, 9 subtests passed`，均无失败无skip；关键Python编译、文档状态门禁及限定diff-check通过。正式恢复证据中的任务、模型均已释放。
+- 首轮只读稽查退回：业务增量、generation恢复与晚到围栏未发现阻断；唯一问题是当前状态索引使用未注册口径“软件测试通过，待代码稽查”，导致文档门禁失败。主线仅改为规范口径“软件测试通过，待只读稽查”，不改业务代码。
+- 稽查整改独立复测：文档状态门禁通过；完整unit`560 passed, 9 subtests passed`，无失败无skip，业务代码未变。
+- 最终只读复稽查：通过。cancelled工作流只允许严格更新的目标stage generation重新激活；同代、零代及旧代晚到均失败关闭，正式服务重启后的真实32B生成、任务终态与模型释放证据完整；状态索引口径已合法且一致。
+- 关闭时间：2026-08-11（Asia/Shanghai）。
+- 下一状态：已关闭；M9.198继续真实全链，BUG039—041保持排队未分析。
+
+### BUG-20260811-046：新项目创建后显示旧项目全阶段内容
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.198
+- 正式复现：在正式5173工作台从已有项目创建新项目`M9.198真实全链验收-20260811`；服务端新project_id `83eaa695-0a31-4119-aa94-060c232053fd`的`stage_state`为空，但界面持续显示旧项目已完成大纲/剧本/分镜标记及3人物/1场景资产。
+- 根因：项目创建成功后只执行`abortProjectWork`、切换project store并关闭弹窗，没有调用`loadProjectFlowState`；各阶段响应式投影因此保留旧项目值，直到未来某次显式选择项目才重置。
+- 风险：用户可在新项目界面对旧投影执行确认、生成或持久化，造成跨项目旧内容污染和伪造全链完成事实。
+- 框架整改：新增统一十阶段投影同步清空入口，每次项目流程加载先清空大纲至导出的全部响应式状态，再按固定project/session顺序恢复；创建/编辑保存切换store后必须等待新项目流程及资源/任务/版本加载完成，旧会话晚到仍由session围栏拒绝。
+- 开发验证：正式旧项目人物3项，切换空新项目的立即帧与稳定帧均无旧人物/资产，最终人物0项且提示先生成分镜；新项目后端stage_state保持空。定向与文档contract`45 passed`、完整unit`556 passed, 9 subtests passed`，Vue typecheck和83模块构建通过。
+- 关联测试基础设施整改：文档状态夹具不再硬编码已移出索引的M9.196/BUG044，动态选取当前成对里程碑/BUG，保证下一工作项仍能检测重复、冲突、未知状态与Tracker反向完备。
+- 独立软件测试：通过。正式5173连续三轮旧项目→空新项目切换，旧项目均为3人物，新项目立即帧/稳定帧均零旧人物和资产；后端新project_id的stage_state持续为空。定向/contract`45 passed`、完整unit`556 passed, 9 subtests passed`无skip，Vue typecheck及83模块构建通过。
+- 最终只读代码稽查：通过。统一清空覆盖大纲至导出十阶段且发生于异步恢复前；创建/编辑保存等待新project/session加载，旧会话晚到由既有session围栏拒绝。正式动态与后端空状态证据一致，文档当前索引驱动夹具不存在固定里程碑依赖。
+- 关闭时间：2026-08-11（Asia/Shanghai）。
+- 下一状态：已关闭；M9.198继续真实全链，BUG039—041仍只排队。
+
+### BUG-20260811-045：可观测数据仅驻留进程内且无可插拔导出与告警
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.197
+- 复现：`MetricsRegistry`与`TraceRecorder`仅保存Python内存对象，服务退出后证据消失；没有可抓取指标格式、统一exporter或可执行告警，运行手册要求无法形成机器证据。
+- 根因：可观测模块停留在接口原型，日志sink、指标和trace各自封闭，未定义与业务解耦的导出协议、持久边界及告警求值边界。
+- 框架整改：新增统一`RecordExporter`协议、空/组合/JSONL/Prometheus textfile实现；JSONL逐条flush+fsync，指标快照临时文件原子替换；指标标签规范化、counter单调，span和alert可绑定request/trace；嵌套敏感字段拒绝导出。默认空exporter保持旧调用兼容。
+- 开发验证：持久日志/指标/span三类导出、Prometheus抓取文本、队列积压告警、关联ID、嵌套秘密拒绝、标签规范化及counter单调专项`5 passed`；关键Python编译通过。未启动模型或正式任务。
+- 边界：本BUG只关闭可插拔持久导出和故障告警底座；全链request/trace贯穿、仪表盘和正式告警演练仍在剩余清单，不得伪报完成。
+- 独立软件测试首败：可观测专项`5 passed`、events关联`18 passed`及额外动态均通过；全unit为`1 failed, 520 passed, 1 skipped, 9 subtests passed`。失败用例只将DuckDuckGo/Bing模拟为空，未隔离现行注册表新增的Google News/Google后备，真实网络返回结果后自然不抛“所有provider失败”；属于测试夹具未覆盖现行五provider注册表，而非失败关闭实现回归。按门禁退回同步测试后重跑。
+- 主线整改：失败关闭用例同步隔离DuckDuckGo、Bing、Google News和Google全部免Key后备；测试现在精确表达“现行全部可用provider均无结果”，未修改或放宽生产失败关闭实现。定向`14 passed`，全unit`521 passed, 1 skipped, 9 subtests passed`，文档状态检查和Python编译通过。
+- 第二轮独立测试首败复现：指标labels在结构化快照中转换为二元list后，原递归秘密检查只识别Mapping键，`authorization=TOP-SECRET`可进入JSONL，Prometheus导出同样无入口拦截。整改在labels规范化、structured snapshot及两个持久exporter入口统一拒绝敏感二元键；新增直接构造恶意快照防绕过测试。专项`6 passed`；全unit扩大运行时出现3项并行文档事实源冲突及1项已知资源池排队瞬态失败，与本整改无调用关系，未据此宣称全量通过。
+- 冻结快照主线自检：可观测与联网搜索定向`18 passed`；完整unit`554 passed, 1 skipped, 9 subtests passed`；文档状态检查、关键Python编译和限定diff-check通过。BUG首状态已与唯一索引同步为待测试；该结果不替代独立软件复测。
+- 下一状态：待独立软件复测。
+- 最新独立软件复测：通过。可观测、联网搜索失败关闭及Node动态关联`41 passed`；完整unit`555 passed, 9 subtests passed`且无skip。敏感二元标签在注册、结构化快照、JSONL与Prometheus四层均拒绝；持久JSONL、原子textfile、counter单调、request/trace关联及队列积压告警通过。关键Python编译通过，临时测试目录自动清理，未启动模型或修改正式数据。下一状态：待只读稽查。
+- 最终稽查退回：`MetricsRegistry.increment`只检查`value < 0`，NaN/+Infinity可绕过并持久化；标签键未校验Prometheus语法。隔离复现实际输出`requests_total{bad-key="x"} nan`，违反counter单调和可抓取文本契约。
+- 稽查整改：统一有限数值校验拒绝非数字、bool、NaN和±Infinity；标签键强制Prometheus规范。Prometheus exporter对手工快照再次独立校验指标名、标签结构/名称与有限数值，禁止绕过注册表。开发专项`6 passed`、完整unit`555 passed, 9 subtests passed`、复现脚本、文档门禁、Python编译及diff-check通过；下一状态为待独立软件复测。
+- 同根因扩大整改：指标快照语义校验抽为JSONL与Prometheus共用门禁，手工NaN/非法指标名/非法标签/畸形集合在任何持久exporter写入前统一拒绝，Composite首个JSONL也不会留下部分非法证据。专项`6 passed`、完整unit`555 passed, 9 subtests passed`、文档门禁、编译与diff-check通过。
+- 稽查整改独立软件复测：通过。注册表、JSONL、Prometheus、Composite、敏感标签及关联入口`41 passed`；完整unit`555 passed, 9 subtests passed`且无skip，关键Python编译通过。临时文件自动清理、正式数据零修改；下一状态为待只读复稽查。
+- 最终只读复稽查：通过。有限数值、指标名、标签结构/名称、敏感字段及手工快照语义由注册表与JSONL/Prometheus共享门禁覆盖；Composite在首个持久写入前失败关闭，无部分非法证据。边界仍明确不宣称全链trace与正式仪表盘已完成。
+- 关闭时间：2026-08-11（Asia/Shanghai）。
+- 下一状态：已关闭。
+
+### BUG-20260811-044：文档当前状态存在多事实源
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.196
+- 复现：四份职责文档同时保留多轮“待测试/待稽查/已完成”，按搜索结果或尾部追加项判断会把历史状态误作现行状态。
+- 根因：计划、Tracker、进度和记忆均承担了当前状态裁决，缺少机器可检查的唯一索引、历史边界和重复编号门禁。
+- 框架整改：新增`docs/product/当前开发状态.md`作为唯一当前状态索引；新增标准库检查器，拒绝重复ID、未知状态、BUG详情缺失、索引与BUG首状态冲突及第二事实源声明；历史证据原样保留。
+- 独立软件测试退回：首版缺少Tracker活动项反向完备性、本地Markdown链接检查、跨文档同编号多现行状态冲突判定及统一contract测试入口。
+- 整改：补充上述四项门禁；“历史/已被覆盖”作为唯一冲突豁免，新增确定性失败矩阵并由pytest自动收集。
+- 第二轮独立软件测试退回：secondary组合行只提取首个M编号，`M9.196 / BUG044`中的BUG简写未独立归一，也未逐项与索引状态族比较；追加`BUG044（已关闭）`未被拒绝。
+- 第二轮整改：组合行分别提取全部M/BUG，BUG三位简写按索引唯一后缀归一；每项先与索引状态族比较，再执行跨文档重复状态检查。MainDev、项目进度、项目记忆参数化覆盖M与BUG冲突及历史豁免。
+- 整改自检：文档门禁通过；专项与contract `18 passed`，Python编译和diff-check通过。
+- 第二轮独立软件复测：通过。专项与contract `18 passed`；Dev_MainDev、项目进度、项目记忆三文档组合`M9.196 / BUG044`对M与BUG分别报冲突，显式历史/已被覆盖豁免，动态探针`6/6`；Tracker活动项反向完备、坏本地链接、pytest contract入口和BUG简写归一均通过。Python编译与限定范围diff-check通过，未修改业务代码或启动模型。
+- 最终稽查退回：Tracker冲突测试曾依赖BUG044处于特定生命周期；状态流转后可能未真正构造相反状态，产生假绿。
+- 最终稽查整改：测试按BUG编号动态定位section边界和首个状态行，断言目标存在、替换实际发生且状态族相反；参数化覆盖待测试、待稽查、已关闭，并保证不修改相邻BUG。
+- 整改自检：专项与contract`21 passed`，全部contracts`40 passed, 51 subtests passed`；文档门禁、Python编译和diff-check通过。
+- 最终独立软件复测：通过。专项与contract`21 passed`；全部contracts`40 passed, 51 subtests passed`；完整unit`555 passed, 9 subtests passed`且无skip，关键Python编译通过。测试身份未修改代码、配置或正式数据。
+- 最终只读复稽查：通过。Tracker夹具按目标BUG section动态定位首状态，强制断言替换发生且状态族相反；待测试、待稽查、已关闭三类生命周期和相邻条目保护均成立。唯一索引、双向完备、组合编号归一、历史豁免、链接与contract门禁证据完整。
+- 关闭时间：2026-08-11（Asia/Shanghai）。
+- 下一状态：已关闭。
+
+### BUG-20260811-041：历史对话图片资源仍显示
+
+- 状态：待处理（排队，未分析）
+- 用户现象：对话框仍显示两张已属于旧资源的人物图片。
+- 串行约束：等待 BUG-20260811-038 完整闭环并经用户确认后处理。
+
+### BUG-20260811-040：生成成功的图片未显示
+
+- 状态：待处理（排队，未分析）
+- 用户现象：图片生成后界面不显示结果。
+- 串行约束：等待前序问题完整闭环并经用户确认后处理。
+
+### BUG-20260811-039：云长老人物图无法生成
+
+- 状态：待处理（排队，未分析）
+- 用户现象：云长老生成返回 `capability provider has in-flight invocations: image.variant.qwen/comfy-qwen-image-edit-2511`。
+- 串行约束：等待前序问题完整闭环并经用户确认后处理。
+
+### BUG-20260811-038：人物全身图顶部留白低于8%仍被放行
+
+- 状态：已关闭（最终只读复稽查通过）
+- 关联任务：M9.193
+- 复现：正式苏璃0°正面全身图发顶接近画面顶边，实际明显低于8%，但结果携带归一标记并通过机器验收。
+- 根因：构图归一器使用 YOLO 人体检测框估算头脚边界；该框可能从发顶下方开始。验收器又把 `normalized_variant_margins=true`直接转换为顶部8%和底部3%通过，未核验真实像素数值。
+- 框架整改：归一器改用 GrabCut 人物可见轮廓细化检测框，统一按9%顶部、5%底部容差重排至928×1664；返回可持久化的像素边界及四边比例。验收器只接受同时具备归一标记、数值证据和8%/3%阈值的结果，所有全身角度统一强制`deterministic_full_frame`，旧布尔标记不能放行。
+- 开发验证：同一正式失败旧图经新归一器得到顶部`0.089960`、底部`0.050040`，输出928×1664且视觉无接缝；新增数值门禁与轮廓归一测试。定向`34 passed, 1 skipped`，完整单元测试`503 passed, 1 skipped, 9 subtests passed`；Python编译、Vue typecheck及83模块生产构建通过。正式任务、三资源池、Ollama与ComfyUI均为空后受控重载8787，新PID`55404`健康并加载当前实现。
+- 首轮稽查：不通过。GrabCut异常被宽泛捕获后退回YOLO框，仍可产生`yolo_person_box_fallback`并被数值门禁接受；测试未覆盖轮廓识别异常的失败关闭路径。
+- 稽查整改：删除全部YOLO确定性证据回退。GrabCut、连通域或轮廓质量任一失败均抛`foreground_segmentation_failed`，由既有候选循环删除失败图片并重生成；验收额外强制`source=grabcut_person_silhouette`，旧回退证据即使数值满足也拒绝。
+- 整改验证：新增强制GrabCut异常执行测试、YOLO回退证据拒绝测试及源码无回退门禁。专项`3 passed`；真实旧图连续两次归一顶部`8.9960%/9.0084%`、底部`5.0040%/4.9916%`；图片关联`116 passed, 3 subtests passed`。完整单元扩展为`521 passed, 1 failed, 9 subtests passed`，唯一失败仍为独立联网搜索状态测试，与人物构图增量无调用关系。Python编译、文档状态检查、Vue typecheck及83模块构建通过；正式8787已在全资源空闲时重载为PID`58574`。
+- 二次稽查：不通过。P1：正式0° baseline路径的轮廓异常在候选重试之前逸出，未删除失败候选，也未执行有限重生成；原异常测试只覆盖归一器。
+- 二次稽查整改：新增`_prepare_character_full_frame_candidate`统一归一失败的物理文件清理，新增`_run_character_full_frame_candidate_loop`统一有限候选生命周期；正式baseline调用共享循环，最多3次、成功返回实际次数、末次保留可定位错误，失败候选不残留。动态测试覆盖连续两次归一失败后第三次成功、provider重试序列`[2,3]`、失败候选清理`[1,2]`及三次全失败明确终态。关联`118 passed, 1 skipped, 3 subtests passed`，Python编译、Vue typecheck和83模块构建通过。全单元`537 passed, 2 failed, 9 subtests passed`，两项失败均由并行文档当前状态冲突引起，与本修复无直接依赖。
+- 最新独立软件测试：通过。真实`ThreadingHTTPServer + Handler`向`/api/characters/generate` POST的参数化测试2/2通过：前两次轮廓失败、第三次成功返200且job为`completed`；三次全失败返502且job为`failed`。provider严格调用3次，失败图片全部删除，成功链只保留第3张。关联`120 passed, 1 skipped, 3 subtests passed`，后端编译通过；测试身份未修改项目文件。
+- 最终独立代码稽查：通过。稽查独立实跑正式HTTP/Handler参数用例，确认GrabCut失败关闭、旧回退证据拒绝、失败候选物理清理、最多3次生成及200/completed、502/failed终态均成立。BUG045的文档状态冲突属独立并行问题，不影响BUG038限定结论。
+- 用户真实页面复现：原关闭结论撤销。云长老真实第三张的确定性姿态为偏航`0.41°`，顶/底安全区`8.9867%/5.0133%`，但VLM误判`correct_orientation=false`；同一VLM返回还缺失`plain_background`，而 baseline caller 将两者当作必需字段，导致确定性合格图连续被误杀并在界面暴露截断JSON。
+- 重开整改：`front_full`方向以实际人脸姿态确定性结果为准，不再与VLM主观布尔值做AND；0° baseline硬门禁收敛为`correct_orientation + required_928x1664 + deterministic_full_frame`，单人和头脚由同一GrabCut/YOLO候选准备链证明，背景与其他主观项保留证据及人工“就要这张”门禁；最终错误只返回中文硬门禁摘要，不再暴露原始JSON。
+- 真实端到端自检：正式9B直接HTTP生成云长老一次成功，随后在真实浏览器资产卡点击“重新生成”，页面从“此图正在生成”转为显示`云长老0°正面全身`图与“就要这张”。最终job`completed`、第1次通过，顶/底安全区`8.9992%/5.0008%`，Comfy/Ollama队列全空。关联回归`128 passed, 1 skipped, 3 subtests passed`。
+- 重开后独立软件测试：通过。文档状态门禁通过；正式HTTP Handler参数矩阵`10 passed`，包含两项目内VLM返回原始JSON且连续3次失败时返502、错误不含`{`、仅中文硬门禁摘要、job failed且三张候选全删除；第1/2/3次成功及轮廓三次失败同样通过。关联`131 passed, 3 subtests passed`，0 failed/0 skipped；真实9B job、浏览器IMG 928×1664显示及资源释放证据均复核通过。
+- 下一状态：待独立代码稽查。
+- 最终稽查再次退回：真实浏览器曾显示的job仍为`completed`，但后续排队重生成先调用`purgeGenerated`删除其物理文件，旧job及历史快照继续引用该URL，刷新后返回404。根因是媒体发布采用“先删旧图、再生成新图”，不具备代际一致性。
+- 媒体生命周期框架整改：baseline重生成不再调用资产级预清理；旧成功媒体作为不可变版本保留，新图生成成功并持久化新URL后才成为当前投影，失败则继续保留上一张可用图。服务恢复新增完成态媒体存在性核验，缺失文件的`completed`任务自动降级为明确`failed`，禁止假完成。新增重启时缺失/存在媒体双向测试；关联专项`92 passed, 1 skipped, 3 subtests passed`，后端编译通过。
+- 角度图假运行同根因整改：正式任务`89215588...`已被服务重启回收为failed、Comfy队列为空，但恢复轮询只处理`!item.image_url`的baseline，并在已有基准图时跳过整个人物，导致左45°角度投影永久停在generating。现将baseline及全部`detail_assets`纳入统一2秒终态对账，按generation nonce和角度序号读取权威job；completed回填URL，failed写入角度及人物终态，页面不再伪运行。轮询触发条件覆盖item与variant generating。专项`77 passed, 1 skipped`、编译、Vue typecheck及83模块构建通过；真实页面刷新后苏璃左45°从“此图正在生成”收敛为“生成失败”，显示可重新生成，Comfy队列保持为空。
+- 测试退回补证：新增直接执行正式`recoverCompletedAssetImages`源码的Node动态矩阵；已有baseline时，variant completed会回填URL、转waiting_confirmation、持久化一次并触发完成展示，variant failed会同步variant/item failed并持久化一次，动态`1 passed`。扩大回归受并行任务正在修改的Comfy内存等待测试2项`StopIteration`阻断；该代码不属于BUG038增量，未越权覆盖，待冻结后重新独立复测。
+- 并行改动冻结后主线重跑：角度终态动态矩阵及图片恢复/FIFO/任务运行关联组合`82 passed`，0 failed/0 skipped；文档门禁通过，准备重新提交独立软件测试。
+- 用户确认当前角度已正确后，角度链冻结为版本化硬基线：左右三分之四提示目标35°、确定性偏航左`+30°—+60°`/右`-60°—-30°`且滚转≤7°、角度LoRA权重0.35、Lightning 4步LoRA权重1.0、4步、CFG 1.0；90°、180°和0°继续执行既有严格方向门禁。生产规范明确禁止未经真实六格回归、独立测试和稽查单独改动上述任一项。
+- 四肢验收增量：全身图统一要求手、脚及全部可见肢体/手指/脚趾无粘连、缺失、多余、重复、断裂、融化或异常连接；左右45°、90°、180°及0°baseline均把三个解剖布尔字段列为硬门禁，失败候选删除并有限重生成，不能进入“就要这张”。baseline重试提示同步要求完整分离的四肢。专项`36 passed`、Python编译和文档状态门禁通过，8787在任务、三资源池和Comfy队列全空时重载健康。
+- 独立测试首轮退回整改：旧角度断言已同步为共享解剖门禁；新增正式HTTP Handler动态矩阵，覆盖左45°、右45°、90°、180°各自的`hands`、`feet`、`no_fused`任一单字段false，以及四姿态全真正常链。每个失败样本严格生成2次、两张候选均物理删除并返回502；全真样本首张返回200且保留。共享`_character_variant_required_checks/_character_variant_verdict_passes`成为生产与测试唯一门禁定义。关联`60 passed, 2 skipped`，Python编译和文档门禁通过，待独立复测补齐Node环境项。
+- 独立复测二次退回整改：0°baseline正式Handler矩阵拆分为`hands=false`、`feet=false`、`no_fused=false`三个单字段用例，各自连续3次失败、三张候选全删、502且持久job failed；不再用两个字段同时false替代单项证明。开发关联`64 passed, 2 skipped`，编译和文档门禁通过，待独立测试补齐Node环境后复测。
+- 最终独立软件复测通过：0°baseline正式Handler矩阵`19 passed`，四个全身角度×三项解剖单字段及全真链全部动态通过；扩大关联`116 passed`，规范/服装/空场景补充`30 passed, 3 subtests passed`，合计146项及3个子测试，0失败0跳过。角度硬基线与文档一致，编译、文档门禁及8787/三资源池/tasks/Comfy/Ollama空闲终态通过。下一状态：待独立代码稽查。
+- 最终只读复稽查：通过。0°基准由正式Handler的`baseline_required_checks`强制手、脚及四肢/指趾三项解剖门禁，左右45°、90°、180°由共享required-check契约强制；失败候选统一有限重试、物理删除并落明确failed，成功候选才可发布。绑定显式Node运行时复跑正式Handler、候选生命周期、前端恢复、FIFO、持久投影和规范关联为`117 passed, 3 subtests passed`，0失败0跳过；未发现旧媒体覆盖、伪终态或姿态漏项。
+- 关闭时间：2026-08-11（Asia/Shanghai）。
+- 下一状态：已关闭。
+
+### BUG-20260811-037：分镜已自动生图却仍提示手动上传并清空成品
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.191
+- 原因：`enterAssetGeneration`仍保留旧上传式流程，进入资产页会清空全部媒体、角度、确认状态并提示上传四视图；与当前逐集自动提取和自动生图链冲突。
+- 修复：移除破坏性清空和手动上传提示；使用固定project/session进入统一资产FIFO，只补生成缺失基准图，已有成品和确认状态保持。
+- 最终稽查：通过。逐集自动提取生图、project/session owner single-flight、P1/P2晚到隔离、只补缺及失败停止完成框架闭环。最终状态：已关闭。
+- 独立软件测试：通过。分镜逐集完成仍调用`queueStoryboardAssetExtraction(project, session, episode)`，每集提取后经统一资产FIFO串行调用generate-all；`enterAssetGeneration`固定捕获project/session，仅准备缺失档案、持久化并enqueue补缺，未清理image URL、detail_assets、confirmation、generation nonce，旧“上传四视图/资产上传槽”提示不存在，手动逐槽导入入口保留。已有成品、waiting_confirmation及confirmed投影保持；generate-all只筛选`!item.image_url`且批次内无`purgeGenerated`。重复点击入口和generate-all single-flight去重、项目切换晚到隔离、首资产失败停止及FIFO无回归。定向`102 passed, 1 skipped`，全部单元测试`490 passed, 1 skipped, 9 subtests passed`；关键Python文件编译、Vue typecheck及Vite生产构建通过（83 modules，714ms）。未启动重模型、未修改业务代码。下一状态：待稽查。
+- 稽查整改独立复测首败：`tests/unit/test_production_gate_reconciliation.py::test_assets_are_a_server_owned_langgraph_stage_not_a_frontend_legacy_call`仍强制旧断言`if (assetEntryPromise) return assetEntryPromise`，而正式整改已改为`assetEntryPromise && assetEntryPromiseKey === entryKey`，以允许P1未决时P2建立独立transaction。该定向文件结果`1 failed, 21 passed, 1 skipped`。测试契约仍要求会造成跨项目阻塞的旧行为，当前冻结快照无法全绿；按首败规则立即停止，未继续确定性P1/P2动态、全unit、Python编译、Vue typecheck或Vite构建。未启动重模型、未修改业务代码。下一状态：待处理。
+- 过期测试同步后独立复测：通过。确定性动态分别将P1阻塞在`confirmStoryboards`和`prepareAssetProfilesFromStoryboard`，切换P2后两种场景均创建不同transaction，P2各自仅执行一次`persistAssetState(p2, session2)`和generate-all enqueue；P1解除阻塞后均未prepare/persist/enqueue污染P2，P1旧finally未清除P2 promise/key，同scope再次调用严格复用P2 Promise，动态`2/2`通过。定向`102 passed, 1 skipped`，完整单元测试`490 passed, 1 skipped, 9 subtests passed`；关键Python文件编译、Vue typecheck及Vite生产构建通过（83 modules，759ms）。未启动重模型、未修改业务代码。下一状态：待稽查。
+
+### BUG-20260811-036：苏璃确认弹窗显示云长老批次错误
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.190
+- 原因：`assetError`同时承载阶段错误和具体资产错误；批次继续到云长老失败后，全局错误仍显示在当前打开的苏璃卡片上方。
+- 修复：新增`assetStageError`投影，带具体资产名前缀的错误只交给对应卡片；确认当前人物基准时清除旧兄弟资产全局提示。人物角度请求继续只携带当前人物自身基准与已确认角度。
+- 最终稽查：通过。卡片错误归属、stage错误保留、人物自身references及FIFO/session隔离闭环。最终状态：已关闭。
+- 独立软件测试首败：M9.190定向错误投影、卡片归属、确认清理、人物自身reference、FIFO和项目/session关联回归`78 passed, 1 skipped, 3 subtests passed`；确定性矩阵确认苏璃/云长老具体前缀均不进入全局，非资产阶段错误仍保留，variant references只取当前`item.image_url`及当前`item.detail_assets`中confirmed角度，不访问其他人物集合。但扩大执行全部`tests/unit`时出现4项失败（汇总`4 failed, 468 passed, 1 skipped, 9 subtests passed`）：资源池并发测试期望GPU queued=1实际0；`test_production_stage_scope_coverage.py`三项关于完整分集放行/后续完整集/多集边界的断言失败。按首败规则立即停止，未执行Vue typecheck或Vite构建；未启动重模型、未修改业务代码。下一状态：待处理。
+- 冻结快照独立复测：通过。将上轮四个失败点连同M9.190错误投影、卡片归属、确认清理、自身reference、FIFO及项目/session链按同一顺序定向重跑，结果`118 passed, 1 skipped, 3 subtests passed`，资源池排队与三项分集范围门禁均未复现失败；随后完整`tests/unit`为`489 passed, 1 skipped, 9 subtests passed`。关键Python文件编译、Vue typecheck及Vite生产构建均通过（83 modules，593ms）。苏璃/云长老具体资产错误继续只在对应卡片显示，确认苏璃清旧全局提示，苏璃variant只引用自身已确认0°基准及自身confirmed角度。未启动重模型、未修改业务代码。下一状态：待稽查。
+- 稽查整改独立复测：通过。确认错误动态矩阵`5/5`：兄弟云长老前缀错误与苏璃自身前缀错误在确认苏璃时清空；真实stage全局错误、含云长老文本但不以前缀开头的复合错误、无资产前缀错误均原值保留。M9.190定向及上轮边界`118 passed, 1 skipped, 3 subtests passed`，完整单元测试`489 passed, 1 skipped, 9 subtests passed`；关键Python文件编译、Vue typecheck和Vite生产构建通过（83 modules，550ms）。人物自身reference、FIFO、批次失败停止及项目/session隔离无回归。未启动重模型、未修改业务代码。状态保持：待稽查。
+
+### BUG-20260811-033：并发生图重复注册与人物全身留白下限
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.189
+- 现象：已有Klein 9B请求运行时，新请求再次安装并替换同一内置提供器，返回`capability provider has in-flight invocations`；旧日志同时存在升级后生产台账列数不一致错误。
+- 修复：内置能力安装改为进程内幂等，不再替换已注册内置提供器；台账写入统一显式24列；人物全身角度提示词、归一器、机器验收与规范统一为头顶留白至少8%、脚底留白至少3%，均为下限。
+- 开发验证：关联`113 passed, 1 skipped`，Python编译通过；未启动重模型。
+- 最终稽查：通过。能力注册一次性绑定、inflight稳定、24列台账、全身8%/3%非固定安全区及历史规范隔离全部闭环。最终状态：已关闭。
+- 独立软件测试首败：M9.189定向能力注册、生产台账、构图门禁和规范回归`192 passed, 1 skipped, 3 subtests passed`；但扩大执行全部`tests/unit`时出现2项失败（汇总`2 failed, 456 passed, 1 skipped, 9 subtests passed`）。`test_text_task_runtime.py::test_ollama_generation_always_runs_explicit_unload`的模拟网络异常被`_ollama_json`接受而未抛出；`test_cancelled_waiter_cannot_start_after_heavy_lock_releases`中已标记failed的等待任务仍被接受，未抛“已停止”。按首败规则立即停止，未继续Python编译、Vue typecheck或Vite构建；未启动重模型、未修改业务代码。下一状态：待处理。
+- 首败整改后独立软件复测：通过。确定性动态验证同一服务模块首次安装后，在`image.generate/mlx-flux2-klein`真实inflight=1期间再次调用安装函数直接早退，provider对象身份不变、无replace、无in-flight异常，释放后原调用正常完成；模块级首次绑定与后续幂等同时成立。定向能力注册、24列生产台账、全身8%/3%最低安全区、半身隔离、规范及文本任务回归`209 passed, 1 skipped, 3 subtests passed`；全部单元测试`458 passed, 1 skipped, 9 subtests passed`。`compat_server.py`、`image_task_supervisor.py`、`production_ledger.py`、`production_orchestrator.py`编译通过；Vue typecheck与Vite生产构建通过（83 modules，942ms）。未启动重模型、未修改业务代码。下一状态：待稽查。
+
+### BUG-20260811-035：upscale权威台账写入先于阶段取消提交围栏
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：后续统一阶段原子提交增量
+- 问题：`review_export/upscale`在`_run_server_production_stage`内部直接执行`commit_upscale_authorities()`，而stage lease的`commit_guard`只在函数返回后的Handler中进入。取消可在权威增强证据已落SQLite后抢赢，使后续Graph提交被拒绝，形成ledger `pending_confirmation`与Graph `cancelled/failed`双事实。
+- 隔离动态证据：fake ledger提交时设置同一cancel event，当前函数仍正常返回`operation=upscale`且`ledger_committed=1`；紧接的统一checkpoint稳定抛出`production stage cancelled or lease lost: review_export`。未启动模型或正式任务。
+- 主线整改：upscale执行器改为仅返回延迟authority payload，最终提交统一进入owner+generation lease commit guard。ProductionLedger整批事务以内嵌Graph callback形成失败回滚边界；Graph失败、取消先赢或旧代失租均不产生成功authority，commit先赢唯一消费租约并同步得到ledger pending与Graph pending。
+- 崩溃恢复：Graph事件持久保存scope/generation/fingerprint/batch精确tuple；服务重启发现Graph pending而ledger事务缺项时按原stage generation失败关闭，已完整落账则保持待确认。
+- 开发验证：cancel-first、commit-first、Graph故障整批回滚、旧owner被新代接管、Graph成功但ledger未落的重启恢复动态`5/5`；review_export/upscale、stage cancellation、production control关联`147 passed`，Python编译、Vue typecheck与83模块生产构建通过。未启动重模型或正式任务。
+- 独立软件测试：通过。原5项动态全部通过；补充覆盖多集第二条authority故障时首条同事务回滚、完全相同批次重复提交幂等、tenant/user/project三维隔离，以及Graph已持久但ledger缺失的崩溃窗口恢复失败关闭。BUG028 authority CAS/confirm/export关联回归`147 passed`，完整单元测试`495 passed, 1 skipped, 9 subtests passed`；关键Python文件编译、Vue typecheck及Vite生产构建通过（83 modules，775ms）。未启动重模型、未操作正式任务、未修改业务代码。
+- 最终稽查：通过。代码原子边界无阻断；待用户正式图片任务自然结束后，在任务、三池、Ollama与ComfyUI全空时安全重载8787。新PID53734已加载当前代码，唯一worker健康且active/queued为0，正式任务与模型队列为空。最终状态：已关闭。
+
+### BUG-20260811-034：单条已确认媒体scope可越级完成整个阶段
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.188
+- 问题：`_begin_production_request()`仅按stage名称收集任意`completed+confirmation`记录，再以`trusted=True`直接把整阶段写completed；当同集镜头1已确认、镜头2待确认时仍可成功启动video，绕过已存在但未被入口复用的统一范围门禁。
+- 主线整改：阶段入口改为统一调用`_reconcile_completed_production_stages`；确认、资产延迟确认、恢复与入口四类路径共用`_confirmed_production_gate_record`。四个shot阶段从storyboard台账构建分集期望集合，缺scope以失败占位参与门禁，至少一集完整才允许推进。
+- 动态验证：旧路径稳定复现`begin(video)`成功且额外报告`image=completed`，而统一门禁同时判定false；整改后partial、完全缺失兄弟镜头及无storyboard census均拒绝，完整单集放行，第一集残缺但第二集完整时精确选择第二集。扩大关联`170 passed, 1 skipped`，Python编译通过；未启动模型或正式任务。
+- 独立软件测试首败：权威storyboard census仅包含`1:1`时，image同时存在已确认`1:1`和多余`1:2`；`_stage_gate_records("image", records)`仅返回`1:1`，统一完成判定为true，未按规范对多余scope失败关闭。动态断言`extra image scope must fail closed`稳定失败。
+- 测试范围处置：依软件测试首败规则立即退回，未继续确认fp/audit batch绑定、八阶段入口/恢复语义、M9.187旧`left45`断言、关联回归、编译、类型与构建；未启动模型或正式服务。
+- 首败整改独立复测：多余scope、非法ID、重复及别名碰撞的新增专项`22 passed`；但媒体确认事实仍未绑定当前权威指纹与审核批次。隔离动态用例稳定证明：`content_fingerprint`顶层为`img-new`而confirmation为`img-old`、`audit_batch_id`顶层为`batch-new`而confirmation为`batch-old`、以及顶层fingerprint或batch缺失四种情形，`_production_stage_gate_complete("image", records)`均错误返回`True`；只有空confirmation被拒绝。
+- 本轮测试处置：按首败规则立即停止，未继续八阶段入口/确认/延迟/恢复一致性、M9.187旧`left45`断言、关联回归、Python编译、Vue typecheck或Vite构建；未启动模型或正式服务，未修改业务代码。
+- 第二首败整改：共享`_confirmed_production_gate_record`仅对image/video/audio/subtitle shot scope强制顶层fp/batch非空，confirmation内fp/batch与顶层当前值精确一致；非媒体stage维持既有确认边界。四stage×缺fp/缺batch/旧确认/合法矩阵定向`39 passed`；扩大关联`202 passed, 1 skipped`，Python编译、Vue typecheck及83模块Vite构建通过；未启动模型或正式任务。
+- 最终独立复测：通过。专项`79 passed, 1 skipped`；独立动态覆盖四媒体阶段、额外/非法/别名碰撞、多集边界及确认/延迟确认/恢复/入口共用门禁，扩大关联`192 passed, 1 skipped`。Python编译、Vue typecheck及83模块Vite生产构建通过；未启动模型或正式任务。
+- 最终稽查：通过。代码专项`61 passed, 1 skipped`；四媒体census、额外/非法/非shot/别名碰撞、指纹/批次确认绑定和非媒体兼容均闭环。正式8787已在资源空闲时安全重载为PID50323，健康且仅一个worker，任务、三池、Ollama与ComfyUI均为空。最终状态：已关闭。
+
+### BUG-20260811-032：人物基准角度与多角度提示词冲突
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.187
+- 问题：人物首张左45°生成提示与身份描述中的“正面近照”发生方向和景别冲突，其他角度提示也缺少完整的互斥角度约束，导致姿态失败率偏高。
+- 修复：人物首张改为0°正面平视完整全身并人工确认；其后左45°、右45°、90°、180°、0°半身逐槽生成确认。六角度提示逐项明确偏航、构图和禁止项；身份描述剥离全部角度与景别词。人物3D输入同步为已确认0°正面全身，道具/场景45°基准不变。
+- 最终稽查退回整改：清除3D规范、M9.168开发记录和项目记忆中三处仍把左45°声明为TripoSR人物输入的现行冲突；统一为0°正面全身唯一人物几何输入，并明确历史口径已被M9.187覆盖。
+- 软件测试首败：正式`baselineIdentityPrompt`未完整剥离角度与景别词。动态执行当前函数，输入`苏璃，16岁，左45度全身，黑色长发`，输出仍为原文，保留`左45度全身`；这会与0°正面baseline或其他目标角度提示形成直接方向冲突。对照`正面近照`可被清除，说明正则只覆盖部分带“照/视图”的表达，未覆盖常见“左/右45度全身、90度侧面全身、180度背面全身、0度正面半身”等无“照/视图”后缀口径。按首败规则立即停止，未继续关联回归/编译/构建，未启动模型、未修改业务代码。
+- 首败整改复测新失败：无后缀常见表达已修，但明确要求的带空格组合仍未完整清洗。动态输入`苏璃，16岁，左 45 ° 完整全身视图，黑色长发`，前端正式函数输出`苏璃，16岁， 完整，黑色长发`；后端同源正则输出仍保留`完整全身视图`。根因是角度表达与可选`完整/景别`之间未允许空白，前端后续通用景别替换只删除`全身视图`而残留`完整`。同类影响`右 45 度 完整全身照`、`90 ° 侧面 完整全身`、`180 ° 背面 完整全身视图`。按首败规则立即停止，未继续其余范围与回归构建，未启动模型、未修改业务代码。
+- 第二次整改独立软件复测：通过。前后端身份清洗分别动态覆盖15种常见、空格、`°/度`及`完整+景别`组合，全部只保留姓名、年龄、发色等身份属性，重复逗号与残留“完整”均为0。人物卡显示严格为`0°半身→0°全身baseline→左45→右45→90→180`；内部生成严格为`0°全身baseline→左45→右45→90→180→0°半身`。六角度提示目标方向、互斥方向和全身/半身构图逐项`6/6`通过。
+- 运行链验证：front_full baseline首图/第二图/第三图成功及三次失败动态`4/4`，验收调用`front_full`、重试提示为zero-degree front-facing、最终错误明确“人物0度正面全身”且无left45残留。旧view contract清基准/variants并先生成新nonce，再按新nonce查询job，旧left45 job不得恢复。人物3D强制`front_full`，道具/场景保持`three_quarter_45`，服务端三类确认映射`3/3`及错误角度拒绝`3/3`。
+- 回归：项目/session、FIFO、逐槽确认、恢复、停止与failed终态关联`186 passed, 1 skipped, 3 subtests passed`；Python编译、Vue typecheck、Vite生产构建通过（83 modules，546ms）。未启动真实重模型。
+- 最终稽查文档整改软件测试首败：目标三处已修（3D规范明确0°正面全身唯一3D输入；Dev_MainDev与项目记忆M9.168均标历史并由M9.187覆盖），但完整扫描仍发现未隔离的现行冲突。`docs/memory/项目记忆.md:105`的M9.151仍以“最终稽查通过，已关闭”现行口径记载“Klein 9B左45°基准照、TripoSR与Blender静态链”，未声明历史或被M9.187覆盖；会继续把左45°解释为TripoSR人物输入。另`docs/technical/IMAGE_GENERATION_SPEC.md:10-11,48`和`docs/technical/HUMAN_MULTIVIEW_REMOTE_PROVIDER_SPEC.md:5`仍以现行规范口吻要求正面近照首图、四图/Visual Persona/PSHuman旧链，未标历史，直接冲突M9.187六格与0°正面全身首图。
+- 本轮按首败规则停止：未继续关键代码回归/编译/构建，未启动模型、未修改业务代码。下一状态：待处理。
+- 文档首败整改：M9.151人物左45°文字已标为被M9.187覆盖；`IMAGE_GENERATION_SPEC.md`与`HUMAN_MULTIVIEW_REMOTE_PROVIDER_SPEC.md`已在首行标记历史归档、禁止执行，并指向M9.187的0°正面全身六格权威链。
+- 文档第二次首败整改：项目进度与项目记忆的M9.158固定种子源、M9.156人物基准/LoRA/3D门禁均统一由M9.187覆盖为0°正面全身与`front_full`。
+- 文档整改第二轮独立软件测试首败：上述三个定向整改点均已通过，但全量扫描继续发现未隔离冲突。`docs/product/项目进度.md`与`docs/memory/项目记忆.md`的M9.158条目仍写“当前左45°全身为首格及固定种子源”，仅声明被M9.166覆盖，未声明已被M9.187的0°正面全身baseline/固定种子源再次覆盖；同一项目记忆的M9.156 LoRA条目仍称门禁继续有效且加载目标为M9.166左45°首图。它们会把历史左45°重新解释成当前首图和种子源，与M9.187权威链直接冲突。按首败规则立即停止，未执行关键代码回归、Python编译、Vue typecheck或Vite构建；未启动模型、未修改业务代码。下一状态：待处理。
+- 文档整改第三轮独立软件复测：跨文档全量扫描通过。项目进度/项目记忆M9.158均明确由M9.187覆盖并以0°正面全身作为首张和固定种子源；项目记忆M9.156的契约、LoRA和3D门禁均统一`front_full`；技术旧规范已明确历史归档、禁止执行，现行总规范、3D规范、AI执行提示及Dev记录均未再发现未隔离的左45°首图或TripoSR输入冲突。定向资产/图片/规范/FIFO回归`70 passed, 3 subtests passed`，补充合同与集成回归`40 passed`，Python编译、Vue typecheck和Vite构建通过（83 modules，570ms）。
+- 第三轮完整回归首败：扩大执行全部`tests/unit`时，`test_project_store_recovery.py`两项失败：`test_concurrent_stage_writes_preserve_every_stage`和`test_corrupt_store_recovers_latest_valid_snapshot`调用`_write_project_stage(..., "outline", ...)`均被生产编排器以`ValueError: previous stage is not completed: requirements`拒绝；汇总为`2 failed, 446 passed, 1 skipped, 9 subtests passed`。虽然M9.187定向链已通过，该仓库完整回归不全绿，按AGENTS规则仍退回，未标待稽查；未启动重模型、未修改业务代码。下一状态：待处理。
+- 最终独立软件复测：通过。跨文档全量扫描确认项目进度/项目记忆M9.158、M9.156契约/LoRA/3D门禁、Dev记录、现行总规范/3D规范/AI执行提示均统一为0°正面全身首张、固定种子源与TripoSR唯一人物输入；两份旧technical规范保持历史归档、禁止执行，未发现未隔离冲突。M9.187定向链连同项目存储恢复隔离测试`73 passed, 3 subtests passed`；全部单元测试`448 passed, 1 skipped, 9 subtests passed`。`compat_server.py`、`image_task_supervisor.py`、`production_orchestrator.py`编译通过；Vue typecheck与Vite生产构建通过（83 modules，541ms）。未启动重模型、未修改业务代码。下一状态：待稽查。
+- 最终稽查：通过。人物显示/生成顺序、六提示互斥、身份视角清洗、`front_full`三轮自适应、旧契约失效、人物3D唯一`front_full`、道具/场景`three_quarter_45`及全部现行/历史规范边界一致。最终状态：已关闭。
+
+### BUG-20260811-031：人物基准图自动重生成次数与错误汇总不完整
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.186
+- 问题：人物左45°基准图只有首图+1次重试，第二次失败即暂停；错误汇总遍历全部布尔字段，误报非左45°硬门禁的头身比、手臂比例等项目。
+- 修复：改为首图+最多2次自适应重生成，共3次；重试提示携带本轮真实required失败项；最终错误只汇总左45°required并明确三次耗尽，成功写`validation_attempts`。
+- 主线验证：专项及关联`55 passed, 1 skipped, 3 subtests passed`。
+- 独立软件测试：通过。动态抽取并执行正式人物baseline验收块，四条确定性mock路径全部成立：首图成功`validation_attempts=1`、首图失败后第二图成功为2、前两图失败后第三图成功为3；失败候选分别删除0/1/2张。每次重试提示只注入当轮`baseline_required_checks`失败项，未混入top margin、头身比、手臂比例等非required字段。
+- 三次失败边界：共调用首图+2次重生成，三个候选文件全部删除，第三次后才抛“自动生成3次仍未通过规范验收”；最终错误只来自七项required，本轮故意置假的`top_margin_about_5_percent/head_to_body_ratio_7_to_7_8/upper_lower_arm_length_difference_percent`均未进入提示或错误。停止、failed终态、FIFO owner/epoch及全局单并发无回归。
+- 回归：关联`185 passed, 1 skipped, 3 subtests passed`，Python编译、Vue typecheck、Vite生产构建通过（83 modules，543ms）；未启动真实重模型。
+- 最终稽查：通过。三次候选、自适应required提示、失败候选清理、成功尝试次数、停止/终态/FIFO及单并发均无剩余阻断。
+- 关闭时间：2026-08-11。
+
+### BUG-20260811-030：资产续生删除成品并触发自身阶段门禁
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.185
+- 问题：`/api/characters/generate`被作为下游image阶段执行前序门禁，资产尚未完成时形成`previous stage is not completed: assets`循环；页面在全部基准图存在时把主按钮改为“重新生成图片”，调用`purgeGenerated`删除全部文件并清空卡片。
+- 修复：资产基准/variant/repair和3D生成识别为assets内部构建子任务，跳过聚合阶段前序门禁但保留image/3d资源池与FIFO；页面主按钮只补缺失项，不再调用purge。历史storyboard/assets门禁错误精确迁移，其他错误保持。
+- 数据恢复：恢复仍存在的墨无痕、宗门试炼场URL与待确认状态；苏璃、云长老物理文件已被旧purge删除，仅标为pending，不伪造成功。
+- 主线验证：关联`125 passed, 1 skipped`；Python编译、Vue typecheck、Vite生产构建通过（83 modules，541ms）。
+- 软件测试首败：正式当前项目持久状态与物理媒体不一致。`output/narrative-cache/projects.json`中苏璃、云长老仍为`waiting_confirmation`且保留旧`image_url`，但对应文件在`output`中均不存在，正式`/api/result-media`均返回HTTP404；要求是两项清除失效URL并恢复`pending`。对照墨无痕与宗门试炼场均为`waiting_confirmation`，对应物理文件分别存在且大小`1561200`、`2733928`字节。正式8787健康、三池active/queued为0，8194 queue为0/0。按首败规则立即停止，未继续关联回归/编译/构建，未启动重模型、未修改业务代码。
+- 首败前已通过：资产子任务路由矩阵`17/17`；shots HTTP仍触发image门禁409，scene variant资产子任务绕过聚合门禁后按自身规则400且零job；历史门禁错误迁移`7/7`，真实错误保持；主按钮源码只筛选`!image_url`且batch内无purge，单卡重做仍保留purge能力。
+- 首轮整改：服务端`_write_project_stage`在assets持久化事务内校验所有本地`/api/result-media`基准及variant URL；文件不存在时强制清URL、确认字段和服装引用并恢复pending，旧页面内存无法再次写入假成功。存在文件与远程URL保持不变。
+- 首轮整改独立软件复测：通过。临时项目动态写入覆盖基准、`detail_image_urls`与variant：不存在的本地媒体强制清URL、`baseline_confirmed_at/confirmation_phase/clothing_reference_url`、error并恢复pending；存在的基准与variant保持原状态，远程HTTPS URL不误清；旧页面再次回写同一失效URL仍被持久层拦截，共`12/12`。
+- 完整功能与正式状态：资产子任务路由矩阵`17/17`，shots仍触发image聚合门禁，资产子任务绕过前序聚合门禁但保留自身校验与零job边界；历史storyboard/assets错误迁移`7/7`，其他真实错误保持。页面批次只选择`!image_url`，batch内无purge且不清detail/confirmation，单卡重做仍可精确purge替换。正式项目苏璃、云长老均pending且无URL/确认；墨无痕、宗门试炼场均waiting_confirmation，物理文件存在且大小分别`1561200`、`2733928`字节。8787健康且三池active/queued为0，8194 queue为0/0。
+- 回归：关联`171 passed, 1 skipped`，Python编译、Vue typecheck、Vite生产构建通过（83 modules，550ms）；未启动重模型。
+- 最终稽查：通过。资产内部子任务门禁、只补缺图、单卡重做、媒体权威校验及正式状态均无剩余阻断。
+- 关闭时间：2026-08-11。
+
+### BUG-20260811-029：M9.184资产操作并发确认导致连接中断
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.184
+- 问题：资产批次仍在运行时，其他卡片操作可并发提交；单资产确认又直接执行assets总阶段完成门禁。storyboard为waiting_confirmation时抛出未捕获`ValueError: previous stage is not completed: storyboard`，Vite收到`socket hang up`并显示“服务连接中断（HTTP 500）”。
+- 修复：资产页生产操作统一项目会话FIFO；停止/切项目按代际清理排队。单资产确认先持久化，上一阶段未完成时仅延迟总阶段推进；production ValueError统一转换HTTP409。
+- 主线验证：新增FIFO/延迟确认专项3项，关联23 passed、1 skipped；Python编译、Vue typecheck、Vite生产构建83 modules通过。
+- 首轮软件测试退回：停止/切项目清空旧队列后，新会话提交同key任务；旧任务finally无代际所有权判断，错误删除新代key并递减新代计数，造成去重失效与UI误报空闲。
+- 首轮整改：队列key改为`key -> ownerToken`所有权映射；finally仅在当前key仍归属自身token时才删除并递减，旧代任务无法清理新代状态。
+- 第二轮软件测试退回：FIFO、owner token、项目隔离、延迟确认和HTTP409均通过；关联测试仍要求3D生成/确认模板直绑旧函数，与当前队列包装契约冲突，结果`1 failed, 162 passed, 1 skipped`。
+- 第二轮整改：3D前端测试契约同步为`queueAsset3D`与`queueAsset3DConfirmation`，停止仍保持`stopAsset3D`即时直连。
+- 软件测试首败：停止/项目切换提升`assetOperationEpoch`后会清空全局key/count并把tail重置为已完成Promise，但旧代每个`schedule.finally`仍无代际/所有权判断地执行`queuedAssetOperationKeys.delete(key)`和全局count减一。确定性动态用例中，旧长任务运行、同key旧任务排队时执行正式重置逻辑，再提交同key新代任务；旧代收尾后新代计数从1被改为0，且新代稳定key被删除，违反“旧finally不污染新会话”。原始状态：`order=[start:old-running,start:fresh,end:old-running]`、`count=0`、`hasKey=false`；预期新任务仍运行时`count=1`、`hasKey=true`。同根因还会使重复点击绕过去重，并让UI错误显示队列已空。按首败规则停止，后端延迟确认、HTTP409及关联构建本轮未继续；未启动模型、未修改业务代码。
+- 首败整改复测：owner token门禁通过。正常三任务严格FIFO、顺序`a→b→c`、`maxConcurrent=1`，同key重复零执行；stop/session重置后旧finally不再删除新owner或递减新count；项目切换旧排队任务不执行、新项目任务正常执行。后端延迟确认动态验证单资产先持久completed、storyboard未完成时workflow保持pending_confirmation，上一阶段完成后正常推进completed；非预期校验错误回滚pending，HTTP ValueError稳定返回409 JSON。
+- 关联回归新首败：`tests/unit/test_asset_3d_workflow.py::test_frontend_exposes_generate_stop_confirm_and_downloads`仍强制要求模板直接绑定`@generate3d="generateAsset3D`与`@confirm3d="confirmAsset3D`，而M9.184正式实现已按需求改为`queueAsset3D/queueAsset3DConfirmation`进入统一FIFO。结果`1 failed, 162 passed, 1 skipped`。该断言与本次强制FIFO契约冲突，不能通过删除队列包装回退产品；应同步测试为要求queue包装并保留stop即时直连。按首败规则未继续Vue typecheck/Vite build，未启动模型、未修改业务代码。
+- 最终独立软件复测：通过。正式FIFO动态覆盖长任务后连续入队、稳定key去重、严格`a→b→c`与`maxConcurrent=1`；stop/session提升epoch并清队列后，旧owner finally不删除或递减新owner，项目切换旧排队任务不执行、新项目任务正常。自动/手动生成、重做、修复、导入、基准/variant确认、3D生成/确认及资产超分均经统一队列，3D停止保持即时直连。后端动态验证资产scope先持久`completed+confirmation`，storyboard未完成时workflow保持`pending_confirmation/deferred_confirmation`，上一阶段完成后可正常推进completed；非预期校验错误回滚pending，ValueError经真实临时HTTP稳定返回409 JSON而非断连。
+- 最终回归：关联`164 passed, 1 skipped`；跳过项为环境可选测试，不影响本增量。Python编译、Vue typecheck、Vite生产构建通过（83 modules，549ms）。正式5173/8787健康，8787三资源池active/queued均0；未启动重模型。
+- 最终稽查退回：统一FIFO只在操作启动前检查project/session/epoch；已启动的导入、修复、确认、3D生成/确认和超分缺少响应后围栏，且项目切换/stop重置FIFO尾链会让新项目操作与旧项目未结束操作并发。旧项目晚到可修改全局资产并通过无参持久化写入当前新项目，违反跨项目隔离与全局单路执行。
+- 稽查整改：项目切换/stop不再重置`assetOperationTail`，新操作继续排在已启动旧操作之后，旧代未启动任务到位后按epoch跳过；导入、修复、基准/角度确认、3D生成/确认及超分均捕获固定project/session，在每个异步响应、状态修改、通知和持久化前复核会话，持久化显式使用原项目上下文。队列与单项finally继续以owner token/session/key精确回收，旧操作不得清除新项目状态。
+- 主线整改验证：定向Python回归`43 passed, 1 skipped`，后端编译、Vue typecheck及Vite生产构建通过（83 modules，546ms）；待独立软件复测已启动旧任务切项目后的晚到隔离与全局FIFO。
+- 最终稽查整改独立软件复测：通过。动态直接执行正式函数：p1导入分别阻塞`resource.save`与`semanticAudit`后切p2，晚到均零merge、零persist、零p2通知；p1 `generateAsset3D`、`confirmAsset3D`、局部repair、upscale分别在服务响应阻塞后切p2，晚到均不写结果、状态、持久化或UI。已启动p1旧操作、旧排队操作、p2新操作矩阵严格为`old-start→old-end→new-start→new-end`，`maxConcurrent=1`；旧排队按epoch跳过，owner token确保旧finally不删除新owner或递减新count。全部资产操作继续经FIFO，3D stop保持即时直连。
+- 后端与回归：资产scope先持久`completed+confirmation`、storyboard未完成时workflow保持`pending_confirmation/deferred_confirmation`，上一阶段完成后推进completed；真实临时HTTP ValueError返回409 JSON。关联`164 passed, 1 skipped`，Python编译、Vue typecheck、Vite生产构建通过（83 modules，547ms）；未启动重模型。
+- 下一状态：待稽查。
+
+### BUG-20260811-028：M9.183增强阶段缺输入未整批失败关闭
+
+- 最终状态：已关闭（最终稽查通过）
+- 最终权威CAS闭环：upscale的fingerprint、audit_batch_id、generation、production/audit evidence、confirmation与前端progress物理隔离；公开single/bulk投影无权创建或覆盖服务端权威字段。同代异证拒绝，真实生成跨实例单调分配generation，revision CAS与不可变history拒绝低代、旧tuple和历史批次重放；人工确认及enhanced导出精确绑定fp+batch+generation。
+- 最终验证：独立对抗动态覆盖公开篡改、stale fp/batch/generation确认、同代伪证据、旧generation重放、跨Ledger并发仅最新代提交及正常确认导出；关键专项`47/47`，主线关联`159 passed, 1 skipped`，Python编译、Vue typecheck及83模块Vite构建通过。正式PID43900启动晚于最新compat/ledger代码，8787健康、唯一worker active0/queued0、三池空、tasks=0、Ollama与ComfyUI空。
+- 关闭时间：2026-08-11（Asia/Shanghai）。
+
+- 最终权威篡改漏洞独立软件测试通过，待最终稽查：`production_scopes`新增持久generation/revision和独立production/audit evidence列，另设generation高水位与不可变authority history。公开`/api/production/scopes`及`/bulk`统一走无权projection路径，只能合并不含证据的progress；客户端伪造fp/batch/generation/evidence/confirmation/completed均不能创建或覆盖服务端权威，bulk replace保护服务端代际与确认记录。
+- 真实upscale在provider前跨实例原子分配单调generation，fingerprint绑定generation+服务端batch；提交仅接受当前预留代，revision CAS拒绝低代、旧fp+batch重放及同代证据篡改，完全相同值幂等且不改确认。人工确认和enhanced export精确核对fp+batch+generation，旧页面确认不会误确认新代。
+- 开发动态证据：公开single/bulk同代篡改与投影shell、跨实例并发代际分配/仅最新提交、reload、旧代与旧tuple重放、同代幂等/伪证据、deep-watch合法进度、正常生成→确认→authority均通过；专项`32 passed`、关联`161 passed, 1 skipped`，Python编译与Vue typecheck通过。本进程Vite受ChatGPT内置Node与Rollup原生模块Team ID签名不兼容阻断，留待独立测试运行时复验；未启动模型或正式任务。
+- 最终权威边界独立软件测试：通过。现有关键动态`5/5`：公开single/bulk无法篡改或创建server fp/batch/generation/production+audit evidence/confirmation/completed；两个独立Ledger实例并发分配generation 1/2后仅代2合法提交；同代不同证据拒绝；旧generation及旧fp+batch重放拒绝；正常生成→确认→enhanced authority/export通过。额外临时SQLite动态精确验证stale fp、stale batch、stale generation三类确认全部拒绝，当前fp+batch+generation唯一确认且导出为generation 2；同代伪证据与旧generation重放各自稳定失败。只引用主线已交付的关联`159 passed`、Python编译、Vue typecheck与83模块Vite生产构建证据，本轮未重跑大套件；未启动模型或操作正式服务。当前状态：软件测试通过，待最终稽查。
+- 最终稽查阻断整改完成，待独立软件复测：账本证据保留已改为严格代际语义。只有fingerprint与batch均不变时，missing/null投影才保留既有production/audit evidence；任一变化会在合并前清空两项旧证据并无条件撤销confirmation，传入旧/伪confirmation不能恢复。新代仅接收本次非空规范证据，新批缺证即使重新确认仍被enhanced authority拒绝；新证据落入新代并重新确认后才可跨实例reload放行。
+- 主线动态证据：临时SQLite参数化覆盖仅fp变化、仅batch变化、两者同时变化及missing/null/空字符串/空对象/空数组；旧证据和confirmation均为null。缺证新批confirm后authority拒绝；携带新production/audit evidence的新代先保持未确认，跨新实例confirm/reload后authority只返回新证据。专项`36 passed`，关联`203 passed, 1 skipped`；Python pycompile、Vue typecheck、Vite生产构建通过（83 modules，708ms），未启动模型或操作正式服务。
+- 最新稽查退回整改完成，待独立软件复测：前端`syncProductionLedger`为upscale scope把`production_evidence/audit_evidence`原结构写入progress，深watch对undefined/null均不发送擦除值；SQLite ledger对progress执行字段级合并，缺失或null证据保留现有权威值，fingerprint或batch任一变化自动撤销旧confirmation。
+- enhanced导出不再使用legacy缺省证据：权威upscale scope缺任一非空规范JSON production/audit evidence即整集失败关闭；`legacy_base_scope`的`not_available/not_applicable`只允许base历史scope。enhanced客户端声明必须同时携带fingerprint与audit_batch_id，authority精确核对台账、confirmation和声明三方fp+batch；同fp的新批次会拒绝旧batch声明。
+- 主线动态证据：临时SQLite覆盖结构证据写入→缺字段deep-watch→显式null→新实例reload全程不丢；enhanced缺证拒绝、base legacy边界、同fp旧batch拒绝/新batch放行端到端通过。专项`44 passed`，扩大关联`171 passed, 1 skipped`，交付链`4 passed`；Python编译、Vue typecheck和83模块生产构建通过，未启动模型或正式任务。
+- 最新稽查整改独立软件复测：通过。动态执行正式`syncProductionLedger`确认嵌套`production_evidence/audit_evidence`原样进入upscale progress，缺失证据字段完全省略且fingerprint+batch保持；SQLite missing/null保留、跨新实例reload/confirm及同fp新旧batch代际门禁全部通过。enhanced缺证失败关闭，legacy缺省仅限base；四步骤失败/取消围栏`8/8`、第二条scope写入故障整批回滚、规范JSON空值/NaN/±Infinity/不可序列化拒绝及全树键序稳定通过。真实隔离导出文件与`manifest.json`逐集携带权威source version/fingerprint/batch/production/audit证据。
+- 最终复测：专项`52 passed`；扩大关联（生产控制、阶段取消、门禁、single-flight/FIFO、delivery、manifest与集成）`181 passed, 1 skipped`，跳过项为既有可选环境用例。Python pycompile、Vue typecheck、Vite生产构建通过（83 modules，550ms）；未启动模型或正式任务。
+- 当前状态：软件测试通过，待稽查
+
+- 端到端证据持久化整改：upscale scope将production_evidence/audit_evidence作为结构化JSON写入权威progress，`ProductionLedger.list`恢复为顶层结构字段；跨新实例reload与confirm类型和值不变。导出权威校验返回服务端scope证据并覆盖客户端声明，manifest每集包含source_version/fingerprint/batch/production/audit evidence；legacy base明确标记证据边界。临时SQLite端到端及关联`124 passed`，编译/类型/构建通过。
+
+- 复稽查残留整改：production_evidence保持原始JSON类型，不再`str`降格；空值、不可序列化对象、NaN/Infinity等非规范JSON失败关闭。完整fingerprint payload统一`sort_keys + allow_nan=False`递归规范化，嵌套command/output/production/OCR/face/final各层键序变化哈希稳定，任一语义值变化哈希变化。
+- 资产FIFO真实动态：直接执行正式`enqueueAssetOperation`，验证A→B严格顺序、重复key不重复执行且沿用当前owner、epoch停止/切项目后新owner可立即执行、旧任务finally不删除新owner，新owner完成后精确释放。证据/FIFO专项`31 passed`。
+- 复稽查扩大回归：增强证据、权威导出、口型回退、生产控制/取消及资产FIFO`144 passed`；Python编译、Vue类型检查、Vite生产构建通过（83 modules，583ms），未启动模型或正式任务。
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.183
+- 测试范围：`review_export/upscale`统一服务端阶段的整批输入门禁与零副作用边界。
+- 软件测试首败：提交两集commands，其中第1集仅含`episode=1`、缺少输入媒体`path`，第2集含合法path。服务端只预校验episode正整数和唯一性，未在任何本地调用前验证每集输入媒体非空；实际先后调用第1集`/api/videos/upscale`、`/api/videos/audit`，随后继续调用第2集相同接口，并返回两集`waiting_confirmation`。
+- 预期：多集任一command缺少输入媒体时整批拒绝，所有超分、字幕OCR、人脸审核、终审provider调用均为0，不产生任何增强items或阶段成功投影。
+- 原始动态证据：`calls=[('/api/videos/upscale',1,None),('/api/videos/audit',1,'/generated.mp4'),('/api/videos/upscale',2,'/valid.mp4'),('/api/videos/audit',2,'/generated.mp4')]`；函数错误地返回两集成功items。断言`calls == []`失败。
+- 同类风险：当前成功item只直接包含enhanced返回与`audit_evidence`，尚需整改后复测权威fingerprint/batch/evidence；每步取消、失败/异常停止后续、项目/session晚到、single-flight/停止和M9.179 enhanced导出门禁因首败规则尚未继续。
+- 测试结论：不通过；发现首个失败后立即停止，未启动模型、未修改业务代码。
+- 整改：新增`_validate_upscale_commands`，在任何local/provider调用前整批校验非空列表、对象类型、episode严格正整数且唯一、绝对本地路径或合法HTTP/result-media URL、source_version=base，以及target width/height/fps/mode完整合法；混合批次任一非法整批ValueError且零调用。前端命令显式提供base与1080×1920@30 quality目标。
+- 开发验证：空/None/非对象、重复、布尔/负数/小数/非数字episode、空/相对/坏URL、缺失或错误source_version、缺失/非法target及混合合法非法矩阵全部零副作用；专项与关联`116 passed`，待扩大回归。
+- 扩大回归：upscale、review_export权威门禁、生产控制、会话与阶段取消`150 passed, 1 skipped`；Python编译、Vue类型检查与Vite生产构建通过（83 modules，551ms），未启动模型。
+- 首轮整改软件复测：整批输入预验证专项`22/22`通过，空/None/非对象、非法或重复episode、缺失/相对/畸形媒体路径、错误source_version、缺失/非法target及混合批次末项非法均在provider前整批拒绝，调用数0。
+- 新首败：成功增强item仅返回`episode/status/path/video_url/production_evidence/audit_evidence`，缺少非空`content_fingerprint`和`audit_batch_id`。动态成功结果为`{'episode':1,'status':'waiting_confirmation','path':'/enhanced.mp4','video_url':'/enhanced.mp4','production_evidence':{'model':'x'},'audit_evidence':{'audit':'ok'}}`，无法形成供M9.179 enhanced导出严格匹配的权威upscale ledger证据。
+- 当前测试结论：仍不通过；发现首个新失败后停止，未启动模型。四步取消/失败、前端single-flight/stop/会话晚到及关联构建待下一轮完整复测。
+- 新首败整改：服务端为每批生成唯一`upscale-*` batch，同批共享且跨批不同；每集fingerprint由source media/version、增强输出、target、production_evidence和真实audit_evidence规范序列化后SHA-256生成，不接受客户端自报。整批全部成功且cancel checkpoint通过后，原子写入`review_export/episode/upscale:{episode}` pending_confirmation；失败/cancel零成功ledger。前端持久保存并原样同步fingerprint/batch，人工确认调用权威confirm，enhanced导出声明使用该fingerprint。
+- 端到端轻量动态：成功item→pending ledger→confirm completed→enhanced export严格放行；篡改fingerprint拒绝，第二批覆盖为新batch后旧确认/旧fingerprint拒绝。专项23项通过，待扩大回归。
+- 扩大回归：upscale证据、review_export导出权威门禁、生产控制、会话与取消`151 passed, 1 skipped`；Python编译、Vue类型检查与Vite生产构建通过（83 modules，546ms），未启动模型。
+- 第二轮软件复测进展：upscale/review_export/stage cancellation权威证据相关`52/52`通过，确认成功item含同批一致、跨批不同的batch及绑定证据的SHA-256；pending→人工confirm completed→enhanced export放行，篡改及旧批次拒绝。
+- 第二轮新首败：动态执行正式`runUpscale()`，在`upscaleQuote`等待期间同项目连续调用两次，`quoteCalls=2`且`first===second`为false。入口仍为`async function runUpscale`且没有project/session级flight；`upscaleStatus`在quote和用户确认后才设为generating，因此重复点击可并行报价并继续形成重复runStage提交。
+- 预期：报价预检、确认和生产提交应由同一权威single-flight覆盖；同project/session重复点击严格返回同一Promise，quote与runStage各最多一次。stop/项目切换须释放旧flight并以代际围栏阻止旧finally清新任务。
+- 当前测试结论：不通过，待处理。发现首败后停止，未启动模型；其余前端stop/晚到、原子upsert故障注入、全关联/type/build待整改后复测。
+- 第三轮软件复测功能矩阵：正式前端函数重复点击严格同Promise，quote/confirm/runStage各1；取消与quote异常可重试；stop携带tenant/user/project/review_export完整scope，停止及项目切换后的旧响应零污染、旧finally不清新flight，动态`18/18`。后端四步取消/失败零后续及零ledger`8/8`，第二条upsert故障整批回滚`1/1`，权威证据与导出专项`52/52`。
+- 第三轮关联首败：扩大回归`1 failed, 170 passed, 1 skipped`。失败项`test_optional_media_enhancements.py::test_musetalk_remains_primary_with_latentsync_fallback`仍要求前端源码存在`mediaService.lipSync`后再出现`mediaService.latentSync`；现行统一video服务端已明确`/api/videos/lipsync`失败后调用`/api/videos/latentsync`，前端不应恢复旧直连。判定为关联测试契约未同步，但按首败规则退回，未继续pycompile/type/build。
+- 关联测试整改：改为动态执行正式服务端video阶段，精确验证MuseTalk成功时LatentSync调用0、MuseTalk RuntimeError时LatentSync调用1、主链失败后取消checkpoint时LatentSync调用0；同时双向断言前端generateShotVideos无lipSync/latentSync直连、后端两端点均存在。业务代码未回退旧架构。扩大关联`156 passed, 1 skipped`。
+- 关联门禁：Python编译、Vue类型检查与Vite生产构建通过（83 modules，596ms），未启动模型或正式任务，待软件复测。
+- 当前状态：软件测试退回，待处理；同步旧静态测试为服务端统一阶段行为契约后完整重跑。
+- 前端整改：公开`runUpscale`改为非async并直接返回project/session唯一`upscaleFlight`；报价、confirm、runStage、merge、persist全事务共用controller与epoch。同项目重复点击严格同Promise；项目切换/stop同步abort并释放旧键，新任务无需等待忽略signal旧Promise，旧finally按flight/controller/epoch身份不得清新任务。报价拒绝、取消或异常finally释放后可重试。
+- 开发专项：静态契约与后端证据/门禁`43 passed, 1 skipped`；待独立软件测试执行正式函数quote阻塞、stop重试和忽略signal晚到动态。
+- 开发扩大回归：upscale、review_export、生产控制、项目会话与阶段取消`151 passed, 1 skipped`；Python编译、Vue类型检查和Vite生产构建通过（83 modules，560ms），未启动模型。
+- 最终独立软件复测：通过。旧口型测试现动态执行正式服务端video阶段，覆盖MuseTalk成功零回退、RuntimeError后LatentSync精确一次、取消checkpoint零回退，并双向断言前端生成链无两类口型直连，未弱化为静态存在性。正式前端single-flight/stop/忽略signal晚到动态复跑`10/10`，此前取消/quote异常/项目切换完整矩阵`18/18`保持；后端四步取消/失败`8/8`、台账中途失败原子回滚`1/1`、权威证据/输入门禁/增强导出相关`52/52`通过。
+- 最终扩大回归：`171 passed, 1 skipped`；跳过项为既有可选环境用例。Python pycompile、Vue typecheck、Vite生产构建通过（83 modules，542ms）；文档一致，未启动模型。
+- 稽查退回整改：fingerprint现规范化绑定完整command（含subtitles/reference_urls/process_audits/content_compliance_status及扩展字段）、完整增强输出、source/version、target、production evidence和结构化三步audit evidence。OCR/face启用时pass但无真实evidence失败关闭；未启用时明确记录not_applicable原因；final始终要求真实evidence。键顺序不影响哈希，任一输入或步骤evidence变化必改fingerprint，整批原子台账/确认/导出契约保持。
+- 新增专项：完整输入/步骤绑定、键序稳定、四类输入突变、步骤evidence突变、not_applicable原因及启用无证据失败关闭，共`26 passed`，待扩大回归。
+- 扩大回归首败记录：本增量相关`review_export/upscale/optional-media/production-control/stage-cancel`累计`157 passed, 1 skipped`；两条`test_production_gate_reconciliation`旧源码断言仍要求资产按钮直调`generateAllAssetImages`及队列内直接await，现行共享前端已统一为`queueGenerateAllAssetImages`/`enqueueAssetOperation`，结果`2 failed`。未越权修改资产队列契约。Python编译、Vue类型检查、Vite构建通过（83 modules，580ms）。
+- 下一状态：待复测。
+
+- 复稽查残留最终软件复测：通过。`production_evidence`结构化对象原类型保留；空对象/数组/字符串、NaN、Infinity及不可序列化对象均在台账前拒绝。完整嵌套command、enhanced output、production、OCR、face、final evidence递归键序重排指纹稳定，任一语义变化指纹改变；not_applicable原因、pending→confirm→enhanced export及旧批次拒绝无回归。
+- 正式资产FIFO动态：严格顺序、同key单owner、epoch stop/项目切换后新owner立即执行、旧finally不删新owner或递减新count均通过。专项`45 passed`，扩大关联`180 passed, 1 skipped`；Python pycompile、Vue typecheck、Vite生产构建通过（83 modules，552ms），未启动模型。
+- 最终状态：软件测试通过，待稽查。
+
+- 端到端证据最终软件复测：通过。临时SQLite生成upscale后以全新`ProductionLedger`实例reload并confirm，嵌套dict/list production与OCR/face/final audit evidence类型和值不丢；客户端伪造evidence被权威ledger覆盖。真实导出files与manifest逐集携带`source_version/content_fingerprint/audit_batch_id/production_evidence/audit_evidence`，旧batch拒绝；base legacy明确返回`not_available/legacy_base_scope`与`not_applicable/legacy_base_scope`，不伪造证据。
+- 前端`EnhancedEpisode.production_evidence/audit_evidence`为`unknown`且merge/persist/reload原样保存，不做字符串降格。事务第二条失败零部分台账、确认导出及FIFO关联保持通过。
+- 最终关联回归`180 passed, 1 skipped`，Python pycompile、Vue typecheck、Vite生产构建通过（83 modules，548ms）；未启动模型。状态保持软件测试通过，待稽查。
+
+### BUG-20260811-027：M9.182场景资产混入人物动作
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.182
+- 问题：分镜编译曾把画面首句写入scene字段，导致“苏璃跪在地上”“弟子们哄笑抢夺”等人物动作被当作场景资产；空场景视觉验收虽正确拒绝人物，但无法修正上游错误分类。
+- 修复：分镜编译从背景与地点词识别可复用空间并跨镜延续；资产提取、前端所有场景入口及生成API统一过滤人物动作/状态/群体行为，重建纯空场景提示；历史伪场景自动迁移。当前项目已清除20个错误场景并补回“宗门试炼场”。
+- 首轮软件测试退回：伪场景校验最初位于外层production image门禁之后，直接HTTP请求先得到409 `production_gate_blocked`，未返回预期400 `invalid_scene_asset_subject`；纯函数边界10/10和新增专项4/4先行通过，发现首败后未启动模型。
+- 首轮整改：伪场景校验已提升到请求JSON解析之后、工作负载转发与production gate之前；正式HTTP提交“苏璃跪在地上”现返回400 `invalid_scene_asset_subject`，不会进入调度、阶段门禁、cleanup、任务登记、ACTIVE或模型调用。
+- 第二轮软件测试退回：门禁整改通过，但分镜编译只识别“背景是/为”，未识别“地点在藏经阁”，导致第11镜换场后仍沿用宗门试炼场。
+- 第二轮整改：地点解析新增“地点在/是/为/：”语法，并补齐藏经阁、阁楼、楼阁等空间词；换场镜更新active_scene，后续镜头延续新地点。专项新增两种藏经阁表达并通过。
+- 主线验证：纯函数与入口门禁专项、关联回归`50 passed, 1 skipped, 3 subtests passed`；Python编译、Vue类型检查、Vite构建通过（83 modules）；真实页面场景计数由20降为1，仅显示45°空场景全景。
+- 软件测试首败：直接HTTP调用`/api/characters/generate`提交scene baseline伪subject时，Handler先执行`PRODUCTION_ENDPOINT_STAGES`映射的image阶段门禁，尚未进入后面的`invalid_scene_asset_subject`校验。隔离HTTP动态用例输入“苏璃跪在地上”，实际返回HTTP 409 `production_gate_blocked`，不是要求的HTTP 400 `invalid_scene_asset_subject`。现有专项只断言场景校验位于`_cleanup_invalid_image_tasks()`之前，未覆盖它仍位于外层production gate之后。发现首个失败后立即停止；此前纯函数合法地点/人物动作边界`10/10`及专项`4/4`通过，未启动模型。
+- 首败整改复测：前置HTTP门禁通过。三类伪subject均返回400 `invalid_scene_asset_subject`，forward/cleanup/model调用均0，jobs文件和ACTIVE四映射均空；合法“宗门试炼场”成功越过校验进入forward。
+- 第二首败：分镜编译未完整实现“从背景/地点识别可复用地点”。20镜动态剧本第1镜`背景是古色古香的宗门试炼场`可识别并跨镜延续，但第11镜`地点在藏经阁，木制书架`未识别，镜头11—20仍沿用“宗门试炼场”。`_scene_location_from_text`仅显式解析`背景是/为`，地点后缀枚举也不含`藏经阁`，对`地点在/地点：`不生效。发现失败后立即停止，未继续关联回归与构建。
+- 第二首败整改复测：通过。背景是/为、地点在/是/为/冒号及藏经阁/阁楼/楼阁均识别；20镜动态用例第1—10镜为宗门试炼场，第11镜切换藏经阁后第11—20镜稳定延续，scene不含人物或群体行为。
+- 最终软件测试：通过。直接HTTP三类伪场景均400 `invalid_scene_asset_subject`且forward/cleanup/model为0、jobs文件未创建、ACTIVE四映射为空；合法宗门试炼场可越过前置门禁。后端抽取净化、前端load/seed/merge/权威接管/import六入口、纯空prompt重建及45°单槽断言通过。正式唯一项目assets为waiting_confirmation，仅1个场景“宗门试炼场”，status pending/error空，prompt包含无人/无人形/无人体；8787健康且资源active/queued为0。关联回归`131 passed, 1 skipped, 3 subtests passed`，Python编译、Vue typecheck、Vite生产构建通过（83 modules）。
+- 最终稽查退回：服务端前置门禁未读取项目人物名单，纯人物姓名“苏璃”“云长老”及未命中有限动作词的剧情句“苏璃被夺走玉佩”可绕过；Dev_MainDev与项目记忆状态也未同步。
+- 稽查整改：新增地点型名称硬门禁，并按tenant/user/project精确读取assets与outline权威人物名单；服务端两层门禁与前端统一执行。纯姓名、剧情句、人物动作和群体行为均拒绝，合法“宗门试炼场”保留；流程文档状态已同步。
+- 稽查整改软件测试首败：outline-only项目的人物实际位于`stage.data.plan.characters`，初版只读`stage.data.characters`，导致资产阶段尚未建立时权威人物名单为空。
+- 首败整改与完整复测：outline plan与assets两路权威人物、跨scope隔离、非法HTTP4/4零副作用、合法宗门试炼场/藏经阁均通过；关联`132 passed, 1 skipped, 3 subtests passed`，编译、类型检查和构建通过。
+- 第二次最终稽查退回：封闭地点后缀集合过窄，会误拒厨房、医院、学校、办公室、商场、酒店、机场等跨题材合法场景。
+- 第二次稽查整改：服务端地点判断、地点提取与前端六入口统一扩展古装、居住、餐饮、医疗、校园、办公、商业、交通、工业、宗教、文体与自然环境地点；人物名单与动作剧情硬拒绝保持不变。
+- 第二次稽查整改软件测试首败：地点扩展后，“玉佩被夺走后藏进仓库”“病人被推进医院”“车辆失控冲入商场”等以地点结尾的剧情句仍可通过。
+- 首败整改：前后端新增被动事件、进入/推进/藏入/冲入、失控、夺走、打斗、爆炸等剧情结构门禁；地点白名单只负责地点候选，剧情动作门禁继续拥有否决权。
+- 最终稽查：通过。跨题材合法地点、地点结尾剧情句否决、项目权威人物名单scope隔离、HTTP登记前零副作用门禁、换场延续与纯空prompt链全部闭环。
+- 关闭时间：2026-08-11（Asia/Shanghai）。
+- 下一状态：已关闭。
+- 稽查整改软件测试首败：`_project_character_names`对assets读取`stage.data.characters`正确，但对outline也只读取`stage.data.characters`；正式outline人物实际位于`stage.data.plan.characters`。隔离项目仅保存outline plan人物“苏璃/云长老”时，精确tenant/user/project查询实际返回空列表，outline权威人物无法参与伪场景拒绝；跨scope查询同样为空。发现首个失败后立即停止，未继续HTTP/回归/构建。
+- 稽查整改最终软件复测：通过。outline-only精确scope返回`苏璃/云长老`，assets项目返回对应人物，跨tenant/user/project返回空。直接HTTP对“苏璃”“云长老”“苏璃被夺走玉佩”“苏璃跪在地上”均在forward/cleanup/jobs/ACTIVE/model前返回400 `invalid_scene_asset_subject`，零副作用；“宗门试炼场”“藏经阁”均放行。前端正式函数同组4个非法/2个合法动态结果与后端一致；地点后缀、人物/动作/群体规则及文档待测试状态同步。关联回归`132 passed, 1 skipped, 3 subtests passed`，Python编译、Vue typecheck、Vite生产构建通过（83 modules）；正式8787 PID 21092健康。
+- 第二次稽查整改独立软件复测：通过。后端与前端正式函数分别动态覆盖跨题材合法地点`23/23`、人物/动作/剧情非法名称`9/9`及“背景是/地点在/地点：/地点为”抽取`5/5`，前后端地点集合共92项完全一致；15镜编译器动态验证“现代公司办公室”跨镜延续并在第11镜切换“医院病房”。临时HTTP对7项非法名称均在forward/cleanup/jobs/ACTIVE/model前返回400 `invalid_scene_asset_subject`且零副作用，15项合法地点均越过门禁。关联回归`132 passed, 1 skipped, 3 subtests passed`，Python编译、Vue typecheck、Vite生产构建通过（83 modules）；正式8787健康且资源active/queued为0，当前项目仅“宗门试炼场”一项、pending/error空、纯空提示完整。Dev_MainDev、项目进度、项目记忆三份流程记录已同步。
+- 下一状态：待稽查。
+
+### BUG-20260811-026：M9.181全局提示统一进入项目对话框
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.181
+- 开发结果：统一`notify()`不再生成底部蓝色Toast，改为向当前项目对话追加助手侧“系统提示”消息；连续相同提示去重并自动滚动到末尾。系统提示不写回助手历史，避免保存失败递归；阶段状态与错误字段继续作为恢复和任务门禁事实源。
+- 主线验证：真实后台页面点击“预览设置”后，对话区出现“已打开预览显示设置 / 系统提示”，DOM不存在Toast横幅；关联回归`115 passed, 1 skipped, 3 subtests passed`，Vue类型检查与Vite生产构建通过（83 modules）。
+- 独立软件测试：通过。动态执行正式`notify`函数：空文本忽略、连续同文去重、非连续同文保留，3条消息均为助手侧`status=系统提示/notice=true`，聊天滚动位置精确到scrollHeight。静态验证App.vue无toast ref/DOM，持久化统一`filter(chat => !chat.notice)`，项目切换通过project-scoped cache隔离，history响应与发送均有project/session门禁。关联回归`115 passed, 1 skipped, 3 subtests passed`，Vue typecheck与Vite生产构建通过（83 modules）。独立浏览器控制实例不可用，本轮以正式函数动态执行、DOM源码门禁和主线真实UI证据组合验收。
+- 最终稽查：通过。正式提示统一进入当前项目助手对话，空文本、连续去重、非连续保留、自动滚动、项目隔离及聊天恢复/发送链均成立；Toast引用与DOM已移除，notice不写助手历史。
+- 关闭时间：2026-08-11（Asia/Shanghai）。
+- 下一状态：已关闭。
+
+### BUG-20260811-025：M9.180资产自动生图与assets阶段冲突修复
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.180（按当前M9.179顺延；用户消息中的M9.175为待确认旧编号）
+- 软件测试首败：新增门禁测试要求`/api/characters/generate`不再属于`PRODUCTION_ENDPOINT_STAGES`的assets阶段、仅属于image资源；但关联回归`tests/unit/test_production_control.py::ProductionControlTests::test_formal_production_endpoints_enter_langgraph_gate`仍强制断言`"/api/characters/generate":"assets"`。
+- 测试证据：`test_production_gate_reconciliation.py + test_production_control.py`运行结果`1 failed, 95 passed`；失败断言与本次设计直接冲突。发现首个失败后立即停止，未启动真实Klein任务、未修改业务代码，动态HTTP、停止/失败终态、编译与前端构建尚未执行。
+- 首轮关联测试契约整改后复测：相关回归`107 passed`，但发现项目切换竞态仍未封闭。`generateAllAssetImages(project, session)`等待`projectService.readStage`返回后，在合并characters/scenes/props和清理error前没有`isCurrentProjectSession(project.id, session)`围栏；随后还调用`persistAssetState(project, projectSession)`，误用当前会话而非捕获session。p1读取阻塞期间切换p2时，p1晚到数据可直接覆盖并以p2当前session持久化。发现首个功能失败后立即停止，未启动真实Klein任务。
+- 第二轮整改复测：项目切换确定性动态用例通过，p1 read阻塞后切p2，p1晚到时merge/persist/baseline/purge调用均为0；watchdog活worker processing保留、死worker回收、活worker硬截止失败`3/3`；关联回归`122 passed`。
+- 第二轮真实任务首败：既有job `10bb153a-f7cc-4b37-affb-b44bbaf78beb`从04:17:25运行至04:19:11，证明跨4秒审核期间未被watchdog误杀，但最终为failed而非completed；错误为人物左45°全身基准图未通过左45方向、顶部留白、头身比、腰部裁切及上下臂比例规范验收。终态pid/pgid均空，8787健康且资源active/queued为0。因明确要求“真实任务跨4秒审核与完成”，发现失败后立即停止，未继续编译/typecheck/build。
+- M9.180开发收口：资产批次新增project/session级single-flight、独立AbortController和batch token；权威read响应后、合并/状态/error变更、purge/基准图模型调用前后及每次persist前后统一检查启动project+session+signal+token。generateAssetBaseline继承同一signal，项目切换/停止会abort并释放旧flight，旧成功/异常/忽略signal均零写回、零后续模型；finally按flight/controller/token身份清理，新重试不受旧Promise影响。所有persist统一使用捕获session。
+- 动态首败修复：新增按旧flight/controller/token三重身份的`reclaimAssetBatchProjection`，项目切换或stop同步复位batchGenerating、stage status及旧generating卡片并释放旧键，使新项目/重试立即启动。旧finally仅在三重身份仍一致时复位；stop增加epoch，旧stop响应不得覆盖其后新批次。
+- 第四轮修复：公开`generateAllAssetImages`移除async包装，直接返回唯一`assetBatchFlight`；内部`runAssetImageBatch`仍为async。相同project/session重复调用获得严格相同Promise identity且只启动一批，既有await调用兼容；异常finally、项目切换和stop仍按三重身份释放。
+- 第三轮软件测试首败：真实执行正式`generateAllAssetImages/runAssetImageBatch`异步闸门，p1在权威`readStage`阻塞时切换p2并执行现行项目回收（abort controller、清flight/key/token）。p1已使`assetBatchGenerating=true`，项目回收没有复位该全局标志；p2调用被`assetImagesRunning.value`直接拦截，`readStage`调用数保持1而非2，无法启动独立新批次。
+- 根因：`abortProjectWork`清除controller/flight/token但不清`assetBatchGenerating`、`activeAssetGenerationKey`或相关项目级运行投影；旧p1因session/token已失效，其finally也不会清理这些标志，形成跨项目永久背压。不同项目实际仍共享残留运行态，不满足本轮明确门禁。
+- 动态证据：切换前`reads=1, assetBatchGenerating=true`；切换并调用p2后`reads=1, assetBatchGenerating=true`，p2零权威读取、零批次启动。发现首个失败后立即停止，未执行其余purge/model/stop矩阵、关联、编译与构建，未启动模型。
+- 预期整改：项目切换回收必须按旧controller/token身份安全复位资产批次运行标志，且不得让旧finally清除随后建立的新批次；p2应立即取得独立flight并发起自己的权威读取。
+- 最终复测首败：真实证据job `e6bdf6db-e8c6-4289-95b6-8cd49b4bd9cd`已completed，苏璃waiting_confirmation/error空，后续云长老job `29623e2e-7ee3-4546-b162-58b2f0df2af3`紧接启动为processing，串行顺序成立；但关联回归`test_automatic_asset_generation_keeps_original_project_session_fences`失败。测试仍要求`stopAllAssetGeneration`源码直接出现`batchController?.abort()`，当前实现已改由`reclaimAssetBatchProjection(assetBatchFlight, assetBatchController.value, activeAssetBatchToken)`内部执行`controller?.abort()`并按flight/controller/token身份回收，测试契约未同步现行封装。回归结果`1 failed, 126 passed`。发现首败后立即停止，未继续编译/typecheck/build。
+- 最终完整复测：通过。停止回收及purge signal测试契约已同步；资产/生产门禁/图片任务/方向验收/场景/服装/规范关联回归累计`154 passed, 3 subtests passed`。watchdog动态活worker保留、死worker回收、硬截止强制failed`3/3`。真实苏璃job `e6bdf6db…` completed并持久waiting_confirmation/error空，随后云长老job `29623e2e…`自动串行启动；云长老规范验收失败后正确停止为pending/error保留，未继续后续资产，pid/pgid清空，8787健康且资源active/queued为0。最新左45候选镜像后重新验收、30—60度确定方向及失败终态断言通过；project/session/controller/token/single-flight/finally隔离与精确assets冲突清理通过。Python编译、Vue typecheck、Vite生产构建通过（83 modules）。
+- 第四轮动态复测进展：p1权威readStage阻塞切p2后立即第二次read，释放p1不清p2 flight/controller/token/generating/status且仅p2完成复位，`10/10`；p1 baseline忽略signal晚到不继续下一资产、不写p2，`7/7`；p1 purge忽略signal晚到不清p2或旧上下文，`6/6`。三组共`23/23`通过，persist均使用捕获project/session。
+- 第四轮软件测试首败：同项目连续两次调用`generateAllAssetImages`时，底层批次只启动一次，但两个返回值不是同一Promise。正式入口仍声明为`async function generateAllAssetImages`；即使命中`return assetBatchFlight`，async函数也会返回采用该flight状态的新外层Promise，动态严格身份`first === second`为false。
+- 预期整改：将公开单飞入口改为非async函数并直接返回权威`assetBatchFlight`，内部`runAssetImageBatch`保持异步；整改后重跑stop epoch、失败释放重试、三重身份、关联与构建。
+- 第四轮首败整改复测：通过。正式入口现为非async `function generateAllAssetImages`并直接返回权威flight；动态执行当前源码，同项目连续调用严格`first === second`为true，底层`runAssetImageBatch`启动计数精确为1。历史项目切换、token/controller/finally、stop epoch、purge signal、watchdog、真实completed→自动续生证据保持有效；关联回归`154 passed, 3 subtests passed`，Python编译、Vue typecheck、Vite生产构建通过（83 modules）。
+- 第四轮独立软件复测：通过。当前正式函数严格`first === second`、底层批次1次；stop先回收后可立即取得不同新flight，旧stop响应与旧finally不清新controller/token/status；异常finally完整释放且重试取得新Promise，专项`16/16`。readStage、purge、baseline忽略signal的跨项目晚到矩阵`23/23`保持通过，所有persist使用捕获project/session。
+- 第四轮关联复测：资产/生产门禁/图片任务/方向验收/场景/服装/规范共`155 passed, 1 skipped, 3 subtests passed`；跳过项为环境可选测试，不影响本增量。Python编译、Vue typecheck、Vite生产构建通过（83 modules，637ms），文档一致，未启动模型。
+- 稽查退回：`_durable_task_projection`仍把`/api/characters/generate`投影为assets，导致人物/场景/道具二维任务的running/completed/failed可覆盖资产清单阶段；同时正式stage、资源映射与持久投影不一致。
+- 稽查整改：二维人物/场景/道具、分镜及辅助生图三处统一为image；`asset_3d`明确为assets stage/3d资源。新增临时SQLite/outbox动态验证characters/generate从running到pending_confirmation/failed全程只报告image且绝不报告assets；首轮关联`102 passed, 1 skipped`，待扩大回归与独立软件复测。
+- 开发验证：投影专项与核心生产门禁`102 passed, 1 skipped`；扩大图片/3D/阶段回归`171 passed, 1 skipped, 1 failed`。唯一首败为`test_storyboard_resume_frontend.py::test_storyboard_resume_preserves_existing_shots_and_only_appends_missing`，期望App.vue包含旧源码字面量`existingShots:StoryboardShot[] = []`，现行共享前端不存在该字面量；按首败规则保留给独立软件测试判定，未修改该链。Python pycompile、Vue typecheck、Vite生产构建通过（83 modules，598ms），未启动模型。
+- 软件测试确认上述分镜失败为真实产品回归：既有完整ep1+scripts1/2仍调用1、2集并整体替换shots。整改后服务端读取body/context既有shots，完整性契约为15–23镜、镜号和时间线连续、单镜2–9秒、覆盖目标总时长；完整集跳过、部分集整集重生。完整ep1含图片/确认/版本字段序列化前后不变，无缺失零模型；重复/非法/跨集provider输出拒绝。前端随请求提交existingShots，仅按generated_episodes替换，并在响应、异常与持久化前保持启动project/session/signal围栏。专项与关联`104 passed, 1 skipped`，待扩大回归。
+- 开发扩大验证：storyboard续生成、持久image投影、生产门禁、图片生命周期、asset_3d、服装、阶段取消共`176 passed, 1 skipped`；Python pycompile、Vue typecheck、Vite生产构建通过（83 modules，589ms）。未启动模型或正式任务，交独立软件测试执行项目切换晚到动态闸门。
+- 投影软件复测：通过。二维人物/场景/道具、分镜与辅助生图三份映射均为image，`asset_3d`为assets/3d；临时durable outbox/Graph验证generating→running、completed→pending_confirmation、failed→failed全程只报告image且绝不报告assets，专项`3/3`。
+- 扩大回归首败判定：`test_storyboard_resume_frontend`不是可忽略的旧字面量。动态执行当前正式`_run_server_production_stage(stage=storyboard)`，输入已有第1集分镜及第1、2集剧本，实际仍调用`/api/storyboard`生成第1集和第2集，并返回两集全新结果；已有第1集分镜未保留。实际调用`[(storyboard,1),(storyboard,2)]`，预期仅`[(storyboard,2)]`。
+- 最终独立软件复测：通过，状态流转待稽查。动态覆盖15/23镜边界、连续镜号/时间线、单镜2–9秒及目标总时长；完整ep1+scripts1/2仅调用ep2且ep1嵌套字段序列化不变，partial ep1整集重生，全完整零模型；重复剧本、重复镜头、跨episode及不完整provider输出均在错误合并前拒绝，服务端动态矩阵`18/18`。实际前端merge函数动态验证仅替换`generated_episodes`并保留existing/audits，项目/session晚到成功与异常零污染，新项目正常合并`5/5`。二维图片与asset_3d投影专项`3/3`；扩大关联回归`163 passed, 1 skipped, 3 subtests passed`，Python编译、Vue typecheck及Vite生产构建（83 modules）通过。既有资产批次read/purge/model晚到与strict Promise专项39项证据保持有效；本轮未启动模型。
+- 状态：软件测试退回，待处理。
+- 根因：分镜服务端内核初始化`shots=[]`并遍历全部scripts，既不读取/接受权威existing shots，也不按已完整episode过滤missing scripts；前端现在只提交scripts且最终用response.result.shots整体替换。因此“续生成仅补missing并保留existing”功能确实回退，不是测试仍引用旧前端实现方式的问题。
+- 预期整改：把续生成行为迁入服务端权威内核：接收或从持久stage读取已完成shots，按完整episode只生成缺失集，确定性合并并返回existing+new；测试应验证行为/调用集合，不绑定旧前端局部变量字面量。
+- 本轮按首败停止，未继续batch晚到/strict Promise、扩大关联、编译与构建；未启动模型。
+- 下一状态：已关闭。
+- 最终稽查：通过。二维图片入口、资源类型及durable Graph投影统一为image，仅asset_3d保持assets/3d；自动串行、project/session/controller/token/epoch隔离、严格同一Promise及精确回收闭环。分镜完整集按15–23镜、连续时间线、2–9秒和目标时长权威识别并原样保留，partial整集重生，仅补缺集；非法、重复与跨集输出失败关闭。
+- 关闭时间：2026-08-11（Asia/Shanghai）。
+- 最终状态：最终稽查通过，已关闭。
+- 稽查证据：目标组合`145 passed, 1 skipped, 3 subtests`，扩大组合`197 passed, 1 skipped, 3 subtests`，Python编译通过；软件类型检查及83模块构建有效。正式PID18800健康，唯一worker、三池、Ollama及ComfyUI均空闲。
+
+### BUG-20260811-024：M9.179前端最终审核仍循环重复提交服务端阶段
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.179
+- 软件测试：不通过；review_export后端专项`6 passed`后检查前端正式入口发现首败并立即停止。未启动模型或正式任务。
+- 失败项：`auditFinalEpisodes`仍在`for (const master ...)`逐集循环内，再套`while (attempts <= 2)`修复重试循环；`productionLedgerService.runStage(stage=review_export, operation=audit)`位于该双重循环内部。一次“最终审核”点击可提交`集数 × 最多3次`独立阶段请求，并非要求的单次整批runStage。
+- 动态/静态证据：目标函数存在episode loop=true、retry loop=true，runStage位于retry loop之后且在其作用域内；源码调用点虽只有1处，运行次数不唯一。服务端现有audit执行器已支持commands数组，但前端每次只传一个command。
+- 风险：阶段租约在每次请求结束即提交pending_confirmation；前端随后再次调用同一阶段，可能出现阶段已运行/待确认冲突、部分集已写回、重复模型审核和项目切换晚到污染。有限修复仍由前端编排，未迁入服务端唯一内核。
+- 预期：一次用户操作只调用一次`runStage(review_export/audit)`，一次传入所有目标episode；批量审核、每集有限修复及最终证据由服务端阶段执行器完成。前端仅原子接收整批结果，并以project/session/abort围栏拒绝晚到响应。
+- 修复：前端先汇总全部待审分集，单次提交一个`review_export/audit`整批命令；服务端负责逐集执行、瞬态失败最多重试一次、保留每集`status/issues/evidence/attempts`。前端以project/session/abort围栏原子接收整批结果，失败集不假通过、不越级导出。
+- 软件复测进展：整批审核单次runStage、服务端逐集/最多一次瞬态重试、取消不重试、needs_fix证据、导出门禁和零副作用矩阵通过；专项`12/12`、关联`133 passed`、Python编译、Vue typecheck及Vite构建83 modules通过。
+- 软件复测首败：`createExports`虽只调用一次runStage，但没有捕获`projectSession`、没有AbortController/signal，也没有任何`isCurrentProjectSession`响应围栏；请求返回后无条件写`exportFiles/exportManifestUrl/exportStatus`并持久化。p1导出阻塞后切换p2，p1晚到成功或异常会污染p2。
+- 静态证据：目标函数`runStage=1`，但`projectSession=false`、`AbortController=false`、`signal=false`、`current_guard=false`，同时存在无条件`exportFiles.value = result.files`。这与本轮明确要求的project/session/abort晚到隔离不符。
+- 预期：导出与审核采用相同project/session/AbortController围栏；提交前、响应后、catch和每次持久化前校验当前项目，项目切换主动abort；不遵守signal的晚到成功/异常也必须丢弃，不能改写新项目状态或错误。
+- 第二首败修复：导出按project ID复用同一在途Promise，提交前、响应后、状态/文件/manifest替换及持久化前均校验project+session+abort；项目切换和停止统一abort。晚到成功/异常零写回，finally仅释放自身flight/controller，释放后可安全重试。
+- 第三轮软件复测首败：`stopExports`仅执行`exportController.abort()`并把本地状态持久为failed，没有调用任何服务端定向stage stop，也不清理当前`exportFlight`。若runStage忽略signal或网络请求迟迟不返回，服务端review_export租约继续执行，同项目再次点击仍返回旧Promise，无法按“已停止，可重新提交”立即重试。
+- 静态证据：stop函数`abort=true`、`failed=true`、`persist=true`，但`stage_stop=false`、`clear_flight=false`。这不满足本轮明确要求的“stop后abort+定向stage stop/failed持久且可重试”。
+- 预期：停止必须先abort本地请求，再以完整tenant/user/project定向调用正式stage stop（review_export）；持久停止状态并解除或代际隔离旧flight，使新提交不复用已取消Promise。旧请求即使忽略signal晚到仍零写回。
+- 第三首败修复：`stopExports`使用完整tenant/user/project调用统一`/api/generation/stop`并精确指定`stage=review_export`；服务端按租户stage lease取消，未确认停止返回冲突而非伪成功。停止先递增export epoch并释放旧flight键，旧Promise仍阻塞时也可重新提交；旧flight晚到与finally受epoch/Promise/controller身份隔离。
+- 第三轮软件复测：通过。直接提取并执行正式`App.vue`函数，以不遵守AbortSignal的旧`runStage`闸门验证：同项目重复点击单飞、完整tenant/user/project/review_export定向stop恰一次、确认停止后立即新建flight、旧成功响应晚到零污染且旧finally不清新flight，共`7/7`；stop返回503时保持非终态generating、保留既有files/manifest并持久诊断错误、不伪报已停止，共`4/4`。
+- 关联复测：审核/导出整批、空/非法/重复episode零副作用、审核pass+confirmed门禁、瞬态最多重试一次、取消不重试、完整租户隔离及generation/commit guard共`135 passed`；合计动态与关联`146/146`。Python编译、Vue typecheck和Vite生产构建通过（83 modules，689ms）。未启动重模型或正式任务。
+- 稽查退回：导出门禁仍信任请求体`audit_results`，可伪造pass+confirmed；未读取服务端生产台账的分集审核确认与当前媒体指纹。
+- 稽查修复：`audit_results`仅作声明。服务端按tenant/user/project读取`PRODUCTION_LEDGER`的`review:{episode}`和composition/upscale权威scope，强制completed、confirmation存在且confirmation/声明/台账的content_fingerprint与audit_batch_id一致；伪造、跨租户项目、旧指纹批次、未确认及媒体版本不匹配均在调用export provider前失败。显式`audit_required=false`保留。
+- 复稽查2修复：`audit_required=false`只跳过review审核，不跳过媒体门禁；媒体scope始终要求completed、confirmation、非空fingerprint/batch且完全匹配。source_version仅允许base/enhanced，分别精确绑定composition/upscale，禁止交叉匹配或回落；多集缺任一集整批零副作用。
+- 关联旧测试契约已回正：production endpoint断言不再要求characters/generate进入assets阶段，改为run-stage负责assets清单、characters/generate使用image资源；自动资产队列调用必须显式传project/session，并断言会话晚到隔离。业务实现未回退旧映射。关联126项通过。
+- 复稽查2软件测试：不通过。严格动态媒体来源矩阵`15/15`、审核开启权威矩阵`8/8`及专项`14/14`通过后，关联回归发现首败并按规范停止；未执行pycompile/typecheck/build，未启动模型或正式任务。
+- 关联首败：`tests/unit/test_production_control.py::ProductionControlTests::test_formal_production_endpoints_enter_langgraph_gate`仍断言`/api/characters/generate → assets`，现行权威映射明确为`/api/characters/generate → image`。独立核对确认不是产品回退：资产清单提取统一经服务端`run-stage assets → /api/characters/extract`，人物图片生成是后续image阶段；`test_production_gate_reconciliation.py`也明确要求旧assets映射不存在、image资源映射存在。旧静态断言与共享现行契约冲突。
+- 同类旧断言：继续隔离确认时，`test_storyboard_persists_each_completed_episode_and_frontend_creates_asset_cards_immediately`仍要求无上下文`generateAllAssetImages()`；正式代码已使用`generateAllAssetImages(project, session)`保持项目/会话晚到隔离。该断言同样是旧不安全调用签名，不是产品功能回退。
+- 预期整改：同步两条关联静态测试到现行共享契约：图片生成端点属于image；自动基准生成必须显式传project/session。整改后重新执行完整关联、动态stop/session/singleflight、Python编译、Vue类型检查与生产构建。
+- 最终软件复测：通过。两条旧测试已改为双向精确契约：显式断言`characters/generate→assets`不存在且`characters/generate→image`存在；自动队列强制`generateAllAssetImages(project, session)`并校验提取先于生成，未通过删除断言放宽门禁。
+- 最终回归：production_control、gate_reconciliation、review_export、stage_cancel四组`126 passed`，其中权威导出专项14项覆盖audit false媒体门禁、base/enhanced严格来源、审核台账、批次指纹、多集零副作用及stop/session/singleflight。Python编译、Vue typecheck、Vite生产构建通过（83 modules，692ms）；文档一致，未启动模型。
+- 权威门禁软件复测：通过。临时SQLite动态矩阵覆盖伪造pass+confirmed无台账、跨tenant/user/project、review未completed/无confirmation、声明或台账fingerprint/batch不一致、review/media确认陈旧、当前媒体不匹配及多集缺一项，全部零export provider；真实逐集review+composition completed/confirmation/匹配指纹批次唯一放行，`audit_required=false`显式放行，共`15/15`。
+- 真实API复测：localhost正式Handler `/api/production/run-stage`在匹配权威证据时HTTP 200且导出调用1次，伪造batch时HTTP 409且导出调用0次，`2/2`。前端实际指纹函数验证审核落台账content_fingerprint/audit_batch_id与导出声明完全一致`2/2`，审核和导出各仅一个正式runStage调用点。
+- 关联复测：正式前端函数stop/late/session动态闸门`7/7`；整批审核、租户隔离、取消与commit guard共`137 passed`；合计专项与关联`163/163`。Python编译、Vue typecheck和Vite生产构建通过（83 modules，728ms），文档一致。未启动重模型或正式任务。
+- 最终稽查：通过。`audit_required=false`仅豁免review审核，媒体权威门禁始终执行；`source_version=base/enhanced`分别严格绑定composition/upscale，跨scope、旧fingerprint/batch、缺集均在provider调用前整批拒绝。整批单runStage、项目会话/epoch/single-flight、精确停止及generation/cancel/commit围栏无回归。
+- 稽查证据：动态探针覆盖伪造、交叉版本、合法base与多集缺证；关联`126/126`与Python编译通过。正式8787健康，唯一worker及三池空闲，Ollama、ComfyUI均为空。
+- 下一状态：已关闭。
+
+### BUG-20260811-023：M9.178阶段取消未贯穿审核修复内部链
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.178
+- 软件测试：不通过；阶段cancel-before与基础循环专项`14 passed`后，审核中途取消动态发现首败并立即停止。未启动模型或正式任务。
+- 失败项：outline/script/storyboard调用`_audit_and_repair_narrative`时只传`context`，没有传递`_cancel_event`；该函数在分块循环、初审→修复→终审之间也没有阶段checkpoint。取消在初审返回时发生，代码仍继续提交修复模型和最终审核模型，直到整个审核链返回外层后才检测取消。
+- 动态证据：outline单集生成后进入audit；隔离初审`audit.narrative`设置cancel event并返回needs_fix，实际后续调用序列仍包含`text.narrative.repair`及第二次`audit.narrative`，随后外层才抛`production stage cancelled or lease lost: outline`。
+- 同类风险：三种叙事阶段共享审核函数；超9KB分块在取消后仍可继续下一批，审核、修复和终审均可能产生取消后的新模型调用、费用及晚到结果。
+- 预期：阶段cancel event必须传入审核内部；每个chunk、初审前后、修复前后、终审前后均调用同一租约checkpoint。任一点取消后不得再调用任何模型，也不得进入pending_confirmation或项目写回。
+- 主线整改：outline/script/storyboard把同一`_cancel_event`传入共享审核函数；分块、初审、修复和终审前后均执行统一stage checkpoint。取消控制对象只在进程内使用，provider/远端审核payload会主动剔除，避免Event进入序列化边界。
+- 开发验证：新增“初审返回时取消”动态用例，确认调用序列仅有第一次`audit.narrative`，不再调用repair或终审；取消对象未进入能力payload。阶段取消关联回归`109 passed`，Python编译通过，未启动模型或正式任务。
+- 软件复测后端：通过。outline/script/storyboard在chunk、初审、repair、final audit各节点中途取消矩阵`10/10`，取消后零后续模型调用且`_cancel_event`未进入provider payload；八阶段/批次/command/video poll、租户隔离、显式取消/纯失租/commit guard关联共`126 passed`，Python编译通过。
+- 软件复测首败：Vue类型检查失败，`App.vue:4039`的`stopAsset3D`调用`productionTaskContext(project)`，但函数作用域没有声明`project`。原始错误：`TS2304: Cannot find name 'project'`。当前停止入口无法通过正式构建门禁，发现后停止Vite build。
+- 同类边界：该函数必须取得并校验当前活动项目上下文；项目缺失时禁止发送停止请求，不得使用未定义变量或把停止发往错误项目。
+- 前端整改：`stopAsset3D`在发送停止请求前读取并校验当前活动项目；项目缺失直接返回，存在时把该项目显式传入`productionTaskContext`，不再引用未声明变量或构造空project ID。
+- 开发验证：Vue typecheck通过；Vite生产构建通过（82 modules，722ms）。后端关联`109 passed`与Python编译继续通过。
+- 最终软件复测：通过。无活动项目时`stopAsset3D`零停止请求；有项目时使用`productionTaskContext(project)`发送完整tenant/user/project身份。审核节点取消矩阵`10/10`、八阶段及停止/租户/代际/commit guard关联`126 passed`，Python编译、Vue typecheck与Vite生产构建通过（82 modules，701ms）。
+- 测试期间未启动模型或正式任务。
+- 最终稽查：通过。八阶段入口及批次、command、poll、本地调用、审核、修复与fallback均受同一lease event约束；provider payload不含进程内Event。结果提交继续受owner/generation与SQLite commit guard保护，显式取消与纯失租语义不混淆；完整租户身份及child scope阻止跨租户误停。
+- 稽查复核：只读回归`128/128`与Python编译通过；正式PID98981唯一worker健康，三池、Ollama与ComfyUI均空闲，未干预服务。
+- 下一状态：已关闭。
+
+### BUG-20260811-021：M9.177跨实例派发预留未接入正式派发入口
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.177
+- 软件测试：不通过；发现首个失败后立即停止，未执行其余回归，未启动模型或操作正式服务。
+- 失败项：`WorkerRegistry.reserve/release_reservation`虽已实现，但正式`_forward_production_request`仍只调用进程内`WORKLOAD_ROUTER.route`，从未创建、持有或释放SQLite dispatch reservation。多个网关依据同一心跳可同时选择同一capacity=1远端worker，M9.177要消除的跨实例超卖在正式路径仍然存在。
+- 动态证据：隔离替换`WORKER_REGISTRY`记录reserve/release调用，并让旧router选中远端节点完成一次`/api/outline/plan`转发；响应HTTP 200且`_dispatch.worker_id=remote`，实际`reserve_calls=0`、`release_calls=0`。
+- 同类范围：所有进入`_forward_production_request`的text/audit/image/video/audio/control/3d/upscale及`run-stage`远端投递均未使用预留；request幂等、TTL、generation、容量与内存预留因此只停留在未消费的注册表API。
+- 预期：正式请求边界以稳定唯一request_id调用共享`WORKER_REGISTRY.reserve`原子选点/占槽，转发完成或失败后精确释放；同一request重试保持幂等，释放/TTL/generation围栏生效，旧`route`仅保留兼容入口且不得绕过跨实例容量。
+- 主线整改：`_forward_production_request`已正式调用共享`WORKER_REGISTRY.reserve`选点；显式request/job ID优先，否则按规范化路径与body生成稳定SHA-256 request ID。成功、远端业务错误、网关错误与连接异常统一在`finally`精确释放，转发头披露reservation ID。
+- 开发验证：成功、HTTP 502与连接异常均验证释放；相同request重试ID稳定；跨实例容量、内存、TTL和generation关联回归共`95 passed`，Python编译与差异格式检查通过。未操作正式服务或重模型。
+- 软件复测：不通过；正式派发成功、业务409、网关502/503/504、URLError/OSError、响应JSON异常的reserve/finally release矩阵`10/10`，关联`76 passed`及Python编译通过后，幂等资源身份边界发现首败并停止。
+- 复测失败：`worker_reservations`只以`request_id`为主键；命中未过期记录时未校验本次`resource_class/service_scope/estimated_memory`与旧预留一致。相同稳定job ID先预留text后请求video，实际仍返回仅支持text的旧worker，绕过video资源与90内存门禁。
+- 动态证据：`shared-job`先以`text/scope-a/memory10`预留`text-only`成功；随后同ID以`video/scope-a/memory90`调用仍返回`text-only(resource_classes=('text',))`，SQLite记录仍为旧text/memory10。预期拒绝冲突身份或使用绑定阶段/资源的无碰撞reservation ID。
+- 同类风险：同一job ID跨阶段、资源或service scope复用均可错误路由并绕过容量与内存。幂等键必须绑定完整派发身份。
+- 整改：reservation schema新增`service_scope`并兼容迁移旧库；命中相同request_id时必须与原`resource_class/estimated_memory/service_scope`三元契约完全一致，否则原子拒绝且旧预留不变。新增跨资源、内存、scope冲突矩阵，关联95/95通过。
+- 第二次软件复测：通过。相同ID的resource、estimated_memory、service_scope冲突全部原子拒绝且旧预留不变；一致契约保持幂等。成功、业务409、502/503/504、URLError/OSError、JSON异常均精确释放并携带reservation头，规范SHA稳定且path敏感；容量、内存、generation、TTL、防循环与旧route兼容无回归。
+- 测试证据：派发异常矩阵`10/10`、关联`78 passed`，WorkerRegistry与compat_server Python编译通过。未操作正式服务或模型。
+- 稽查退回：旧schema并发迁移使用无锁`PRAGMA→ALTER`，8实例同时启动稳定7个报`duplicate column name: service_scope`。
+- 迁移整改：WorkerRegistry初始化以`BEGIN IMMEDIATE`串行建表/读schema/ALTER/建索引；新增8线程旧schema并发迁移测试，8/8构造成功、列唯一，关联96/96通过。
+- 迁移软件复测：通过。8实例旧schema并发初始化全部成功且service_scope唯一，迁移后reservation正常；关联`79 passed`及Python编译通过。
+- 正式加载：PID98981晚于最新WorkerRegistry/compat代码，schema唯一service_scope且当前reservation=0；旧worker超时清退后唯一worker healthy/active0，三池0、Ollama0、Comfy0/0。
+- 下一状态：待稽查。
+
+### BUG-20260811-022：统一任务仓库遗留非终态图片任务未被恢复
+
+- 状态：已关闭（最终稽查通过）
+- 正式只读证据：job `56efa931-14de-4005-b22c-4e9c89192537`在`unified-tasks.sqlite`为`image/queued/qwen_repairing`，heartbeat为2026-08-08；无PID、进程组、worker、资源或Comfy占用。分类JSON中的同ID payload只有heartbeat/stage，没有status与身份。诊断期间未手工删除或改写正式数据库。
+- 根因：统一仓库列状态由旧缺字段payload默认成`queued`，但`_merge_durable_tasks`恢复时只复制原payload、不回填仓库权威`status/job_id/identity`列；`_recover_image_jobs`读取到`status=None`后跳过，watchdog同样无法识别。
+- 主线整改：`_merge_durable_tasks`使用统一仓库权威列补齐历史payload缺失的job ID、租户身份、stage、status、进程和时间字段；启动恢复与watchdog因此能识别分类JSON缺失/残缺的非终态任务，并复用正常`_save_image_jobs → durable upsert/outbox → Graph projection`失败化。
+- 动态验证：隔离构造仅存在统一仓库、payload无status的旧image queued任务；启动恢复后仓库与payload均为failed、租户身份保持、outbox清空、对应租户项目Graph image=failed；第二次恢复保持终态不变。专项及关联`119 passed`，编译与差异格式检查通过。正式数据库未修改。
+- 正式首验退回：历史任务虽收敛failed/nonterminal=0，但原始project_id为空，投影被ignored直接ack，未形成Graph状态。
+- 身份隔离整改：缺失真实project的可证明遗留image孤儿不猜测任何用户项目；分配确定性租户级`recovered-orphan-image-<job_id>`隔离身份并写入`identity_recovery=quarantined_missing_project`，再沿正常save/outbox/Graph链提交failed。
+- 身份隔离软件复测：通过。缺project孤儿生成确定性隔离项目与identity_recovery证据，经正常save/outbox投影Graph failed并ack；真实project保持，普通terminal缺project不改，二次恢复幂等。动态`12/12`、关联`79 passed`及Python编译通过。
+- 独立软件测试：隔离覆盖repository-only `queued/generating/retrying/processing`、分类JSON缺项、权威job/identity/stage/status/pid/heartbeat补齐、正常save/outbox/Graph投影、租户隔离、terminal保护与二次恢复幂等，动态矩阵`15/15`；关联`78 passed`，DurableTaskRepository与compat_server Python编译通过。未操作正式服务、数据库或模型。
+- 剩余验收：主线仅可在正式资源/Ollama/Comfy全空后安全加载最新代码；软件测试随后只读确认历史`56efa931-14de-4005-b22c-4e9c89192537`通过正常恢复链变为failed、Graph/outbox一致且tasks nonterminal=0，禁止直接改库。
+- 正式加载软件验收：不通过。PID 98000已加载最新代码，历史job通过正常恢复变为failed、payload补齐job_id/status/tenant/user/stage/pid、nonterminal=0且outbox=0；但权威列与payload的`project_id`仍为空，身份不完整。
+- 正式首败：`_durable_task_projection`要求tenant/user/project全非空；该job project为空，因此投影返回None，`_drain_durable_task_projections`把事件加入ignored并直接ack删除。outbox=0并非Graph提交成功，而是无项目身份事件被丢弃；无法取得对应Graph state，违反“payload身份完整、outbox/Graph一致”。
+- 只读证据：统一库job=`failed`、tenant=`local-default`、user=`aoo`、project=`''`，payload同样无project_id；`task_projection_outbox=0`、全库nonterminal=0。调用ProductionOrchestrator空project state明确报`tenant_id, user_id and project_id are required`。
+- 正式环境：LaunchAgent PID98000路径/cwd/PYTHONPATH正确且晚于最新代码；worker清退后唯一healthy/active0，三池0、Ollama0、Comfy0/0。BUG021正式schema已含service_scope并加载。
+- 预期：历史任务缺少可证明project identity时不得伪造Graph一致或静默ack；必须通过可验证的持久关联恢复项目身份后投影，或保留明确不可归属的失败/outbox诊断状态供受监督处置，禁止把无效投影视为完成。
+- 最终正式补验：通过。历史`56efa...`及同类可证明孤儿均持久为`recovered-orphan-image-<jobid>`、`identity_recovery=quarantined_missing_project`、failed；目标Graph image=failed，outbox0、nonterminal0。正式仍有82条普通terminal缺project记录未写identity_recovery，未被隔离逻辑改写。
+- 正式环境：PID98981路径/cwd/PYTHONPATH正确且加载时间晚于最新代码；唯一worker healthy/active0，三池、reservation、Ollama与Comfy全空。
+- 下一状态：待稽查。
+
+### BUG-20260811-020：视频任务已终态但所属Comfy prompt继续占用通道
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.175视频任务生命周期补强。
+- 只读现场：正式job `4ebd29d2-80d6-4605-ac2b-7db821cd6cbc`已于2026-08-11 09:48:11持久化为`cancelled/stage=cancelled`并释放accelerator，但其owned prompt `6a8985fe-bd92-4fa0-9c75-72c5bd59d953`在09:55仍处于Comfy `queue_running`。诊断和开发期间未手工停止、清队列、重启或干预该prompt。
+- 根因：旧`_cancel_comfy_prompt`只发送一次delete/interrupt，吞掉异常且不确认prompt从queue消失；`_stop_video_generation`随后无条件写cancelled、取消资源并移除ACTIVE。H3/Context finally同样只发取消不确认；watchdog只处理非终态任务，不核对终态job仍持有的prompt。
+- 主线整改：owned prompt取消改为精确确认`queue_running/queue_pending`消失；未确认时stop只写`generating/cancel_pending`和cancel_requested，不返回stopped、不取消资源票据、不移除ACTIVE。Context/H3 finally与所有视频终态提交前后均等待所属prompt确认消失。
+- 看门狗恢复：识别`completed/failed/cancelled`但owned prompt仍在queue的矛盾状态；取消无法即时确认时恢复为`cancel_pending`、重新取得视频资源票据，由专属恢复worker持续核销，确认queue消失后才恢复原终态。重启与关闭同样禁止取消未确认却写回终态。
+- 开发测试：轻量动态覆盖running→absent确认、持续queued超时返回false、stop未确认不报成功/不释放、终态orphan持票据恢复及结果查询分支原子终态；关联`119 passed`，后端Python编译、Vue类型检查与Vite构建通过（82 modules，718ms）。未启动重模型。
+- 软件测试：不通过；A项BUG019专项组合`30/30`通过后进入B项foreign prompt保护，发现首个失败即停止。未启动或干预正式重模型及现场orphan prompt。
+- 失败项：owned prompt处于running时，`_cancel_comfy_prompt`无论同一queue是否还有foreign running prompt，均调用全局`POST /interrupt {}`。隔离队列同时返回`owned`和`foreign`两条running记录，取消owned实际发出空payload全局interrupt，可能终止不属于本任务的foreign prompt。
+- 根因：`_comfy_prompt_queue_state`把完整queue压缩为单一状态字符串，丢失其他running prompt证据；running取消路径使用无prompt_id的全局interrupt，未提供所有权隔离或多任务保护。
+- 动态证据：调用序列`GET /queue → POST /interrupt {} → GET /queue`，返回True；断言禁止全局interrupt失败。pending精确delete路径不受此问题影响。
+- 预期：running取消必须使用Comfy支持的精确prompt标识；若当前接口只能全局interrupt，则发现任一foreign running prompt时禁止发送全局interrupt，保持cancel_pending与资源票据并由受监督恢复机制继续确认，绝不能影响foreign prompt。
+- 整改：queue读取保留`foreign_running`证据；owned running仅在不存在任何foreign running时允许调用全局interrupt，否则不发送任何中断并返回未确认，由cancel_pending持票据恢复。新增foreign并行保护动态测试，专项组合31/31通过。
+- 软件复测：通过。running/pending/absent/不可达、foreign保护、stop确认失败保持cancel_pending/ACTIVE/票据、确认成功唯一终态，以及result/watchdog/recover/shutdown终态orphan持票据恢复均通过。
+- 测试证据：A/B专项`32/32`、持久路径补充`8/8`、关联`182 passed, 3 subtests passed`、Python编译、Vue typecheck、Vite build通过。正式8787健康、worker active0、三池active/queued0、Ollama0；现场orphan prompt仍running，按要求未停止、清队列或重启。
+- 正式加载补验：通过。orphan prompt于10:33自然结束后由主线安全kickstart；8787 PID 91425启动于10:33:52，晚于compat_server 10:19:17，LaunchAgent `com.local.ai.compat-server`使用绝对Python/脚本、WorkingDirectory和PYTHONPATH，cwd正确。旧cancelled job保持`cancelled/stage=cancelled`且未被误恢复；唯一worker healthy/active0/capacity11，任务0、三池0、Ollama0、Comfy0/0。
+- 下一状态：待稽查。
+
+### BUG-20260811-019：M9.175 Context IR前置异常绕过统一清理
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.175
+- 软件测试：不通过；发现首个失败后立即停止，未启动或干预任何重模型，未触碰正式H3任务。
+- 失败项：`_optimize_h3_ref2va_prompt`在进入统一`try/finally`之前执行`_start_comfy`、创建临时目录并`shutil.copy2`身份参考。隔离故障注入让copy2抛`OSError("copy failed")`后，函数直接退出；`_terminate_ollama_model`与`_free_comfy_memory`调用均为0，临时`short_drama_h3_context_ir`目录残留。H3调用为0，但不满足“所有异常删除临时输入/中转、卸载并释放”的硬门禁。
+- 根因：统一清理边界起点晚于Comfy启动和临时输入准备，前置阶段异常不受finally保护。同类风险包括`_start_comfy`成功后copy失败、目录创建失败及部分复制后OSError，均可能遗留Comfy/Context模型状态或临时文件。
+- 预期：从首次启动Comfy及准备临时输入开始即纳入异常安全作用域；无论prompt是否取得，均只取消自身已取得prompt，删除本任务临时输入/中转，尝试卸载Context模型、释放Comfy，并保持H3调用0。清理本身异常不得掩盖原始失败，但模型仍驻留必须维持硬阻断。
+- 动态证据：`events=['start']`、`terminate=0`、`free=0`、H3调用0，临时目录仍存在。
+- 下一状态：待处理。
+- 稽查退回整改最终软件复测：通过。动态逐项改变subtitles、reference_urls、process_audits、content compliance及OCR/face/final evidence，指纹均独立变化；command键序反转指纹稳定，未启用OCR/face分别记录`no_subtitles/no_reference_urls`，专项`10/10`。启用步骤无真实evidence失败且ledger为空、成功pending→confirm completed→enhanced export及旧batch/篡改拒绝均通过。
+- 资产关联旧断言判定：现行`queueGenerateAllAssetImages`确实委托统一`enqueueAssetOperation`；所有资产操作共享FIFO tail/key去重，project/session/epoch在执行前及等待中复核，stop/切项目递增epoch、清key/count/tail并回收生图single-flight。关联测试已改为双向队列行为契约，未放宽为按钮存在性；专项与关联`73 passed, 1 skipped`。
+- 最终扩大回归：`178 passed, 1 skipped`；Python pycompile、Vue typecheck、Vite生产构建通过（83 modules，549ms）。未启动模型。
+- 最终状态：软件测试通过，待稽查。
+- 首败整改：将`_start_comfy`、临时目录创建和身份图copy2移入统一try/finally；finally在未取得prompt时不误取消，仍删除本任务临时文件及空目录、终止并核验专用模型、free Comfy。H3调用保持0。
+- 原子落盘补强：三份输出改为唯一版本staging目录写齐后以一次`os.replace`发布，失败清理staging，不暴露半套文件。
+- 第二轮软件测试：不通过；发现首个失败后立即停止，未启动或干预正式重模型。
+- 失败项：成功链没有读取或验证已落盘的`optimized_prompt`，仍直接把Context history中的内存字符串返回给H3。隔离注入让`_persist_h3_context_ir_outputs`返回三条不存在的路径，任务仍记录completed，随后H3被调用1次并收到内存`in-memory optimized`；三条落盘文件实际均不存在。
+- 根因：`_optimize_h3_ref2va_prompt`只信任持久化函数返回值并返回局部变量`result[0]`，没有在提交H3前验证三文件存在、属于当前发布批次并从`optimized_prompt`文件重新读取非空内容。磁盘丢失、异常存储适配器或发布后文件消失均可绕过“仅消费落盘optimized_prompt”门禁。
+- 预期：Context完成与H3提交前验证三条路径均为当前job原子发布目录中的普通文件，读取三件套成功且非空；H3唯一prompt必须来自落盘`optimized_prompt`文件。任一缺失、不可读、空内容或批次不一致都应failed并保持H3调用0，同时执行清理与卸载。
+- 动态证据：`H3_CALLS=1`、传参`in-memory optimized`、三条`FILES_EXIST=[False, False, False]`。
+- 第二轮整改：持久化返回后严格解析三条真实普通文件，要求全部位于当前job同一原子发布目录、内容非空且两份JSON可解析；随后只用磁盘回读值更新job并传给H3。持久输出错误使用不可重试异常，禁止再次启动Context重推理。新增缺文件门禁和第二件写失败无半成品测试，专项23/23通过。
+- 第三轮软件测试：不通过；按要求首先覆盖symlink边界即发现首败，已立即停止，未启动或干预正式重模型。
+- 失败项：路径先执行`resolve(strict=True)`再检查`is_file()`，原始符号链接信息已丢失。隔离持久函数返回当前job同一发布目录内的`optimized_prompt.txt`符号链接，链接目标也是该目录普通文件；校验全部通过，H3被调用1次并收到链接目标内容`disk optimized`。
+- 根因：门禁只检查解析后目标是普通文件和父目录一致，没有对持久化返回的原始Path执行`is_symlink()`/`lstat`，无法拒绝同目录或指向受信目录内的符号链接。
+- 动态证据：`IS_SYMLINK=True`、`H3=1`、结果`disk optimized`；预期持久输出不可用且H3=0。
+- 预期：三条原始路径在resolve/read前均须以lstat确认非symlink且为普通文件；失败属于不可重试持久化错误，Context提交仍仅1次。
+- 第三轮整改：构造原始Path后、任何resolve/read之前拒绝三条路径中的任意symlink；再执行strict resolve、当前job同批目录和普通文件门禁。新增同目录symlink动态回归，专项24/24通过，H3零提交。
+- 第四轮软件测试：不通过；symlink专项与安装关联`19/19`通过，继续覆盖中转输出清理时发现首败并立即停止；未启动或干预正式重模型。
+- 失败项：Context graph始终包含三个`SaveText`节点，但当history已直接返回完整三项文本时，代码不执行fallback glob，`saved_files`保持空。隔离模拟Comfy按三个filename_prefix真实写出optimized/skills/raw中转文件且history同时返回完整文本，任务成功后三个文件全部留在`COMFY_OUTPUT/h3_context_ir/`。
+- 根因：中转文件发现与清理绑定在“history输出缺失”的fallback分支，而SaveText节点无论history是否含文本都会执行；成功主路径因此无法登记本任务中转文件，finally无对象可删。失败/重试的同类中转文件也可能残留。
+- 动态证据：Context返回`optimized`，创建3个本任务SaveText文件，finally后`REMAINING=3`，精确为同一job/prefix的optimized、skills、raw文件。
+- 预期：每次prompt的三个唯一filename_prefix应在finally独立glob并只删除本任务匹配文件，不依赖是否走fallback；普通成功、失败、重试、取消和job写回异常均应无本任务中转残留，且不得删除其他任务文件。
+- 第四轮整改：finally不再依赖fallback登记，始终按本任务唯一`prefix_root`扫描`COMFY_OUTPUT`并只删除匹配的普通文件；成功history完整路径同样清理optimized/skills/raw三项中转。结合确认式owned prompt核销，避免异步写入晚于清理。专项组合30/30通过。
+- 第五轮软件测试：不通过；A/B专项`31/31`及成功中转清理/foreign相似前缀保护动态通过，继续持久路径symlink回归时发现首败并立即停止；未干预正式prompt或重模型。
+- 失败项：仅检查三条最终文件自身`is_symlink()`，未检查其父级发布目录。隔离构造`job/batch`为指向同一job内`job/real`的目录symlink，三条文件本身均非symlink；resolve后父目录为合法`job/real`，全部门禁通过并调用H3一次。
+- 根因：路径组件中的symlink在`resolve(strict=True)`后同样丢失，当前校验只覆盖末级文件，未对从job root到publication/file的每个原始路径组件执行lstat。目录链接还允许校验后替换目标，存在输入漂移风险。
+- 动态证据：`PARENT_SYMLINK=True`、结果`disk`、`H3=1`；预期持久输出不可用、Context不重试且H3=0。
+- 预期：三条路径必须位于真实非symlink的当前job根和真实非symlink的同一publication目录；从受信root之后的所有路径组件逐级lstat拒绝symlink，再进行普通文件和内容校验。
+- 第五轮整改：先按未解析绝对路径验证固定`job_root/publication/file`层级，逐级拒绝job根、publication目录和三文件symlink，再执行strict resolve、同批普通文件及内容门禁。新增publication目录symlink动态回归，专项组合32/32通过。
+- 完整软件复测：通过。成功history完整/缺失fallback、普通失败单次重试、history异常、超时/取消、前置与持久化/job update故障、模型卸载双门禁、三件套原子发布与磁盘唯一prompt、owned中转清理和foreign相似prefix保护均通过。
+- 路径矩阵：缺失、跨job、跨批、末级/父目录symlink、目录、FIFO、空内容、坏JSON及发布后消失全部不可重试，Context仅1次且H3=0；补充动态`8/8`。
+- 生命周期及回归：context_ir_prompt_id覆盖stop/result/watchdog/recover/shutdown；终态、票据、single-flight与重启关联通过。A/B专项`32/32`、关联`182 passed, 3 subtests passed`、pycompile、typecheck/build通过，正式prompt未干预。
+- 正式加载补验：通过。PID 91425加载时间晚于最新compat_server，LaunchAgent绝对路径/cwd/PYTHONPATH正确；重启后旧cancelled orphan未进入Context恢复或新推理，任务仓库活动任务0、资源与Ollama/Comfy全空。
+- 下一状态：待稽查。
+
+### BUG-20260811-018：M9.174资产卡片保留已失效的并发阶段错误
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.174
+- 现象：正式资源队列和阶段租约均为空，项目assets已为waiting_confirmation，但苏璃卡片仍显示`production stage is already running: assets`。
+- 原因：资产提取成功合并时为保留既有媒体成果，同时无条件保留旧profile的status/error，历史阶段冲突因此覆盖新的成功提取状态。
+- 整改：前端加载、前端增量合并和后端权威合并统一识别该精确错误；无图恢复pending、有图恢复waiting_confirmation并清空error，其他生成失败与图片/确认/detail/3D字段保持不变。
+- 开发验证：关联后端回归82/82通过，Python编译、Vue类型检查及Vite构建通过；正式8787已空闲重载，当前项目stage revision 1381、assets=waiting_confirmation、苏璃=pending/error空、资源active/queued为0。
+- 软件测试退回：前端`clearResolvedAssetStageConflict`使用`includes`、后端`_write_project_stage`使用`in`做子串匹配，并非只匹配精确历史错误。隔离动态用例输入真实扩展错误`真实生成失败：production stage is already running: assets；模型输出损坏`，后端错误地清空error并把failed改为pending，违反“其他真实生成失败必须保留”。发现首个失败后已立即停止，未执行其余回归与正式状态验收。
+- 首轮整改：清理条件收紧为trim后的完整错误文本必须精确等于`production stage is already running: assets`；任何前后缀或复合错误均保留原status/error。
+- 整改复测：通过。隔离动态33项断言覆盖人物/场景/道具，精确历史错误无图恢复pending、有图恢复waiting_confirmation且error清空，任意前缀/后缀复合真实错误保持failed/error，image、detail_assets、confirmation_phase、baseline_confirmed_at、model3d_status/result/job_id均保持。前端load/merge专项`15/15`，关联回归`82 passed`，Python编译、Vue类型检查、Vite构建通过。正式8787健康，三资源池active/queued均0；唯一项目assets revision 1381/status waiting_confirmation，苏璃status pending/error空。
+- 下一状态：待稽查。
+- 重新最终稽查：通过。前端load/merge及后端写回均以waiting_confirmation/confirmed/completed三状态和精确整串错误为双门禁；其他状态、复合错误、preview/seed/import均不清理。三类资产媒体、确认、detail及3D字段保持，软件96/96与关联134证据有效。
+- 最终状态：已关闭。
+- 最终稽查退回：前端load只按卡片错误文本清理，未验证权威assets状态；后端merge同样未限定incoming status，失败写回也携带merge_existing。因此本次权威assets failed时仍可能清除旧错误并改成pending/waiting，掩盖真实失败。
+- 稽查整改：前端清理函数新增authoritativeSuccess参数，load从权威stage status判定，preview/seed/import等非权威合并默认禁止清理，正式assets成功及已验证成功恢复路径才显式允许。后端仅当incoming status精确属于waiting_confirmation/confirmed/completed时清理精确错误；pending_confirmation/failed/generating/cancelled不处理。
+- 开发验证：前端typecheck、Vite build、后端py_compile及production gate专项`15 passed`；待独立完成三类资产×成功/失败状态矩阵与字段保持测试。
+- 最终整改软件测试：不通过；发现首个失败后立即停止，未运行关联回归、typecheck/build，未干预H3。
+- 失败项：后端`_write_project_stage`把`pending_confirmation`也列为`authoritative_asset_success`，但本轮权威成功清理白名单仅为`waiting_confirmation/confirmed/completed`。动态输入人物旧卡`status=failed`、精确历史错误和incoming `status=pending_confirmation`，实际被改为`waiting_confirmation/error=""`；预期status/error保持不变。
+- 同类风险：人物/场景/道具共用同一分支，因此三类均受影响；前端白名单已精确为三种状态，当前前后端契约不一致。其余已执行的三类资产×7个明确状态×精确/复合错误×有图/无图动态矩阵`84/84`通过，媒体、确认和3D字段序列化值保持不变。
+- 首败整改：后端权威成功白名单删除`pending_confirmation`，仅保留`waiting_confirmation/confirmed/completed`，与前端一致。
+- 完整软件复测：通过。人物/场景/道具×8种状态×精确/复合错误×有图/无图动态矩阵`96/96`；只有三种权威成功状态与精确错误同时满足时清理，`pending_confirmation/failed/generating/cancelled/pending`均保持原status/error。image、detail_assets、confirmation_phase、baseline_confirmed_at及model3d_status/result/job_id序列化值完全不变。
+- 调用边界：前端load按权威stage状态判定；正式commitStage与验证后的成功恢复允许清理；preview、seed和import默认不清理。关联回归`134 passed`、后端Python编译、Vue typecheck及Vite正式构建通过；未干预H3。
+- 下一状态：待稽查。
+
+### BUG-20260811-017：M9.173扩展提供方缺少运行接口仍可被激活
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.173
+- 问题：扩展注册表此前只检查factory可调用和实例非空；替换为PostgreSQL/Redis/远程provider时，即使缺少新增接口也会成功激活，直到生产任务中途才AttributeError。
+- 整改：ProductionExtensionRegistry.create读取活动provider metadata中的required_methods并验证实例对应成员可调用；缺失项以extension point/provider/methods明确报错。
+- 内置契约：8类基础设施全部声明contract_version=1与方法清单；task lease包含acquire/renew/release/owns/request_cancel/cancellation_requested/commit_guard/reap_expired。
+- 开发验证：缺少acquire/commit_guard的provider创建时拒绝，完整provider正常创建；关联专项`66 passed`及Python编译通过。
+- 下一状态：待软件测试。
+- 稽查整改软件首败：状态矩阵发现后端额外接受`pending_confirmation`，会把旧failed卡片清成waiting_confirmation；该值不属于最新允许的三种权威成功状态。其余7状态×三类×精确/复合×有图/无图84组及媒体/确认/3D字段保持已通过。
+- 首败整改：删除pending_confirmation别名，前后端统一只接受waiting_confirmation/confirmed/completed。
+- 下一状态：待软件测试复测。
+- 稽查整改独立复测：通过。p1导入在`resource.save`或`semanticAudit`阻塞后切p2，旧响应零merge、零persist、零通知；3D生成/确认、修复与超分晚到同样零污染。执行严格`old-start→old-end→new-start→new-end`、`maxConcurrent=1`，旧排队任务按epoch跳过，owner token精确释放。后端延迟确认、后续completed与HTTP409均通过；关联`164 passed, 1 skipped`，编译、类型检查及83模块构建通过。
+- 最终稽查：通过。确认全部资产生产入口统一FIFO，stop保持即时；已启动异步操作的project/session响应围栏、定向持久化与旧finally隔离完整，无剩余阻断。
+- 关闭时间：2026-08-11。
+- 首轮软件测试：不通过；发现首个失败后立即停止，未启动重模型。
+- 失败项：契约仅在`create()`实例化后验证，`register(... activate=True)`和`activate()`在切换活动绑定前不验factory返回值及required_methods。缺方法、非callable或factory None的provider因此可先成为active，随后create虽明确失败，但原活动provider已失去active绑定，违反“拒绝且不影响活动绑定”。
+- 动态复现：先激活完整`stable` task-lease provider，再安装缺`acquire/commit_guard`的`broken`并显式activate。`create()`正确报`contract mismatch; missing methods: acquire,commit_guard`，但`get('storage.task_lease').provider_id`仍为`broken`，原`stable`未自动恢复。`replace=True`也可在契约失败前删除整个旧point，风险更高。
+- 整改要求：任何会改变active的register/replace/activate操作必须先在临时候选上完成factory None、非callable及required_methods实例契约验证，或在失败时原子回滚extensions与active全状态；失败候选不得占用活动绑定或删除旧provider。需同时覆盖replace_provider、显式activate和并发create/切换无空窗。
+- 整改：required_methods非空时强制提供implementation_type，并在注册表任何写入前验证类方法可调用；失败发生于replace/activate之前。成功定义记录contract_validated与实现类型名称，create继续验证真实实例。
+- 开发验证：broken普通注册与replace=true均在写入前拒绝，stable active和create保持；完整provider正常创建。专项`67 passed`及Python编译通过。
+- 第二轮软件测试：不通过；发现首个失败后立即停止，未启动重模型。
+- 失败项：`implementation_type`只能证明类属性存在，不能保证factory真实返回该类实例。factory返回`None`，或返回以实例属性覆盖类方法为非callable的对象，仍可通过register并被activate；直到create二次验证才失败，但active已切换且不回滚。
+- 动态复现：完整`stable` task-lease provider为active；新`none` provider声明同一完整`Lease`为implementation_type，但factory返回`None`。register和activate均成功，create报`extension returned no instance`，但active provider仍为`none`，原stable未恢复。这仍违反本轮明确的“factory None拒绝且不影响活动绑定”。
+- 整改要求：活动切换必须以真实factory实例验证为前置条件，或在create失败时CAS回滚到原active；不能仅信任申报的implementation_type。需动态覆盖factory None、实例非callable覆盖、replace/replace_provider/activate及并发create与切换，所有失败后provider集合与active必须与之前完全一致。
+- 实例探测整改：非builtin provider在任何注册表写入前实际执行contract probe（可由probe_configuration提供配置），验证返回非None且真实实例required_methods均可调用；声明类型撒谎、factory None/异常、实例缺方法均原子拒绝。builtin可信类型保持类级前验并在create二次验证。
+- 开发验证：None与lying factory在replace+activate前拒绝，stable active保持；专项`67 passed`及Python编译通过。
+- 下一状态：待软件测试复测。
+- 最终稽查：通过。前后端仅按完整错误文本精确归一化，三类资产load/merge一致；无图pending、有图waiting_confirmation，复合真实错误及媒体、确认、detail、3D字段保持。正式项目与资源空闲状态复核通过。
+- 下一状态：已关闭。
+- 实例探测软件复测：隔离功能通过。factory None、implementation_type撒谎、实例属性覆盖为非callable、factory异常、replace与replace_provider均在任何注册写入前拒绝，provider集合和stable active完全不变；probe_configuration正常实例化且不暴露到运行metadata，动态`6/6`。
+- 契约与并发：8个内置扩展点均具有`contract_version=1`、非空required_methods、contract_validated和implementation_type，隔离真实实例全部方法可调用，动态`8/8`；8读1切换共`2400/2400`次create/activate并发无异常、无空绑定。task lease cancel/commit_guard新语义由专项保持通过。
+- 关联回归：`146 passed, 3 subtests passed`；ProductionExtensionRegistry与compat_server Python编译通过，未启动重模型。
+- 正式加载阻断：8787当前PID 54550启动于08:38:11，早于compat_server 08:51:00和ProductionExtensionRegistry 08:53:16最新文件；正式`/api/production/workers` `extensions=[]`，尚未加载M9.173 metadata披露和实例探测。当前资源active/queued0、Ollama0、Comfy0/0，未自行重启。
+- 下一状态：待正式服务安全加载最新代码后补验。
+- 正式补验：通过。8787在空闲时由主线安全kickstart为PID 56761，启动时间08:55:52晚于compat_server 08:51:00和ProductionExtensionRegistry 08:53:16，确认加载最新代码。LaunchAgent绝对Python/脚本/PYTHONPATH/WorkingDirectory与cwd均正确，health healthy。
+- 正式管理契约：`/api/production/capabilities`披露8个扩展点，全部唯一active且metadata完整包含`contract_version=1`、非空`required_methods`、`implementation_type`与`contract_validated=true`；task lease清单精确包含acquire/renew/release/owns/request_cancel/cancellation_requested/commit_guard/reap_expired。隔离真实create `8/8`与metadata匹配。
+- 最终空闲：旧worker超时清退后仅PID 56761 healthy/active0/queue0，三池active/queued0，Ollama模型0，ComfyUI队列0/0。最终证据为失败原子性`6/6`、内置契约`8/8`、并发`2400/2400`、关联`146 passed, 3 subtests passed`及Python编译通过；未启动重模型。
+- 下一状态：待稽查。
+- 最终稽查退回：`activate()`没有重新探测真实factory，可变factory在注册后变为None/异常/坏实例时仍会切走稳定active；实例探测只检查同名方法，未验证真实对象属于声明的implementation_type；`required_methods`为字符串等非法结构时会跳过契约门禁。
+- 最终整改：新增注册表内部`_ProviderContract`，统一保存声明类型、规范化方法清单、私有probe配置和builtin可信边界。注册/replace/replace_provider在任何写入前执行统一探测；显式activate先在锁外重新探测，回锁后校验factory与contract未被并发替换再原子切换；create继续对实际生产实例二次验证。真实实例必须`isinstance(implementation_type)`且全部方法可调用，非法required_methods立即拒绝；probe_configuration不进入公开metadata。
+- 整改验证：激活时factory变为None或抛异常均拒绝且stable active保持；错误类型即使实现全部同名方法仍拒绝；字符串required_methods拒绝。专项`69 passed`，ProductionExtensionRegistry与compat_server Python编译通过。
+- 下一状态：待独立软件测试。
+- 最终整改隔离复测：通过。provider注册时factory正常，之后变为None/抛异常/错误implementation_type/实例非callable覆盖时，activate均在切换前拒绝，stable active/provider集合/create完全不变；required_methods为字符串或映射均在写入前拒绝，probe_configuration不出现于公开metadata，动态`7/7`。
+- 并发与契约：activate与register/replace_provider/enable/unregister/create并发压力下读取500次无异常或错误active；全部线程按时结束。8 builtin真实create与契约`8/8`及既有失败矩阵/并发`6/6`、`2400/2400`证据保持有效。
+- 回归：专项`69 passed`，关联`149 passed, 3 subtests passed`，ProductionExtensionRegistry与compat_server Python编译通过，未启动重模型。
+- 正式加载阻断：8787当前PID 57053启动于08:58:09，早于compat_server 08:59:55和ProductionExtensionRegistry 09:03:30最新文件，尚未加载最终activate重探测。当前worker/三池active/queued0、Ollama0、Comfy0/0，未自行重启。
+- 下一状态：待正式服务安全加载最新代码后补验。
+- 最终正式补验：通过。8787已在资源/模型空闲时由主线安全kickstart为PID 63381，启动时间09:07:26晚于compat_server 08:59:55和ProductionExtensionRegistry 09:03:30，确认加载最新activate重探测。LaunchAgent绝对Python/脚本/PYTHONPATH/WorkingDirectory与cwd均正确，health healthy。
+- 正式契约：`/api/production/capabilities`披露8个唯一active扩展，`contract_validated=8/8`；每项metadata均含contract_version=1、非空required_methods、implementation_type，且全部不含probe_configuration。task lease精确含request_cancel/cancellation_requested/commit_guard等全8方法；隔离8 builtin真实create `8/8`证据保持有效。
+- 最终空闲：旧PID worker超时清退后仅PID 63381 healthy/active0/queue0，三池active/queued0，Ollama模型0，ComfyUI队列0/0。最终证据：时间差与非法schema `7/7`、并发读取500次无错误active、专项`69 passed`、关联`149 passed, 3 subtests passed`及Python编译通过；未启动重模型。
+- 下一状态：待重新稽查。
+- 第二次最终稽查退回：候选provider仍可省略required_methods/implementation_type，使contract=None后直接激活；第三方还可在公开metadata伪造builtin=true取得探测豁免，实例级门禁未覆盖这两条降级路径。
+- 第二次整改：注册表维护extension-point级required_methods规范；一旦该点建立契约，后续provider省略或缩减方法清单均在写入前拒绝，并在mutation lock内二次检查并发首注册。builtin可信资格不再读取metadata，而由composition root构造注册表时传入固定(point,provider)白名单；非白名单即使声明builtin=true仍执行真实factory probe。
+- 整改验证：稳定task lease存在时，空metadata+None factory完整replace被拒绝；伪造builtin=true+None factory仍拒绝；provider集合、active与create保持。专项`70 passed`、Python编译与diff检查通过。
+- 第二次整改软件复测：通过。已有point契约时，空metadata、省略required_methods、缩减required_methods在普通注册、完整replace和replace_provider三种路径共`12/12`均原子拒绝，旧provider集合、active与create保持；公开metadata伪造builtin但不在构造白名单的None factory仍被真实probe拒绝。
+- 契约建立与自动接管：已有无契约provider时，非完整替换建立point契约被拒绝，完整replace可建立并清退旧provider；point有规范时无contract provider不能激活。卸载active前会重新探测fallback，动态变为None的候选不得接管且原集合/active不变；符合相同required_methods的第三方不同implementation_type可正常注册、激活与创建。
+- 并发边界：契约provider与无契约provider同时首注册动态`100/100`，mutation lock二次校验保证最终仅完整契约provider存在且可创建；无中间错误active。
+- 回归与编译：专项`70 passed`；关联`150 passed, 3 subtests passed`；ProductionExtensionRegistry与compat_server Python编译通过。未启动重模型。
+- 正式验收：通过。8787 PID 64512启动于09:14:28，晚于ProductionExtensionRegistry 09:13:28和compat_server 09:14:17，cwd为项目根目录且健康。管理接口披露8个唯一active扩展，`contract_validated=8/8`，每项contract_version、required_methods、implementation_type完整且公开metadata无probe_configuration；唯一worker healthy/active0/capacity11，Ollama模型0，ComfyUI队列0/0。
+- 下一状态：待重新稽查。
+- 最终空闲关闭补验：代码稽查既有通过结论有效；新PID 91425已加载最新registry/compat，正式8个扩展点全部唯一active/enabled且`contract_validated=8/8`，metadata完整、probe_configuration披露0。唯一worker healthy/active0，任务0、三池active/queued0、Ollama0、Comfy0/0；同一orphan阻塞已自然消失。
+- 最终状态：已关闭。
+
+### BUG-20260811-016：M9.172生产阶段单飞与取消仅限当前服务进程
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.172
+- 问题：`ACTIVE_PRODUCTION_STAGE_REQUESTS/CANCEL_EVENTS`仅在单进程内生效；多个API实例可同时执行同一tenant/user/project/stage，取消请求也无法通知实际owner。
+- 整改：run-stage增加稳定stage key的SQLite任务租约；租约generation由独立持久序列表单调递增。`cancel_requested`写入当前活租约，owner每秒续租并在取消或失租时设置本地事件。
+- 提交围栏：阶段执行结果返回后、项目阶段写回后、LangGraph pending_confirmation提交前复核owner+generation；取消/失租统一投影cancelled，禁止正常完成。
+- 开发验证：两个独立compat实例共享租约库，同阶段第二实例拒绝且可跨实例取消owner；取消后renew/owns均失败，新owner取得更高generation且不继承旧取消。专项`61 passed`及Python编译通过。
+- 首轮软件测试退回：assets结果通过首次ownership检查后，另一实例取消；旧owner仍先写waiting_confirmation，catch再写failed，虽Graph为cancelled但形成项目双事实。
+- 竞态整改：新增`TaskLeaseRepository.commit_guard`，在SQLite写事务内复核owner/generation/expiry/cancel，持有事务完成项目写回和LangGraph提交，成功后消费租约。取消先取得事务则guard拒绝且零业务写回；提交先取得事务则取消等待并在租约已消费后返回未取消。
+- 终态整改：取消/失租异常不再把assets项目写failed，只报告LangGraph cancelled；正常失败仍保持failed处置。
+- 开发验证：跨Repository取消与commit并发线性化、取消先到拒绝进入guard、generation持续递增；专项`62 passed`及Python编译通过。
+- 最终稽查退回：旧gen1失租后catch仍无代际围栏报告cancelled，可覆盖已接管的gen2 running；同时assets项目写回内已报告pending，handler又重复报告一次。
+- 代际整改：LangGraph状态新增每阶段`stage_generations`，所有带代事件拒绝低于当前代；run-stage的running/pending/cancelled均携带租约generation。纯失租旧owner不再报告任何Graph终态，仅持久`cancel_requested`证明的显式取消可报告cancelled。
+- 唯一提交整改：assets使用`_write_project_stage`返回的workflow，不再由handler重复报告pending_confirmation。
+- 开发验证：gen1 running→gen2 running后，gen1 cancelled/failed均被拒绝；gen2 pending保持且generation=2。专项`63 passed`及三文件Python编译通过。
+- 代际围栏软件复测退回：当前gen1被另一实例显式取消后，结果线程可在续租线程轮询前进入`_ensure`；业务写回虽为0，但旁路`cancel_requested`尚未设置，catch误判纯失租而让Graph停留running/gen1。
+- 同步取消整改：`_ensure_production_stage_request_active`在任何owns失败时立即按lease_key/owner/generation查询持久cancel_requested并写入事件，再抛出终止；显式取消即时报告cancelled，纯失租仍保持零Graph终态。
+- 开发验证：不启动续租线程，持久request_cancel后立即执行active check，可同步识别cancel_requested=true。专项`64 passed`及Python编译通过。
+- 重新稽查退回：同实例commit-first时，本地ACTIVE event先被无条件set并计数，随后SQLite request_cancel虽返回false，停止接口仍误报stopped=1，与实际waiting_confirmation矛盾。
+- 取消裁决整改：`_cancel_production_stage`先执行SQLite request_cancel，并以其布尔结果作为唯一返回事实；仅成功后才在本实例查找并设置匹配Event。commit-first返回0且不形成取消终态，cancel-first仍返回1并唤醒owner。
+- 开发验证：同一compat实例commit_guard阻塞、并发stop、释放提交后，stop精确返回0且ACTIVE事件清理；专项`65 passed`及Python编译通过。
+- 软件测试退回：同实例cancel-first/commit-first动态均通过，但关联旧静态测试仍要求遍历ACTIVE映射的历史实现文本，未接受精确`map.get(target_key)`与SQLite唯一裁决；`1 failed, 143 passed, 3 subtests passed`。
+- 测试契约整改：静态断言更新为精确scope map lookup及`TASK_LEASES.request_cancel`唯一裁决；相关组合回归`120 passed`。
+- 下一状态：待软件测试复测。
+- 首轮软件测试：不通过；发现首个失败后立即停止，未启动重模型。`test_production_control.py`现有专项`61 passed`及TaskLeaseRepository/compat_server Python编译通过，但未覆盖结果返回与项目写回之间的取消竞态。
+- 失败项：assets owner在生产结果返回并通过第一次`_ensure_production_stage_request_active`后，另一实例恰好持久写入`cancel_requested`；旧owner仍执行`_write_project_stage(... status=waiting_confirmation)`，随后第二次围栏才发现失租，catch分支又写入`status=failed`。LangGraph虽投影`cancelled`，项目阶段却留下两次旧owner写回且终态为failed，违反“取消后阻断项目写回、终态cancelled”。
+- 动态证据：隔离HTTP服务与第二TaskLeaseRepository共享SQLite，在首次所有权检查后立即`request_cancel`；公开run-stage返回HTTP 502/cancelled-or-lease-lost，Graph report为`assets/cancelled`，但捕获到项目写回`2`次，状态依次为`waiting_confirmation`、`failed`。
+- 整改要求：项目阶段写回必须纳入owner+generation原子提交围栏，不能仅在写前/写后分离检查；取消/失租异常分支不得把项目状态写成failed，应与LangGraph统一为cancelled，且旧owner的业务结果不得落盘。
+- 下一状态：待处理。
+- 首败整改软件复测：隔离功能通过。取消先到的原HTTP闸门返回502/cancelled，项目写回0且Graph仅cancelled；提交先到时cancel在SQLite事务后返回false，项目唯一写回waiting_confirmation且Graph唯pending_confirmation。
+- 边界证据：不同项目/阶段并行、release/reap/Repository重建后generation严格递增、旧owner拒绝、缺scope拒绝、SQLite acquire异常无本地ACTIVE泄漏，动态`11/11`通过。关联回归`141 passed, 3 subtests passed`，专项`62 passed`，TaskLeaseRepository与compat_server Python编译通过。
+- 正式验收阻断：8787 PID 44757启动于07:51:19，本轮TaskLeaseRepository和compat_server整改文件修改时间为08:08:36，正式进程尚未加载M9.172最新提交围栏。当前8787 cwd正确/health healthy、worker active0、三池active/queued0、Ollama0、Comfy0/0；未自行重启或启动模型。
+- 下一状态：待正式服务安全加载最新代码后补验。
+- 正式补验：通过。8787已在空闲时由主线安全kickstart为PID 48450，启动时间08:12:10晚于TaskLeaseRepository/compat_server整改时间08:08:36，确认加载最新代码。LaunchAgent `com.local.ai.compat-server`的Python、服务脚本、PYTHONPATH、WorkingDirectory均为`/Users/aoo/Code/AI Agent`绝对路径，cwd正确，health healthy。
+- 正式租约与空闲证据：`task_leases`包含`owner_id/generation/lease_expires_at/heartbeat_at/cancel_requested`，`task_lease_generations`独立保留单调generation，当前活动租约0。旧PID worker在30秒健康超时后自动清理，最终仅PID 48450 worker healthy/active0/queue0；三池active/queued0，Ollama模型0，ComfyUI队列0/0。
+- 最终结论：通过。取消/提交两种线性化顺序、边界`11/11`、专项`62 passed`、关联`141 passed, 3 subtests passed`及Python编译证据保持有效；未启动重模型。
+- 下一状态：待稽查。
+- 代际围栏软件复测：不通过；发现首个失败后立即停止，未启动重模型。跨两个ProductionOrchestrator动态复现gen1 TTL失租→gen2 running/commit→gen1晚到已通过，Graph保持outline pending_confirmation/generation2，旧owner未覆盖新结果。
+- 失败项：当前代显式取消在owner续租线程下一次1秒检测前发生时，`_ensure_production_stage_request_active`只因`owns=False`设置cancel_event，不同步读取持久`cancel_requested`。catch中`explicit_cancel=False`，将当前代显式取消误当纯失租并跳过Graph cancelled。
+- 动态证据：两独立compat实例共享租约SQLite，assets owner阻塞后由另一实例显式取消返回1并立即释放owner；HTTP返回502 cancelled-or-lease-lost，业务项目写回0，但Graph仍为`assets=running/stage_generation=1`，未转cancelled。当前专项`63 passed`但未覆盖小于1秒的取消竞态。
+- 整改要求：所有owns/commit guard失败路径在区分显式取消和纯失租时，必须直接按owner+generation查询持久cancel_requested，不得依赖1秒续租线程的旁路标志。当前代显式取消必须稳定投影cancelled，纯失租旧owner仍不得投影终态。
+- 下一状态：待处理。
+- 显式取消竞态整改软件复测：隔离功能通过。当前代assets在续租线程检测前由第二实例显式取消，HTTP返回502，项目写回0，Graph稳定为`assets=cancelled/generation1`。gen1 TTL失租→gen2 running/commit→gen1晚到跨两orchestrator反序亦通过，最终保持outline pending_confirmation/generation2。
+- 回归证据：专项`64 passed`，关联`143 passed, 3 subtests passed`，TaskLeaseRepository、ProductionOrchestrator和compat_server Python编译通过；未启动重模型。
+- 正式加载阻断：当前8787 PID 48450启动于08:12:10，早于ProductionOrchestrator 08:17:47和compat_server 08:23:28最新整改文件，正式服务尚未加载当前代显式取消修复。
+- 下一状态：待正式服务安全加载最新代码后补验。
+- 最终正式补验：通过。8787已由主线在空闲时安全kickstart为PID 51682，启动时间08:26:37晚于ProductionOrchestrator 08:17:47和compat_server 08:23:28，确认加载最新generation/cancel围栏。LaunchAgent绝对Python/脚本/PYTHONPATH/WorkingDirectory与cwd均指向`/Users/aoo/Code/AI Agent`，health healthy。
+- 正式Graph契约：公开`/api/production/workflow`响应已披露`stage_generations`持久字段；正式orchestrator SQLite保持2630个checkpoint，响应从持久状态读取。最终仅PID 51682 worker healthy/active0/queue0，三池active/queued0。验收期间合法H3 Context IR任务自然结束，qwen3-vl-h3-context-ir按expires_at自然卸载；未停止、清队列或重启。最终Ollama模型0、ComfyUI队列0/0。
+- 最终证据：当前代即时显式取消为Graph cancelled且业务写回0；gen1纯失租→gen2提交→gen1晚到保持pending_confirmation/generation2。专项`64 passed`，关联`143 passed, 3 subtests passed`，三文件Python编译通过。
+- 下一状态：待重新稽查。
+- 同实例commit-first/cancel-first动态复测：功能通过。cancel-first返回1、HTTP 502、项目写回0、Graph cancelled；commit-first期间cancel被SQLite事务线性阻塞，提交后返回0且不触发本地event，HTTP 200、项目唯一waiting_confirmation、Graph pending_confirmation。专项`65 passed`及三文件Python编译通过。
+- 关联回归退回：`test_production_gate_reconciliation.py::test_storyboard_stop_requires_complete_exact_project_identity`仍强制断言已删除的旧遍历实现文本`if key != target_key: continue`，而新实现改为精确`ACTIVE_PRODUCTION_STAGE_CANCEL_EVENTS.get(target_key)`查找。实际项目身份边界动态仍通过，但关联契约未同步，全量结果为`1 failed, 143 passed, 3 subtests passed`，不得流转。
+- 正式加载：当前PID 51682启动于08:26:37，早于compat_server本轮08:34:16修改，亦尚未加载同实例取消语义整改。按首败停止，未启动重模型。
+- 下一状态：待同步关联测试契约并安全加载正式服务后复测。
+- 同实例语义与旧契约最终复测：通过。精确取消契约与production_control组合`66 passed`；同实例cancel-first返回1并唤醒event，业务写回0/Graph cancelled；commit-first时cancel等待SQLite事务后返回0且不触发event，项目唯一waiting_confirmation/Graph pending_confirmation。跨实例、generation反序及旧owner围栏证据保持通过。
+- 最终回归：`144 passed, 3 subtests passed`；TaskLeaseRepository、ProductionOrchestrator和compat_server Python编译通过。正式8787 PID 54550启动于08:38:11，晚于compat_server 08:34:16整改，确认加载最新代码；LaunchAgent绝对路径、PYTHONPATH、cwd正确，health healthy。仅新worker healthy/active0/queue0，三池active/queued0，Ollama模型0，ComfyUI队列0/0；未启动重模型。
+- 下一状态：待重新稽查。
+- 最终稽查：通过。SQLite唯一取消裁决、commit guard线性化、stage generation低代拒绝、纯失租零终态、显式取消同步与assets单次pending均无阻断。
+- 最终空闲补验：合法H3模型自然卸载，全程未stop/restart/清队列；8787 PID54550、worker、三池、tasks、Ollama与ComfyUI全部空闲。
+- 最终状态：已关闭。
+
+### BUG-20260811-015：M9.171 MiniMax H3 Context IR提示词优化节点安装
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.171
+- 安装：节点提交771cb3cb…、MIT许可、openai-agents/openai依赖、本地qwen3-vl-h3-context-ir 16K模型、ComfyUI白名单与持久LaunchAgent。
+- 开发验证：object_info发现FL2VA/Ref2VA两节点；真实prompt 7d423397… success并输出非空结构化H3提示词；原262K配置90.4GB已终止，专用16K实测24.5GB；结束后Comfy队列0/0、Ollama models为空。
+- 能力边界：仅安装、发现、手动接线和真实调用完成；自动插入短剧H3生产图、独立阶段与卸载审计仍为pending_development。
+- 软件测试：通过。节点仓库固定提交`771cb3cb01af9543b4f424518bb19b7fa0cf31d8`、MIT许可；Comfy venv依赖`openai-agents 0.19.4/openai 2.53.0/Pillow 12.3.0/numpy 2.4.6`完整；`config.toml`被git忽略、使用本地Ollama端点与非敏感占位Key；专用模型为32B来源、16K上下文/2048输出，262K配置明确禁止。LaunchAgent运行中且白名单包含节点；8194发现FL2VA/Ref2VA两节点；真实history `7d423397-b780-4ed6-b776-2fd1278f433d`为success，非空输出含三项H3结构字段；队列`0/0`、Ollama加载模型`0`。五份规范均保留`pending_development`自动接线边界。专项及关联回归`102 passed, 3 subtests passed`，Python编译通过；未启动H3视频重模型。
+- 最终稽查退回：上游Python依赖使用浮动下限且无项目锁/哈希/SBOM/安全扫描；专用Modelfile使用浮动`qwen3-vl:32b`，无法保证重装使用相同权重。
+- 供应链整改：新增42项全量精确版本+下载哈希锁、固定Git提交/许可/requirements/model blob校验及可复现安装脚本；Modelfile固定引用已实测SHA-256为`6e416d…a99b`的20,910,274,496字节源blob；新增CycloneDX SBOM、pip-audit漏洞0项报告与Bandit静态扫描（高0/中0/低1，B110为上游清理OSError接受项）及统一供应链JSON台账。
+- 供应链软件测试退回：`docs/security/h3-context-ir-bandit.json`唯一低危B110实际为上游`nodes.py:252`对`set_tracing_disabled(True)`的`except Exception: pass`，但`deploy/comfyui/h3-context-ir-supply-chain.json`将处置对象记为“best-effort image cleanup catches OSError”，证据位置、异常类型和用途均不一致，安全处置台账失真。退回前已通过：固定commit且工作树clean、`install_h3_context_ir_agent.sh --verify`、42项精确锁及全项下载哈希、SBOM与锁42项完全一致、pip-audit 0漏洞、Bandit高0/中0/低1。
+- 安全台账整改：台账与节点规范已准确记录B110位于`nodes.py:252`，实际为`set_tracing_disabled(True)`的宽异常吞吐；风险定性为追踪禁用API异常时静默失败。固定本地回环Ollama、占位Key、禁用追踪配置保持，安装/校验脚本新增固定Agents API真实disabled状态断言；测试新增位置、调用和旧错误描述不存在的机器门禁。
+- 第二轮供应链软件测试退回：台账与规范声称LaunchAgent设置`OPENAI_AGENTS_DISABLE_TRACING=1`，但当时变量只存在于节点忽略配置，plist及正式进程环境均缺失；其余B110处置、verify、6项专项、42项哈希与dry-run均通过。
+- 第二轮整改：启动脚本显式export且LaunchAgent EnvironmentVariables固定`OPENAI_AGENTS_DISABLE_TRACING=1`；队列空闲时已重载正式8194，PID 49426的真实进程环境与launchctl均返回该变量为1，节点在线、队列0/0，verify再次通过。
+- 第二轮供应链软件测试退回：B110位置、调用与旧错误描述已整改，`--verify`及专项`6/6`通过；但manifest与H3规范均声称“配置和LaunchAgent设置/声明`OPENAI_AGENTS_DISABLE_TRACING=1`”，实际`com.aiagent.comfyui8194.plist`及当前launchctl运行环境均无该变量，只有节点忽略配置`config.toml`包含该键，风险缓解证据仍不准确。42项require-hashes dry-run解析通过且未移除锁外依赖。
+- 第三轮供应链软件测试退回：LaunchAgent与正式PID 49426环境均已真实携带`OPENAI_AGENTS_DISABLE_TRACING=1`，`--verify`、专项`6/6`、固定commit/clean工作树、许可/requirements/lock/model blob大小与SHA、42项锁=42项SBOM、pip-audit 0、Bandit高0/中0/低1及B110精确位置均通过；但服务重载后8194 `/history/7d423397-b780-4ed6-b776-2fd1278f433d`不存在，完整`/history`为0条，无法验证要求的真实success与非空H3结构输出。当前队列0/0、Ollama加载0。
+- 第三轮整改中发现真实输出边界：重跑prompt `011bf0ba…`（chat_completions）、`6d8b380d…`（responses）以及4096输出的`eaa6140e…`均被Comfy标success，但全部预算消耗于Qwen thinking，`optimized_prompt/raw_json`为空，均不作为通过证据。根因是Ollama `qwen3-vl-thinking` renderer/parser忽略禁用思考参数；专用Modelfile现固定官方问题建议的`qwen3-vl-instruct` renderer/parser并保留16K/2048，须重跑取得非空输出后才可复测。
+- Thinking权重替换：已下载官方`qwen3-vl:32b-instruct`非思考权重，源blob为20,910,274,592字节、`sha256-4c7fee11…607ea`；专用Modelfile、安装脚本、供应链台账和测试全部切换并固定该实物及instruct renderer/parser。必须以此权重重新取得非空Comfy history后放行。
+- 本地兼容与真实验收：固定上游节点无条件发送reasoning参数，Instruct模型会拒绝；新增哈希固定兼容补丁仅对专用模型省略reasoning，安装脚本拒绝任何其他工作树漂移。正式prompt `46356c27-a347-4e5d-88f0-452109b650e5`在23.404秒成功，optimized_prompt/selected_skills/raw_json三项均非空，包含`integrated_multimodal_description/overall_soundscape/non_diegetic_music`；完整证据已固化到项目，不再依赖重启后history。
+- 第四轮供应链软件测试：通过。`qwen3-vl:32b-instruct`源blob大小`20,910,274,592`及SHA-256 `4c7fee11…607ea`一致，Modelfile固定blob/16K/2048/instruct renderer/parser；上游commit固定，工作树仅含哈希完全一致的唯一compatibility patch，verify对缺patch及额外漂移均拒绝。42项require-hashes锁与42项SBOM完全一致，pip-audit漏洞0，Bandit高0/中0/低1且B110处置准确；LaunchAgent正式PID 55158环境变量为1。真实prompt `46356c27-a347-4e5d-88f0-452109b650e5` history success，三输出非空，三个落盘产物大小/哈希均匹配runtime-smoke；两节点可发现，队列0/0、Ollama加载0。五份规范均保持`pending_development`及资源边界。专项与关联回归`112 passed, 3 subtests passed`，verify、JSON、bash、Python编译及reverse patch检查通过；未启动H3视频重模型。
+- 最终稽查：通过。固定提交与唯一补丁、42项依赖及哈希、SBOM与安全扫描、32B Instruct源模型摘要、LaunchAgent追踪禁用、两个节点发现、真实三项输出及落盘哈希、资源卸载、五份规范与`pending_development`边界均复核通过。
+- 下一状态：已关闭
 
 ### BUG-20260811-014：M9.170服装独立道具资产与镜头级换装链
 
@@ -25,7 +959,7 @@
 
 ### BUG-20260811-013：M9.169任务批提交与LangGraph投影仍非原子边界
 
-- 状态：待处理
+- 状态：已关闭（最终稽查通过）
 - 关联任务：M9.169
 - 来源：M9.169首轮最终稽查退回。
 - 阻断一：多job store逐条独立upsert，第N条失败会留下前N-1条部分提交。
@@ -76,6 +1010,11 @@
 - 关联回归：`137 passed, 3 subtests passed`；DurableTaskRepository、ProductionOrchestrator与compat_server Python编译通过。
 - 本轮正式验收：不通过，未启动任何测试重模型。8787 PID 44757、cwd正确、health healthy，worker active 0、三池queued 0，Ollama模型0；但ComfyUI 8194存在`queue_running=1`的MiniMaxH3FL2VAPromptAgentOpenAIAPI任务，不符合本轮“正式服务与资源空闲”验收前提；未停止或干预该任务。
 - 下一状态：待ComfyUI自然空闲后补正式验收。
+- 最终补验：通过。合法H3任务自然结束后，ComfyUI `queue_running=0/queue_pending=0`；全程未停止、清队列或重启。逐库replay瞬时busy专项通过，text库异常时保留outbox且继续image/video，heartbeat不退出；`test_production_control.py` `59 passed`。
+- 最终正式验收：8787 PID 44757、cwd正确、health healthy；worker active 0、queue_depth 0，三池active/queued均0；Ollama模型0，ComfyUI队列0/0。关联全量`137 passed, 3 subtests passed`及三文件Python编译证据保持有效，未启动测试重模型。
+- 最终稽查：通过。批事务、持久outbox、全局revision、CAS ack、跨进程ProjectionLease、失租高revision补偿、release busy TTL兜底与逐库heartbeat异常隔离均形成闭环。
+- 最终空闲补验：Ollama上下文模型自然卸载，全程未停止或重启；8787 PID44757 healthy，worker与三池空闲，tasks=[]，Ollama models=[]，ComfyUI 0/0。
+- 最终状态：已关闭。
 
 ### BUG-20260811-012：M9.167正式8787未加载分层背压资源池配置
 
@@ -1252,7 +2191,7 @@
 
 ### BUG-20260810-002：短剧文本任务仍使用单一旧模型，缺少Qwen3.5分层路由
 
-- 状态：已修复，待软件测试复核
+- 状态：已关闭（历史模型口径，已被M9.163覆盖）
 - 严重程度：严重
 - 提交人：用户需求
 - 提交时间：2026-08-10
@@ -1662,7 +2601,7 @@
 - 最终稽查：通过。场景定义严格保持主平视、左45°、右45°、高角度微俯视四槽；左右提示分别限定展示左侧/右侧空间并显式禁止相反方向，标签、提示、任务名和持久槽位独立。新基准确认、历史基准确认、继续生成、恢复展示、单槽导入与重生成均按当前三项明细重建，旧单45°和低角度不再进入正式槽；`onlyVariant`按当前对象或精确标签重新绑定，只执行目标槽；完成门禁要求三个当前标签均有图且confirmed。人物四槽与道具四槽定义、生成和完成门禁未回归。只读复跑相关仓库37项、3个子测试通过；正式项目现有历史场景仍保留旧失败槽作为待迁移数据，继续确认生成会按新定义替换，不会静默冒充完成。M9.117计划、项目记忆及BUG流程记录一致，允许关闭BUG。
 ### BUG-20260810-003：TripoSR 下载增量夹带缓存且目录规范版本未同步
 
-- 状态：主线已整改，待软件测试复测
+- 状态：已关闭（最终稽查通过）
 - 测试范围与变更文件：`models/3d/TripoSR/`、`DIRECTORY_README.md`、`docs/technical/ADR/ADR-0005-3d-model-storage.md`
 - 测试环境：macOS arm64，物理内存137438953472字节，Python 3，PyYAML 6.0.2，PyTorch 2.8.0
 - 测试结果：不通过；用例10项，通过8项，失败2项。
@@ -1742,7 +2681,7 @@
 - 最终状态：已关闭
 ### BUG-20260810-007：对话框图片反推返回提示词字段模板
 
-- 状态：待处理
+- 状态：已关闭（最终稽查通过）
 - 测试范围：对话框上传图片反推、`POST /api/vision`、图片超分、PuLID/ReActor入口、MuseTalk、RealESRGAN与RIFE前后端接线。
 - 测试结果：不通过。专项单元测试18/18通过；真实图片反推失败。
 - 复现：向`POST /api/vision`提交真实PNG的Base64，`prompt`为“请反推这张图片的完整生图提示词和负面提示词”。接口返回HTTP 200，但`description`固定为“正向提示词：主体；年龄性别；五官发型……负面提示词：与画面冲突的主体……”，没有输出该图片的实际人物、场景、颜色、光影或画风。
@@ -1775,3 +2714,42 @@
 - 口型链路：生产流程优先调用MuseTalk，失败后调用LatentSync-1.6；两条链路的模型标记与版本标记一致。
 - 运行证据：8787健康检查通过，8194队列为空；MuseTalkRun、RIFE VFI、RealESRGAN、PuLID与ReActor节点均已加载；专项、媒体、恢复与任务运行时组合回归31/31通过。
 - 最终状态：已关闭。
+### BUG-20260811-042：机器人缺少真实联网搜索能力
+
+- 状态：已关闭（最终稽查通过）。
+- 最终稽查：业务、质量、安全及流程复核全部通过；原句真实回答仅采用SenseNova U1、Flux.2 Klein、GLM-Image并按发布日期倒序，LLM调用0。专项147 passed/1 skipped/3 subtests，全unit543 passed/1 skipped/9 subtests，pycompile+compileall、Vue typecheck、Vite 83 modules通过。
+- 根因：`/api/assistant` 只调用本地模型，没有搜索意图路由、搜索提供方、来源证据、失败阻断或审计字段，因此会用过时参数回答“最新/许可”等问题。
+- 框架整改：新增统一 `web.search` 能力、三提供方路由、来源约束提示、引用与审计、SSRF/协议/体积/超时门禁；搜索失败禁止无来源回答。
+- 主线证据：真实网络检索 LangGraph 返回官网/GitHub/官方文档；专项6项、全unit 501 passed/1 skipped/9 subtests；py_compile、Vue typecheck、Vite 83 modules通过。
+- 独立软件测试首败：真实公网搜索通过，查询`LangGraph official documentation GitHub`由`bing-html`返回3条非空可核验来源（LangChain官网、GitHub、官方文档），并携带query/provider_id/searched_at；专项`6 passed`。但真实临时HTTP调用`GET /api/assistant/capabilities`返回的`web_search.providers`仅列Brave与DuckDuckGo，遗漏实际已接入且本次真实使用的Bing后备，能力接口与三提供方真实路由不一致。按首败规则立即停止，未继续assistant时效/失败阻断/普通对话、SSRF完整矩阵、全unit、Python编译、Vue typecheck或Vite构建；未调用本地模型、未启动重模型、未修改业务代码。下一状态：待处理。
+- 能力接口整改后独立软件复测：通过。真实公网再次检索LangGraph，`bing-html`返回LangChain官网、GitHub与官方文档3条来源；能力接口由`WEB_SEARCH_PROVIDER_DESCRIPTIONS`单一事实源动态披露Brave优先、DuckDuckGo第一后备、Bing第二后备。真实临时HTTP验证时效问题严格search→LLM，响应含sources/query/provider/searched_at；显式true强制搜索、显式false关闭搜索、普通对话不联网；搜索失败返回HTTP502且本地模型调用0次。Brave有Key优先及失败→DDG无结果→Bing回退专项通过。SSRF/回环/localhost/私网/链路本地/IPv6/非HTTP矩阵`10/10`，重定向/响应类型/1MB体积`3/3`，provider host白名单`3/3`；能力注册、前端thinking及响应契约通过。专项与兼容回归`141 passed, 1 skipped, 3 subtests passed`，完整单元测试`501 passed, 1 skipped, 9 subtests passed`；关键Python文件编译、Vue typecheck和Vite生产构建通过（83 modules，574ms）。未调用真实本地模型、未启动重模型、未修改业务代码。下一状态：待稽查。
+- 用户真实回答质量退回：问题“最新开源的文生图模型是哪个”错误引用Google Translate与Tamil输入站。根因是中文查询未领域化，且旧链只验证来源存在而不验证来源与问题相关。整改新增中英查询归一、image/open-source主题相关性门禁、Google News日期证据、发布时间排序；时效回答改为确定性列举证据，标题未写型号时禁止模型猜测。真实HTTP复现已不含翻译/Tamil站点；主线专项9/9、全unit521 passed/1 skipped/9 subtests，pycompile/typecheck/83模块构建通过。状态：待独立软件测试。
+- M9.194稽查整改独立复测首败：逐跳禁重定向确定性用例通过，provider首跳返回`Location: http://127.0.0.1:8787/private`时仅发生1次open、第二次open为0；198.18/15仅注册provider transport可通过，任意结果域名解析到该网段仍被private_network拒绝，定向`3/3`通过。但紧接着从当前冻结快照执行真实公网`search_web({query:"LangGraph official documentation GitHub",count:3})`时，DuckDuckGo与Bing均返回`no_results`，最终抛`all_search_providers_failed`，未取得任何可核验来源，真实联网验收失败。按首败规则立即停止，未继续citation/搜索意图/显式开关、全安全矩阵、全unit、Python编译、Vue typecheck或Vite构建；未调用本地模型、未启动重模型、未修改业务代码。下一状态：待处理。
+- 公网可用性整改后独立复测首败：连续3次真实公网查询均由`bing-html`稳定返回3条非空来源（LangChain官网、GitHub、官方文档），真实公网稳定性`3/3`通过。但专项`tests/unit/test_web_search_assistant.py::test_search_provider_falls_back_and_returns_auditable_sources`仍要求attempts仅为Brave、DuckDuckGo各1次，正式框架已改为每provider有限2次，实际attempts为Brave×2、DuckDuckGo×2，断言失败；专项汇总`1 failed, 7 passed`。当前测试契约未同步M9.194重试边界，冻结快照无法全绿。按首败规则立即停止，未继续DoH/逐跳/citation/意图全矩阵、全unit、Python编译、Vue typecheck或Vite构建；未调用本地模型、未启动重模型、未修改业务代码。下一状态：待处理。
+- 最新冻结快照独立软件复测：通过。连续3次真实公网搜索均由Bing RSS稳定返回LangChain官网、GitHub与官方文档3条来源；结构化注册表按Brave→DuckDuckGo→Bing→Google顺序统一ID、描述、hosts、handler、env，所有provider最多2次且attempt审计准确。逐跳私网Location仅1次open、第二次0；198.18/15只允许注册provider transport，结果域通过禁重定向dns.google DoH取得全公网权威地址才放行，DoH空结果/私网答案`3/3`失败关闭。SSRF/localhost/回环/私网/链路本地/IPv6/非HTTP`10/10`，响应类型/1MB体积`2/2`，provider registry schema/order`4/4`。真实临时HTTP验证当前项目/当前任务本地问句不联网`2/2`，语言显式联网和按钮显式true强制搜索`2/2`，无有效citation四种情况均HTTP502且不自动附来源，搜索全失败HTTP502且LLM调用0。能力接口单一事实源、前端联网按钮/thinking/结果契约通过。专项兼容`143 passed, 1 skipped, 3 subtests passed`，完整单元测试`509 passed, 1 skipped, 9 subtests passed`；关键Python文件编译、Vue typecheck和Vite生产构建通过（83 modules，540ms）。未调用真实本地模型、未启动重模型、未修改业务代码。下一状态：待稽查。
+- 非阻断安全硬化最终独立复测：通过。`_public_http_url(..., allow_managed_proxy=True)`自身强制hostname属于结构化provider hosts，attacker/result/localhost任意域拒绝`3/3`，Brave/DuckDuckGo/Bing/Google注册host放行`4/4`；无需依赖调用方保持安全。真实公网连续搜索再次`3/3`，每次Bing RSS返回同一组3条官方来源。assistant最终矩阵为当前项目不联网`1/1`、显式按钮强制`1/1`、无有效citation失败关闭`4/4`、搜索失败LLM零调用`1/1`；专项兼容`143 passed, 1 skipped, 3 subtests passed`。完整单元测试最新为`519 passed, 1 skipped, 9 subtests passed`；关键Python文件编译、Vue typecheck和Vite生产构建通过（83 modules，533ms）。三流程单一M9.194当前主线状态保持软件测试通过待稽查；未调用真实本地模型、未启动重模型、未修改业务代码。最终状态：待稽查。
+- 用户真实回答质量整改独立复测首败：原句`最新 开源的文生图模型是那个?`真实临时HTTP通过，生成英文领域query`"open-source" "image generation" model`，由`google-news-rss`返回6条按published_at降序的相关来源；Google Translate/Tamil/字体站为0，所有来源均含image与open-source语义，时效回答LLM调用0，明确“仅凭最新无法安全断言唯一型号”，回答中的标题与URL逐项对应sources。相关性矩阵非法`4/4`拒绝、合法`1/1`接受，专项兼容`144 passed, 1 skipped, 3 subtests passed`。但继续复跑此前要求的真实公网连续稳定性时，首轮`LangGraph official documentation GitHub`查询即失败：DuckDuckGo两次HTTPError、Bing两次no_results、Google News一次URLError一次no_results、Google HTML两次no_results，最终`all_search_providers_failed`；未达到真实公网连续`3/3`。按首败规则中断正在扩大的全unit（中断前`242 passed, 6 subtests passed`），未执行Python编译、Vue typecheck或Vite构建；未调用真实本地模型、未启动重模型、未修改业务代码。下一状态：待处理。
+- 公网异常恢复框架整改后独立复测：通过。原句真实HTTP继续生成英文领域query，返回按时间排序的相关开源图像生成来源，翻译/Tamil/字体站为0、时效回答LLM调用0、无法确认唯一型号且reply与sources逐项一致。全新空缓存下LangGraph真实连续`3/3`均由`github-api`实时返回，首条严格为`langchain-ai/langgraph`且`cache_hit=false`。全provider模拟失败后，同query+count有效缓存恢复成功并含`cache_hit=true/live_attempts=10/provider_id=cache:github-api`；跨query、过期、损坏JSON、失效私网URL均失败关闭`4/4`。六provider结构化事实源、SSRF/协议/managed-proxy安全矩阵通过。专项兼容`145 passed, 1 skipped, 3 subtests passed`，完整单元测试`525 passed, 1 skipped, 9 subtests passed`；关键Python文件编译、Vue typecheck和Vite生产构建通过（83 modules，557ms）。未调用真实本地模型、未启动重模型、未修改业务代码。下一状态：待稽查。
+- 最终稽查五项整改独立复测首败：用户原句真实HTTP质量链通过，query为`"image generation" "open-source" latest 2026 model official release`，Google News严格返回SenseNova U1（2026-04-30）、Flux.2 Klein（2026-01-16）、GLM-Image（2026-01-14）三项并按日期降序，工具/客户端/提示库为0、LLM调用0。随后以全新空缓存验证明确`LangGraph official documentation GitHub`时，GitHub API真实两次返回HTTPError，框架降级到`bing-html`；结果首条为LangChain官网而非`langchain-ai/langgraph`，provider也不是`github-api`，未满足“明确LangGraph仍GitHub官方且连续3次首条官方仓库”的验收。该失败同时证明repository_updated_at路径本轮未能取得真实GitHub证据。按首败规则立即停止，未继续附加条件、缓存审计透传、全部安全缓存恢复、专项、全unit、Python编译、Vue typecheck或Vite构建；未调用真实本地模型、未启动重模型、未修改业务代码。下一状态：待处理。
+- 纠正验收契约后最终独立复测：通过。GitHub匿名API允许合法限流并自动降级，不再强制provider或首条固定仓库；全新空缓存真实公网连续`3/3`成功，每次至少包含`langchain-ai/langgraph`权威来源。确定性模拟GitHub HTTP403时，两次失败均写入`attempts`，DuckDuckGo两次`no_results`同样可审计，随后Bing后备成功。用户原句质量、附加条件保留、同查询短TTL缓存恢复与`cache_hit/cache_recovered_at/live_attempts`透传、跨查询/过期/损坏/失效URL失败关闭、六provider事实源及安全矩阵由专项与全量回归覆盖。状态冲突测试机制修复点`1 passed`；专项兼容`147 passed, 1 skipped, 3 subtests passed`；完整单元测试`543 passed, 1 skipped, 9 subtests passed`。关键Python文件`py_compile`及后端`compileall`通过，Vue typecheck通过，Vite生产构建通过（83 modules，582ms）。未调用真实本地模型、未启动重模型。最终状态：软件测试通过，待稽查。
+### BUG-20260811-043：被代际围栏拒绝的旧事件仍污染LangGraph持久事件快照
+
+- 状态：已关闭（最终稽查通过）
+- 关联任务：M9.195
+- 现象：`apply_event`会拒绝旧`projection_revision`或旧`stage_generation`对阶段生命周期的覆盖，但LangGraph在进入节点前已把本次输入写入顶层`event`；拒绝分支未恢复旧值，导致持久`event`、重启恢复authority核对和导演故障决策仍读取被拒绝的旧owner信息。已有正代际后，无代际 legacy 回调也可覆盖阶段状态。
+- 根因：阶段状态、revision和generation具备围栏，承载同一事实的事件payload却没有独立的“已接受事件”持久槽；拒绝只返回空revision/generation差量，不能撤销输入合并。
+- 修复：LangGraph状态新增`accepted_event`及按stage保存的`stage_events`；事件通过双围栏后原子更新生命周期、代际、revision和事件快照，任一围栏拒绝时恢复最近一次已接受事件。已有正代际时，缺失/零代际事件按旧代拒绝，禁止无围栏回调降级权威阶段。
+- 开发验证：新增旧revision、旧generation、无generation、跨stage及SQLite重载动态用例；专项与关联`110 passed, 1 skipped`，完整单元测试`507 passed, 1 skipped, 9 subtests passed`。未启动重模型或操作正式任务。
+- 软件测试退回整改：事件接受顺序改为先比较`stage_generation`；更高代无条件建立新revision序列并允许`4/10 -> 5/1`，revision只在同代内严格递增。旧代、已有正代后的零代、同代旧/相等/缺失revision均恢复最近权威事件；新代revision为0时显式重置旧代revision，避免后续同代首个revision被旧代数值阻断。
+- 整改开发验证：未来高代低revision、同代revision单调、旧代、零代、跨stage、SQLite reload及两个独立orchestrator实例共享checkpoint共`7 passed`；完整单元测试`525 passed, 1 skipped, 9 subtests passed`。Python编译、Vue typecheck与83模块Vite生产构建通过。扩大首轮仅出现已知资源池queued线程观测瞬态，单项立即复跑及随后完整unit均通过。未启动模型或正式任务。
+- 第二轮复测退回整改：新代`revision=0`首次接受后，不再以`current_revision`真假判断是否已有序列，而以该stage是否已有accepted event判断；正代际已有事件时，同代重复/缺失`revision=0`均拒绝，`revision=1`唯一推进。真正缺少`stage_events`的旧checkpoint允许当前owner首个事件建立迁移基线，此后立即执行严格单调。
+- 合法阶段调用同步：run-stage开始固定新代revision 0，成功/失败提交固定revision 1；后续确认、台账协调与重启恢复从Graph当前代际读取并提交`current revision + 1`，避免严格围栏阻断真实终态。资源池并发测试增加等待排队线程真实入队的确定性同步，消除测试自身调度竞态。
+- 第二轮整改验证：revision0首个/重复/缺失/推进及旧checkpoint迁移在内事件专项`9 passed`，阶段终态/authority恢复关联`15 passed`，完整单元测试`543 passed, 1 skipped, 9 subtests passed`；Python编译、Vue typecheck及83模块构建通过。未启动模型或正式任务。
+- 下一状态：待独立软件测试复测
+- 扩大验证：LangGraph与短剧生产集成、生产控制、原子authority提交及恢复关联首轮出现既有资源池线程排队观测瞬态失败，立即单测复跑通过，冻结组合复跑`117 passed, 1 skipped`；Python编译、Vue typecheck及83模块Vite生产构建通过。
+- 独立软件测试首败：更高`stage_generation`携带从新代重新计数的较小`projection_revision`时，当前`apply_event`先执行全局revision比较并直接拒绝。确定性动态从`generation=4/revision=10/request_id=old`提交`generation=5/revision=1/request_id=new`后，状态仍为`running/generation=4/revision=10/event.request_id=old`，新owner事件未获接受。revision必须只在同一generation内保持单调；更高generation应建立新的权威代际并接受其revision。按首败规则停止，未执行其余矩阵、全unit、编译、前端类型检查或构建；未启动模型、未操作正式服务。
+- 下一状态：修复代际优先比较后重新独立软件测试。
+- 最新独立软件复测：通过。generation/revision事件围栏、阶段取消、authority原子提交、项目恢复及文档状态关联`132 passed`；完整unit`554 passed, 1 skipped, 9 subtests passed`，唯一初始skip为Node运行时未在默认PATH，补充项目既有Node后对应动态文件`23 passed`。关键Python编译、Vue typecheck及83模块生产构建通过。测试仅使用临时SQLite/checkpoint，未启动模型、未修改正式数据；下一状态为待只读稽查。
+- 最终只读稽查：通过。generation第一所有权围栏、同代revision严格单调、新代revision 0唯一基线、legacy checkpoint一次迁移、被拒事件权威恢复及开始/终态/确认/恢复调用方递增均与统一生产内核规范一致；未发现阻断性功能、并发、持久化、兼容或证据缺陷。
+- 关闭时间：2026-08-11（Asia/Shanghai）。
+- 下一状态：已关闭。

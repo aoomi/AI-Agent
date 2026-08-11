@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 
@@ -24,6 +25,7 @@ def prepare(module, root: Path) -> None:
     module.ACTIVE_IMAGE_JOBS.clear()
     module.ACTIVE_IMAGE_SUBJECTS.clear()
     module.ACTIVE_IMAGE_PROCESSES.clear()
+    module.ACTIVE_IMAGE_WORKERS.clear()
     module.IMAGE_SHUTTING_DOWN.clear()
 
 
@@ -134,6 +136,31 @@ def test_service_restart_recovers_persisted_running_state() -> None:
         assert "服务重启" in job["error"]
 
 
+def test_service_restart_downgrades_completed_job_with_missing_media() -> None:
+    module = load_backend()
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary); prepare(module, root)
+        missing = root / "images" / "missing.png"
+        module._save_image_jobs({"jobs":{"job-missing":{"status":"completed", "output_path":str(missing),
+            "image":{"url":"/api/result-media?filename=missing.png&subfolder=images"}}}})
+        module._recover_image_jobs()
+        job = json.loads(module.IMAGE_JOBS_FILE.read_text())["jobs"]["job-missing"]
+        assert job["status"] == "failed"
+        assert job["error"] == "已完成图片文件缺失，请重新生成"
+
+
+def test_service_restart_keeps_completed_job_when_media_exists() -> None:
+    module = load_backend()
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary); prepare(module, root)
+        image = root / "images" / "kept.png"; image.parent.mkdir(exist_ok=True); image.write_bytes(b"png")
+        module._save_image_jobs({"jobs":{"job-kept":{"status":"completed", "output_path":str(image),
+            "image":{"url":"/api/result-media?filename=kept.png&subfolder=images"}}}})
+        module._recover_image_jobs()
+        job = json.loads(module.IMAGE_JOBS_FILE.read_text())["jobs"]["job-kept"]
+        assert job["status"] == "completed"
+
+
 def test_timeout_terminates_process_and_retries_once() -> None:
     module = load_backend()
     with tempfile.TemporaryDirectory() as temporary:
@@ -174,6 +201,29 @@ def test_watchdog_reconciles_job_without_process() -> None:
         jobs = json.loads(module.IMAGE_JOBS_FILE.read_text())["jobs"]
         assert all(job["status"] == "failed" for job in jobs.values())
         assert all("无实际进程" in job["error"] for job in jobs.values())
+
+
+def test_watchdog_preserves_processing_job_while_request_worker_is_alive() -> None:
+    module = load_backend()
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary); prepare(module, root)
+        module.IMAGE_WATCHDOG_SECONDS = 1
+        module._save_image_jobs({"jobs":{"job-audit":{
+            "status":"processing", "started_at":module._iso_now(),
+            "heartbeat_at":"2000-01-01T00:00:00+00:00", "timeout_seconds":1800,
+        }}})
+        module.ACTIVE_IMAGE_WORKERS["job-audit"] = threading.current_thread()
+        original_wait = module.IMAGE_WATCHDOG_STOP.wait
+        calls = 0
+        def wait_once(_seconds):
+            nonlocal calls
+            calls += 1
+            return calls > 1
+        module.IMAGE_WATCHDOG_STOP.wait = wait_once
+        try: module._monitor_image_jobs()
+        finally: module.IMAGE_WATCHDOG_STOP.wait = original_wait
+        job = json.loads(module.IMAGE_JOBS_FILE.read_text())["jobs"]["job-audit"]
+        assert job["status"] == "processing"
 
 
 def test_new_task_cleanup_reclaims_all_stale_nonterminal_states() -> None:

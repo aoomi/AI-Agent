@@ -12,7 +12,7 @@ export type ShotImageItem = { episode:number; shot_number:number; image_url?:str
 export type ShotVideoItem = { episode:number; shot_number:number; video_url?:string; source_video_url?:string; path?:string; audio_url?:string; speaker?:string; voice_preset?:string; voice_cast_version?:string; lip_sync_version?:string; emotion?:string; lip_sync_model?:"LatentSync-1.6" | "MuseTalk"; voice_status?:"pending" | "completed" | "not_applicable" | "failed"; lip_sync_status?:"pending" | "completed" | "not_applicable" | "failed"; subtitle_status?:"pending" | "completed" | "not_applicable" | "failed"; audit_evidence?:{ speaker:string; emotion:string; lipsync:string; face:string; continuity?:string }; status:AssetStatus; error?:string };
 export type EpisodeMaster = { episode:number; video_url?:string; path?:string; clean_path?:string; production_evidence?:string; status:AssetStatus; error?:string };
 export type EpisodeAudit = { episode:number; status:"pass" | "needs_fix"; issues:string[]; attempts:number; confirmed:boolean };
-export type EnhancedEpisode = { episode:number; video_url?:string; path?:string; production_evidence?:string; status:AssetStatus | "skipped"; error?:string };
+export type EnhancedEpisode = { episode:number; video_url?:string; path?:string; production_evidence?:unknown; audit_evidence?:unknown; content_fingerprint?:string; audit_batch_id?:string; generation?:number; status:AssetStatus | "skipped"; error?:string };
 export type ExportFile = { episode:number; kind:string; filename:string; path:string; url:string };
 
 export type AssetStoreSnapshot = {

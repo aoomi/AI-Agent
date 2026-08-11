@@ -32,6 +32,7 @@ class ProductionCapabilityRegistry:
         self._lock = RLock()
         self._providers: dict[tuple[str, str], tuple[ProductionCapability, CapabilityHandler]] = {}
         self._cursor: dict[str, int] = {}
+        self._inflight: dict[tuple[str, str], int] = {}
 
     def register(self, capability: str, provider_id: str, handler: CapabilityHandler, *, enabled: bool = True,
                  metadata: Mapping[str, Any] | None = None, priority: int = 100, healthy: bool = True,
@@ -41,9 +42,16 @@ class ProductionCapabilityRegistry:
             raise ProductionCapabilityError("capability, provider and handler are required")
         if priority < 0:
             raise ProductionCapabilityError("provider priority must be non-negative")
+        concurrency = (metadata or {}).get("max_concurrency")
+        if concurrency is not None and (isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency <= 0):
+            raise ProductionCapabilityError("provider max_concurrency must be a positive integer")
         definition = ProductionCapability(capability, provider_id, enabled, MappingProxyType(dict(metadata or {})), priority, healthy)
         key = (capability, provider_id)
         with self._lock:
+            if replace and any(count for key, count in self._inflight.items() if key[0] == capability):
+                raise ProductionCapabilityError(f"capability has in-flight invocations: {capability}")
+            if replace_provider and self._inflight.get(key, 0):
+                raise ProductionCapabilityError(f"capability provider has in-flight invocations: {capability}/{provider_id}")
             if replace:
                 self._providers = {item_key:item for item_key, item in self._providers.items() if item_key[0] != capability}
             elif key in self._providers and not replace_provider:
@@ -54,6 +62,9 @@ class ProductionCapabilityRegistry:
     def unregister(self, capability: str, provider_id: str | None = None) -> bool:
         with self._lock:
             targets = [key for key in self._providers if key[0] == capability and (provider_id is None or key[1] == provider_id)]
+            active = [key for key in targets if self._inflight.get(key, 0)]
+            if active:
+                raise ProductionCapabilityError(f"capability provider has in-flight invocations: {active[0][0]}/{active[0][1]}")
             for key in targets: del self._providers[key]
             return bool(targets)
 
@@ -88,10 +99,19 @@ class ProductionCapabilityRegistry:
 
     def invoke_with_provider(self, capability: str, /, *, provider_id: str | None = None, allow_fallback: bool = False, **inputs: Any) -> tuple[ProductionCapability, Any]:
         """Invoke and return the exact selected provider with the result."""
-        with self._lock:
-            entries = self._eligible(capability, provider_id)
         failures = []
-        for definition, handler in entries:
+        excluded: set[str] = set()
+        while True:
+            with self._lock:
+                entries = [entry for entry in self._eligible(capability, provider_id) if entry[0].provider_id not in excluded]
+                reserved = next((entry for entry in entries if self._has_capacity(entry[0])), None)
+                if reserved is None:
+                    if failures:
+                        break
+                    raise ProductionCapabilityError(f"capability providers are at concurrency capacity: {capability}")
+                definition, handler = reserved
+                key = (definition.capability, definition.provider_id)
+                self._inflight[key] = self._inflight.get(key, 0) + 1
             try:
                 result = handler(**inputs)
                 if result is None: raise ProductionCapabilityError(f"capability returned no result: {capability}/{definition.provider_id}")
@@ -99,11 +119,33 @@ class ProductionCapabilityRegistry:
             except Exception as error:
                 failures.append(f"{definition.provider_id}:{error}")
                 if not allow_fallback: raise
+                excluded.add(definition.provider_id)
+            finally:
+                with self._lock:
+                    remaining = self._inflight.get(key, 1) - 1
+                    if remaining:
+                        self._inflight[key] = remaining
+                    else:
+                        self._inflight.pop(key, None)
         raise ProductionCapabilityError(f"all providers failed for {capability}: {'; '.join(failures)}")
 
     def list(self) -> tuple[ProductionCapability, ...]:
         with self._lock:
             return tuple(sorted((entry[0] for entry in self._providers.values()), key=lambda item:(item.capability, item.priority, item.provider_id)))
+
+    def runtime_snapshot(self) -> tuple[dict[str, Any], ...]:
+        """Return immutable provider configuration plus live concurrency occupancy."""
+        with self._lock:
+            return tuple({
+                "capability":definition.capability, "provider_id":definition.provider_id,
+                "enabled":definition.enabled, "healthy":definition.healthy, "priority":definition.priority,
+                "inflight":self._inflight.get(key, 0),
+                "max_concurrency":definition.metadata.get("max_concurrency"),
+            } for key, (definition, _) in sorted(self._providers.items()))
+
+    def _has_capacity(self, definition: ProductionCapability) -> bool:
+        limit = definition.metadata.get("max_concurrency")
+        return limit is None or self._inflight.get((definition.capability, definition.provider_id), 0) < limit
 
     def _eligible(self, capability: str, provider_id: str | None = None) -> list[tuple[ProductionCapability, CapabilityHandler]]:
         entries = [entry for key, entry in self._providers.items() if key[0] == capability and (provider_id is None or key[1] == provider_id)]

@@ -32,8 +32,9 @@ from plugins.builtin.short_drama.workflows.production_ledger import CANONICAL_ST
 from plugins.builtin.short_drama.workflows.production_orchestrator import ProductionOrchestrator
 from plugins.builtin.short_drama.workflows.story_bible import StoryBible, StoryBibleError
 from ai_agent_core import ResourceScheduler, WorkerRegistry, WorkerSnapshot, WorkloadRouter, atomic_write_json
-from ai_agent_queue import DurableTaskRepository, TaskLeaseRepository
+from ai_agent_queue import DurableTaskRepository, TaskLeaseError, TaskLeaseRepository
 from ai_agent_adapters import production_capability_registry, production_extension_registry
+from plugins.builtin.short_drama.backend.web_search import WEB_SEARCH_PROVIDER_DESCRIPTIONS, search_web
 
 
 APPLICATION_ROOT = Path(__file__).resolve().parents[4]
@@ -76,6 +77,9 @@ H3_REF2VA_MODEL = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
 H3_TEXT_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 H3_VIDEO_VAE = "minimax_h3_video_vae_fp16.safetensors"
 H3_AUDIO_VAE = "minimax_h3_audio_vae_fp32.safetensors"
+H3_CONTEXT_IR_MODEL = "qwen3-vl-h3-context-ir:latest"
+H3_CONTEXT_IR_TIMEOUT_SECONDS = int(os.environ.get("SHORT_DRAMA_H3_CONTEXT_IR_TIMEOUT_SECONDS", "900"))
+H3_CONTEXT_IR_OUTPUT_ROOT = OUTPUT_ROOT / "narrative-cache" / "h3-context-ir"
 SERVICE_HOST = os.environ.get("SHORT_DRAMA_HOST", "127.0.0.1")
 SERVICE_PORT = int(os.environ.get("SHORT_DRAMA_PORT", "8787"))
 NARRATIVE_MODEL_REVIEW_ENABLED = os.environ.get("SHORT_DRAMA_NARRATIVE_REVIEW", "0").strip().lower() in {"1", "true", "yes"}
@@ -95,6 +99,8 @@ HEAVY_TASK_LOCK = threading.RLock()
 PRODUCTION_CAPABILITIES = production_capability_registry()
 PRODUCTION_EXTENSIONS = production_extension_registry()
 PRODUCTION_CAPABILITIES_INSTALL_LOCK = threading.Lock()
+BUILTIN_PRODUCTION_CAPABILITIES_INSTALLED = False
+LAST_COMFY_FREE_AT = 0.0
 PROJECT_STORE_LOCK = threading.RLock()
 PROJECT_STAGE_CONDITION = threading.Condition(PROJECT_STORE_LOCK)
 PROJECT_STAGE_WATCH_LIMIT = max(8, int(os.environ.get("AI_PROJECT_STAGE_WATCH_LIMIT", "128")))
@@ -149,11 +155,35 @@ def _install_builtin_production_extensions() -> None:
         "storage.task_lease": ("builtin.sqlite_task_lease", lambda **values: TaskLeaseRepository(Path(values["database"]))),
         "discovery.workers": ("builtin.sqlite_worker_registry", lambda **values: WorkerRegistry(Path(values["database"]))),
     }
+    contracts = {
+        "resource.scheduler": ("claim", "snapshot", "cancel_job"),
+        "storage.production_ledger": ("upsert", "list", "confirm"),
+        "storage.story_bible": ("validate", "update"),
+        "storage.task_repository": ("upsert_many", "list", "pending_projections", "acknowledge_projections", "projection_lock", "requeue_projection"),
+        "checkpoint.langgraph": ("begin", "report", "state", "execute"),
+        "routing.workload": ("route", "heartbeat", "reap"),
+        "storage.task_lease": ("acquire", "renew", "release", "owns", "request_cancel", "cancellation_requested", "commit_guard", "reap_expired"),
+        "discovery.workers": ("heartbeat", "list", "reap"),
+    }
+    implementation_types = {
+        "resource.scheduler": ResourceScheduler,
+        "storage.production_ledger": ProductionLedger,
+        "storage.story_bible": StoryBible,
+        "storage.task_repository": DurableTaskRepository,
+        "checkpoint.langgraph": ProductionOrchestrator,
+        "routing.workload": WorkloadRouter,
+        "storage.task_lease": TaskLeaseRepository,
+        "discovery.workers": WorkerRegistry,
+    }
     for point, (provider, factory) in builtins.items():
+        metadata = {
+            "builtin": True, "hot_swappable": False, "contract_version": 1,
+            "required_methods": contracts[point], "implementation_type": implementation_types[point],
+        }
         if not PRODUCTION_EXTENSIONS.has(point, provider):
-            PRODUCTION_EXTENSIONS.register(point, provider, factory, metadata={"builtin": True, "hot_swappable": False})
+            PRODUCTION_EXTENSIONS.register(point, provider, factory, metadata=metadata)
         elif PRODUCTION_EXTENSIONS.get(point, provider).metadata.get("builtin"):
-            PRODUCTION_EXTENSIONS.register(point, provider, factory, metadata={"builtin": True, "hot_swappable": False}, replace_provider=True)
+            PRODUCTION_EXTENSIONS.register(point, provider, factory, metadata=metadata, replace_provider=True)
 
 
 _install_builtin_production_extensions()
@@ -262,22 +292,149 @@ def _task_repository(job_file: Path) -> DurableTaskRepository:
     return repository
 
 
+def _production_stage_lease_key(body: dict, stage: str) -> str:
+    identity = [str(body.get(name) or "").strip() for name in ("tenant_id", "user_id", "project_id")]
+    if not all(identity):
+        raise ValueError("tenant_id, user_id and project_id are required for production stage execution")
+    return "production-stage:" + ":".join((*identity, canonical_stage(stage)))
+
+
 @contextmanager
 def _claim_production_stage_request(body: dict, stage: str):
     key = ":".join(str(body.get(name) or "") for name in ("tenant_id", "user_id", "project_id")) + f":{stage}"
-    cancel_event = threading.Event()
+    lease_key = _production_stage_lease_key(body, stage)
+    owner_id = f"{WORKER_ID}:{uuid4().hex}"
     with ACTIVE_PRODUCTION_STAGE_REQUESTS_LOCK:
         if key in ACTIVE_PRODUCTION_STAGE_REQUESTS:
             raise ValueError(f"production stage is already running: {stage}")
+    try:
+        lease = TASK_LEASES.acquire(lease_key, owner_id, ttl=45)
+    except TaskLeaseError as error:
+        raise ValueError(f"production stage is already running: {stage}") from error
+    cancel_event = threading.Event()
+    with ACTIVE_PRODUCTION_STAGE_REQUESTS_LOCK:
         ACTIVE_PRODUCTION_STAGE_REQUESTS.add(key)
         ACTIVE_PRODUCTION_STAGE_CANCEL_EVENTS[key] = cancel_event
+    stop_renewal = threading.Event()
+    generation = int(lease["generation"])
+    cancel_event.lease_key = lease_key  # type: ignore[attr-defined]
+    cancel_event.lease_owner = owner_id  # type: ignore[attr-defined]
+    cancel_event.lease_generation = generation  # type: ignore[attr-defined]
+    def renew_stage_lease() -> None:
+        while not stop_renewal.wait(1):
+            try:
+                renewed = TASK_LEASES.renew(lease_key, owner_id, generation, ttl=45)
+            except Exception:
+                renewed = False
+            if not renewed:
+                try:
+                    cancel_event.cancel_requested = TASK_LEASES.cancellation_requested(lease_key, owner_id, generation)  # type: ignore[attr-defined]
+                except Exception:
+                    cancel_event.cancel_requested = False  # type: ignore[attr-defined]
+                cancel_event.set()
+                return
+    renewal = threading.Thread(target=renew_stage_lease, daemon=True, name=f"stage-lease-{stage}-{generation}")
+    renewal.start()
     try:
         yield cancel_event
+        if not bool(getattr(cancel_event, "commit_completed", False)) and (
+            cancel_event.is_set() or not TASK_LEASES.owns(lease_key, owner_id, generation)
+        ):
+            raise RuntimeError(f"production stage cancelled or lease lost: {stage}")
     finally:
+        stop_renewal.set(); renewal.join(timeout=1)
+        try:
+            TASK_LEASES.release(lease_key, owner_id, generation)
+        except Exception:
+            pass
         with ACTIVE_PRODUCTION_STAGE_REQUESTS_LOCK:
             ACTIVE_PRODUCTION_STAGE_REQUESTS.discard(key)
             if ACTIVE_PRODUCTION_STAGE_CANCEL_EVENTS.get(key) is cancel_event:
                 ACTIVE_PRODUCTION_STAGE_CANCEL_EVENTS.pop(key, None)
+
+
+def _ensure_production_stage_request_active(cancel_event: threading.Event, stage: str) -> None:
+    lease_key = str(getattr(cancel_event, "lease_key", ""))
+    owner_id = str(getattr(cancel_event, "lease_owner", ""))
+    generation = int(getattr(cancel_event, "lease_generation", 0) or 0)
+    owns = bool(lease_key) and TASK_LEASES.owns(lease_key, owner_id, generation)
+    if cancel_event.is_set() or not owns:
+        try:
+            cancel_event.cancel_requested = TASK_LEASES.cancellation_requested(lease_key, owner_id, generation)  # type: ignore[attr-defined]
+        except Exception:
+            cancel_event.cancel_requested = False  # type: ignore[attr-defined]
+        cancel_event.set()
+        raise RuntimeError(f"production stage cancelled or lease lost: {stage}")
+
+
+@contextmanager
+def _production_stage_commit_guard(cancel_event: threading.Event, stage: str):
+    lease_key = str(getattr(cancel_event, "lease_key", ""))
+    owner_id = str(getattr(cancel_event, "lease_owner", ""))
+    generation = int(getattr(cancel_event, "lease_generation", 0) or 0)
+    try:
+        with TASK_LEASES.commit_guard(lease_key, owner_id, generation):
+            if cancel_event.is_set():
+                raise TaskLeaseError("production stage cancellation won before commit")
+            yield
+        cancel_event.commit_completed = True  # type: ignore[attr-defined]
+    except TaskLeaseError as error:
+        try:
+            cancel_event.cancel_requested = TASK_LEASES.cancellation_requested(lease_key, owner_id, generation)  # type: ignore[attr-defined]
+        except Exception:
+            cancel_event.cancel_requested = False  # type: ignore[attr-defined]
+        cancel_event.set()
+        raise RuntimeError(f"production stage cancelled or lease lost: {stage}") from error
+
+
+def _commit_server_production_stage_result(
+    body: dict,
+    stage: str,
+    result: dict,
+    cancel_event: threading.Event,
+    stage_generation: int,
+) -> dict:
+    """Publish business evidence and Graph state under one fenced commit."""
+    with _production_stage_commit_guard(cancel_event, stage):
+        if stage == "assets":
+            census = dict(result.get("census") or {})
+            written = _write_project_stage(
+                str(body.get("project_id") or ""), str(body.get("tenant_id") or "local-default"), str(body.get("user_id") or "aoo"), "assets",
+                {"_merge_existing":True, "characters":result.get("characters") or [], "scenes":result.get("scenes") or [], "props":result.get("props") or [],
+                 "status":"waiting_confirmation", "error":"", "source_episodes":census.get("episodes") or body.get("target_episodes") or [], "census_version":2},
+                stage_generation=stage_generation,
+            )
+            return written["workflow"]
+        if stage == "review_export" and result.get("operation") == "upscale":
+            authority_records = result.pop("_authority_records", None)
+            if not isinstance(authority_records, list) or not authority_records:
+                raise RuntimeError("upscale authority commit payload is missing")
+            workflow_holder: dict[str, dict] = {}
+
+            def commit_graph() -> None:
+                authority_commit = {
+                    "kind":"upscale",
+                    "records":[{
+                        "scope_id":str(item["scope_id"]),
+                        "generation":int(item["generation"]),
+                        "content_fingerprint":str(item["content_fingerprint"]),
+                        "audit_batch_id":str(item["audit_batch_id"]),
+                    } for item in authority_records],
+                }
+                workflow_holder["workflow"] = _production_orchestrator().report(
+                    body, stage, "pending_confirmation", evidence={"server_coordinated":True},
+                    authority_commit=authority_commit, stage_generation=stage_generation,
+                    projection_revision=1,
+                )
+
+            PRODUCTION_LEDGER.commit_upscale_authorities(
+                authority_records, commit_callback=commit_graph,
+            )
+            return workflow_holder["workflow"]
+        return _production_orchestrator().report(
+            body, stage, "pending_confirmation", evidence={"server_coordinated":True},
+            stage_generation=stage_generation, projection_revision=1,
+        )
 
 
 def _cancel_production_stage(body: dict, stage: str) -> int:
@@ -287,12 +444,21 @@ def _cancel_production_stage(body: dict, stage: str) -> int:
     if not tenant_id or not user_id or not project_id:
         raise ValueError("tenant_id, user_id and project_id are required for targeted stage cancellation")
     target_key = f"{tenant_id}:{user_id}:{project_id}:{stage}"
-    cancelled = 0
-    with ACTIVE_PRODUCTION_STAGE_REQUESTS_LOCK:
-        for key, event in list(ACTIVE_PRODUCTION_STAGE_CANCEL_EVENTS.items()):
-            if key != target_key: continue
-            event.set(); cancelled += 1
+    cancelled = int(TASK_LEASES.request_cancel(_production_stage_lease_key(body, stage)))
+    if cancelled:
+        with ACTIVE_PRODUCTION_STAGE_REQUESTS_LOCK:
+            event = ACTIVE_PRODUCTION_STAGE_CANCEL_EVENTS.get(target_key)
+            if event is not None:
+                event.cancel_requested = True  # type: ignore[attr-defined]
+                event.set()
     return cancelled
+
+
+def _cancel_scoped_production_stage(body: dict, stage: str) -> int:
+    """Cancel only the exact tenant/user/project stage when full identity exists."""
+    if not all(str(body.get(key) or "").strip() for key in ("tenant_id", "user_id", "project_id")):
+        return 0
+    return _cancel_production_stage(body, canonical_stage(stage))
 
 
 def _sync_durable_tasks(task_class: str, job_file: Path, store: dict) -> None:
@@ -310,7 +476,11 @@ def _durable_task_projection(task_class: str, job: dict) -> tuple[tuple[str, str
     endpoint = str(job.get("endpoint") or request.get("endpoint") or "")
     raw_stage = str(job.get("stage") or job.get("phase") or "")
     if task_class == "text" and raw_stage in {"outline", "script"}: stage = raw_stage
-    elif task_class == "image": stage = "assets" if endpoint == "/api/characters/generate" or job.get("workflow") == "asset_3d" else "image"
+    elif task_class == "image":
+        # Asset census/extraction owns the assets stage. Every 2D render,
+        # including character/scene/prop baselines and shot images, owns image.
+        # TripoSR/Blender remains an assets-stage 3D subtask by contract.
+        stage = "assets" if job.get("workflow") == "asset_3d" else "image"
     elif task_class == "video": stage = "video"
     else: stage = ""
     lifecycle_map = {
@@ -395,7 +565,31 @@ def _merge_durable_tasks(task_class: str, job_file: Path, store: dict) -> dict:
     for record in _task_repository(job_file).list(task_class=task_class):
         payload = record.get("payload")
         if isinstance(payload, dict):
-            jobs[str(record["job_id"])] = payload
+            # Legacy rows may have lifecycle columns but an incomplete payload
+            # (for example no status/job_id/identity). Recovery operates on the
+            # merged payload, so preserve the authoritative repository columns
+            # whenever the historical payload omitted them.
+            merged = dict(payload)
+            for key in ("job_id", "tenant_id", "user_id", "project_id", "stage", "subject_key", "status",
+                        "pid", "process_group", "heartbeat_at", "started_at", "finished_at"):
+                if key not in merged and record.get(key) not in {None, ""}:
+                    merged[key] = record[key]
+            # Very old image rows can have no recoverable project identity at
+            # all.  Never fabricate membership in a real project and never
+            # silently acknowledge their projection.  Give only stale/recovered
+            # rows a deterministic tenant-scoped quarantine identity so their
+            # terminal recovery is auditable in LangGraph.
+            if task_class == "image" and not str(merged.get("project_id") or "").strip() and (
+                str(merged.get("status") or "") in {"queued", "generating", "retrying", "processing"}
+                or str(merged.get("error") or "") == "服务重启已回收残留图片任务，请重新生成"
+            ):
+                merged["project_id"] = f"recovered-orphan-image-{record['job_id']}"
+                merged["identity_recovery"] = "quarantined_missing_project"
+                merged["subject_key"] = merged.get("subject_key") or ":".join((
+                    str(merged.get("tenant_id") or "local-default"), str(merged.get("user_id") or "local"),
+                    str(merged["project_id"]), "recovery",
+                ))
+            jobs[str(record["job_id"])] = merged
     return store
 
 
@@ -408,8 +602,10 @@ IMAGE_JOB_LOCK = threading.Lock()
 ACTIVE_IMAGE_JOBS: set[str] = set()
 ACTIVE_IMAGE_SUBJECTS: dict[str, str] = {}
 ACTIVE_IMAGE_PROCESSES: dict[str, subprocess.Popen[str]] = {}
+ACTIVE_IMAGE_WORKERS: dict[str, threading.Thread] = {}
 IMAGE_TASK_TIMEOUT_SECONDS = max(60, int(os.environ.get("SHORT_DRAMA_IMAGE_TASK_TIMEOUT_SECONDS", "1800")))
 IMAGE_QUEUE_TIMEOUT_SECONDS = max(60, int(os.environ.get("SHORT_DRAMA_IMAGE_QUEUE_TIMEOUT_SECONDS", "600")))
+IMAGE_VALIDATION_TIMEOUT_SECONDS = max(30, int(os.environ.get("SHORT_DRAMA_IMAGE_VALIDATION_TIMEOUT_SECONDS", "180")))
 IMAGE_WATCHDOG_SECONDS = max(1, int(os.environ.get("SHORT_DRAMA_IMAGE_WATCHDOG_SECONDS", "5")))
 IMAGE_WATCHDOG_STOP = threading.Event()
 IMAGE_SHUTTING_DOWN = threading.Event()
@@ -430,6 +626,7 @@ VIDEO_JOB_LOCK = threading.Lock()
 ACTIVE_VIDEO_JOBS: set[str] = set()
 ACTIVE_VIDEO_SUBJECTS: dict[str, str] = {}
 ACTIVE_VIDEO_PROCESSES: dict[str, subprocess.Popen[str]] = {}
+ACTIVE_VIDEO_PROMPT_CANCELLERS: set[str] = set()
 VIDEO_MEMORY_MONITOR_STOP = threading.Event()
 VIDEO_TASK_TIMEOUT_SECONDS = max(300, int(os.environ.get("SHORT_DRAMA_VIDEO_TASK_TIMEOUT_SECONDS", "14400")))
 VIDEO_QUEUE_TIMEOUT_SECONDS = max(60, int(os.environ.get("SHORT_DRAMA_VIDEO_QUEUE_TIMEOUT_SECONDS", "1800")))
@@ -872,6 +1069,101 @@ def _costume_id(character_name: str, label: str = "daily") -> str:
     return f"costume_{digest}_{_safe_name(label) or 'daily'}"
 
 
+_SCENE_ACTION_PATTERN = re.compile(
+    r"(?:跪(?:下|在|着)|坐(?:下|在|着)|躺(?:下|在|着)|站立|倒地|转身|回头|低头|抬头|"
+    r"走(?:进|出|向|到)|跑(?:进|出|向|到)|冲(?:进|出|向)|追赶|挥(?:手|剑)|抱住|"
+    r"看向|望向|哭泣|大笑|说话|喊道|进入|离开)"
+)
+_SCENE_PERSON_PATTERN = re.compile(r"(?:弟子|众人|人群|长老|侍卫|士兵|百姓|村民|男人|女人|男子|女子|孩童|全宗门)"
+)
+_SCENE_STORY_PATTERN = re.compile(
+    r"(?:被(?:夺走|抢走|推进|带进|送进|关进|困在|藏进|打伤|杀死|击倒)|"
+    r"(?:藏|推|冲|闯|逃|跑|走|驶|搬|抬|送|带)(?:进|入|向|到)|"
+    r"失控|夺走|抢走|打斗|追逐|爆炸|起火|坍塌|倒塌|发生|后(?:藏|走|进入|来到))"
+)
+_SCENE_LOCATION_PATTERN = re.compile(
+    r"(?:试炼场|练武场|广场|大殿|殿内|殿外|庭院|院落|房间|卧室|书房|藏经阁|阁楼|楼阁|大厅|"
+    r"走廊|山门|后山|山谷|树林|街道|巷道|地牢|牢房|擂台|秘境|洞府|城门|村落|湖畔|河岸|桥上|"
+    r"厨房|客厅|餐厅|饭店|卫生间|浴室|医院|诊所|病房|学校|教室|办公室|会议室|公司|商场|超市|"
+    r"酒店|旅馆|车站|候车室|机场|候机厅|码头|仓库|工厂|车间|寺庙|道观|教堂|咖啡馆|图书馆|"
+    r"博物馆|体育馆|停车场|公园|花园|游乐园|电影院|剧院|舞台|摄影棚|实验室|工作室|店铺|"
+    r"住宅|公寓|别墅|宿舍|天台|屋顶|地下室|电梯间|楼梯间|大厅|前台|操场|球场|海滩|沙漠|草原|雪原)$"
+)
+
+
+def _is_reusable_empty_scene_name(value: object, character_names: list[str] | tuple[str, ...] = ()) -> bool:
+    """A scene asset is a reusable place, never a character action or state sentence."""
+    name = str(value or "").strip()
+    if not name or not _SCENE_LOCATION_PATTERN.search(name) or _SCENE_ACTION_PATTERN.search(name) or _SCENE_PERSON_PATTERN.search(name) or _SCENE_STORY_PATTERN.search(name):
+        return False
+    return not any(character and character in name for character in character_names)
+
+
+def _project_character_names(body: dict) -> list[str]:
+    """Read the authoritative character roster for an exact project scope."""
+    project_id = str(body.get("project_id") or "").strip()
+    tenant_id = str(body.get("tenant_id") or "").strip()
+    user_id = str(body.get("user_id") or "").strip()
+    if not project_id or not tenant_id or not user_id:
+        return []
+    with PROJECT_STORE_LOCK:
+        project = next((item for item in _load_store().get("projects", []) if (
+            str(item.get("id") or "") == project_id
+            and str(item.get("tenant_id") or "") == tenant_id
+            and str(item.get("user_id") or "") == user_id
+        )), None)
+    if not project:
+        return []
+    stages = project.get("stage_state", {}) if isinstance(project.get("stage_state"), dict) else {}
+    names: list[str] = []
+    for stage_name in ("assets", "outline"):
+        stage = stages.get(stage_name, {}) if isinstance(stages.get(stage_name), dict) else {}
+        data = stage.get("data", {}) if isinstance(stage.get("data"), dict) else {}
+        if stage_name == "outline" and isinstance(data.get("plan"), dict):
+            data = data["plan"]
+        items = data.get("characters", []) if isinstance(data.get("characters"), list) else []
+        for item in items:
+            name = str(item.get("name") or "").strip() if isinstance(item, dict) else ""
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
+def _normalize_empty_scene_assets(items: object, character_names: list[str] | tuple[str, ...] = ()) -> list[dict]:
+    normalized: list[dict] = []
+    for raw in items if isinstance(items, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name") or "").strip()
+        if not _is_reusable_empty_scene_name(name, character_names):
+            continue
+        item = dict(raw)
+        location = str(item.get("location") or name).strip()
+        layout = str(item.get("layout") or "").strip()
+        lighting = str(item.get("lighting") or "").strip()
+        fixed = "、".join(str(value).strip() for value in item.get("fixed_elements", []) if str(value).strip())
+        item["location"] = location
+        item["image_prompt"] = "，".join(value for value in (location, layout, lighting, fixed) if value) + "，45度空场景全景，纯环境与建筑，无人物、无人形、无人体、无文字"
+        item["status"] = str(item.get("status") or "pending")
+        normalized.append(item)
+    return normalized
+
+
+def _scene_location_from_text(value: object) -> str:
+    text = str(value or "")
+    background = re.search(r"(?:背景(?:是|为)|地点(?:在|是|为|[:：]))([^，。；]{2,24})", text)
+    candidates = [background.group(1)] if background else []
+    candidates.extend(re.findall(
+        r"[\u4e00-\u9fff]{0,10}(?:试炼场|练武场|广场|大殿|殿内|殿外|庭院|院落|房间|卧室|书房|藏经阁|阁楼|楼阁|大厅|走廊|山门|后山|山谷|树林|街道|巷道|地牢|牢房|擂台|秘境|洞府|城门|村落|湖畔|河岸|桥上|厨房|客厅|餐厅|饭店|卫生间|浴室|医院|诊所|病房|学校|教室|办公室|会议室|公司|商场|超市|酒店|旅馆|车站|候车室|机场|候机厅|码头|仓库|工厂|车间|寺庙|道观|教堂|咖啡馆|图书馆|博物馆|体育馆|停车场|公园|花园|游乐园|电影院|剧院|舞台|摄影棚|实验室|工作室|店铺|住宅|公寓|别墅|宿舍|天台|屋顶|地下室|电梯间|楼梯间|前台|操场|球场|海滩|沙漠|草原|雪原)",
+        text,
+    ))
+    for candidate in candidates:
+        cleaned = re.sub(r"^(?:一座|一处|古色古香的|宏伟的|昏暗的|宽阔的|空旷的|远处的)+", "", candidate).strip()
+        if _is_reusable_empty_scene_name(cleaned):
+            return cleaned[:20]
+    return ""
+
+
 def _costume_label_from_text(text: str) -> str:
     patterns = (
         ("战斗服", "battle"), ("战甲", "battle"), ("礼服", "formal"), ("华服", "formal"),
@@ -932,6 +1224,7 @@ def _compile_storyboard_from_script(script: object, episode: int, style: str, di
     shot_sizes = ("全景", "中景", "近景", "特写")
     character_names = [str(item.get("name") or "").strip() for item in (characters or []) if isinstance(item, dict) and str(item.get("name") or "").strip()]
     active_costumes = {name: "daily" for name in character_names}
+    active_scene = "剧情场景"
     shots: list[dict] = []
     for index, segment in enumerate(segments, 1):
         visual = str(segment.get("visual") or "")
@@ -942,7 +1235,10 @@ def _compile_storyboard_from_script(script: object, episode: int, style: str, di
             dialogue = narration if narration not in {"", "（无）", "无"} else "无"
         elif narration not in {"", "（无）", "无"}:
             dialogue = f"{dialogue}；旁白：{narration}"
-        scene = re.split(r"[，。；]", visual, maxsplit=1)[0].strip()[:12] or "剧情场景"
+        detected_scene = _scene_location_from_text(f"{visual}，{action}")
+        if detected_scene:
+            active_scene = detected_scene
+        scene = active_scene
         shot_size = shot_sizes[min(3, ((index - 1) * 4) // max(1, len(segments)))]
         camera = camera_rules[(index - 1) % len(camera_rules)][:16]
         prompt = f"{style}，{palette}，{lighting}，{shot_size}，{visual}，{action}"[:90]
@@ -1034,6 +1330,50 @@ def _memory_ready(estimated_bytes: int) -> tuple[bool, dict]:
     }
 
 
+def _wait_for_post_comfy_memory(
+    estimated_bytes: int,
+    *,
+    job_id: str | None = None,
+    timeout_seconds: float = 60.0,
+) -> None:
+    """Wait only for the bounded asynchronous release window after Comfy /free."""
+    ready, memory = _memory_ready(estimated_bytes)
+    if ready:
+        return
+    recent_release = LAST_COMFY_FREE_AT > 0 and time.monotonic() - LAST_COMFY_FREE_AT <= 120
+    if not recent_release:
+        try:
+            with urlopen(f"{COMFY_API}/queue", timeout=10) as response:
+                queue = json.loads(response.read())
+            comfy_idle = not queue.get("queue_running") and not queue.get("queue_pending")
+        except Exception:
+            comfy_idle = False
+        if comfy_idle:
+            _free_comfy_memory()
+            recent_release = LAST_COMFY_FREE_AT > 0 and time.monotonic() - LAST_COMFY_FREE_AT <= 120
+    if not recent_release:
+        _require_memory(estimated_bytes)
+        return
+    deadline = time.monotonic() + max(1.0, timeout_seconds)
+    if job_id:
+        _update_image_job(job_id, status="waiting_memory", phase="waiting_memory", memory=memory, heartbeat_at=_iso_now())
+    while time.monotonic() < deadline:
+        if job_id:
+            _assert_image_job_runnable(job_id)
+        time.sleep(1)
+        ready, memory = _memory_ready(estimated_bytes)
+        if ready:
+            if job_id:
+                _update_image_job(job_id, status="processing", phase="memory_ready", memory=memory, heartbeat_at=_iso_now())
+            return
+        if job_id:
+            _update_image_job(job_id, memory=memory, heartbeat_at=_iso_now())
+    raise RuntimeError(
+        "内存保护等待Comfy释放超时："
+        f"可用{memory['available_gb']}GB，需要{memory['required_gb']}GB，必须保留{memory['reserve_gb']}GB"
+    )
+
+
 def _load_store() -> dict:
     if not PROJECTS_FILE.exists():
         return {"version": 1, "projects": []}
@@ -1088,7 +1428,49 @@ def _read_project_version(version_id: object) -> dict | None:
     except (OSError, ValueError, json.JSONDecodeError): return None
 
 
-def _write_project_stage(project_id: str, tenant_id: str, user_id: str, stage_name: str, incoming_data: dict) -> dict:
+def _sanitize_asset_media_projection(data: dict) -> dict:
+    """Reject stale local media URLs before they can become authoritative project state."""
+    def available(value: object) -> bool:
+        url = str(value or "").strip()
+        if not url or not url.startswith("/api/result-media?"):
+            return bool(url)
+        try:
+            _local_media_path(url)
+            return True
+        except FileNotFoundError:
+            return False
+
+    for key in ("characters", "scenes", "props"):
+        for item in data.get(key, []) if isinstance(data.get(key), list) else []:
+            if not isinstance(item, dict):
+                continue
+            if item.get("image_url") and not available(item.get("image_url")):
+                item["image_url"] = None
+                item["clothing_reference_url"] = None
+                item["baseline_confirmed_at"] = None
+                item["confirmation_phase"] = None
+                item["status"] = "pending"
+                item["error"] = ""
+            item["detail_image_urls"] = [url for url in item.get("detail_image_urls", []) if available(url)]
+            for variant in item.get("detail_assets", []) if isinstance(item.get("detail_assets"), list) else []:
+                if not isinstance(variant, dict) or not variant.get("image_url") or available(variant.get("image_url")):
+                    continue
+                variant["image_url"] = None
+                variant["status"] = "pending"
+                variant["error"] = ""
+    return data
+
+
+def _write_project_stage(
+    project_id: str,
+    tenant_id: str,
+    user_id: str,
+    stage_name: str,
+    incoming_data: dict,
+    *,
+    stage_generation: int = 0,
+    projection_only: bool = False,
+) -> dict:
     """Merge one stage against the latest on-disk project while holding the full transaction lock."""
     raw_status = str(incoming_data.get("status") or "completed")
     lifecycle = {
@@ -1101,6 +1483,11 @@ def _write_project_stage(project_id: str, tenant_id: str, user_id: str, stage_na
     if stage_name in {"outline", "script", "storyboard"} and lifecycle in {"pending_confirmation", "completed"}:
         violations = STORY_BIBLE.validate(STORY_BIBLE._episodes(stage_name, incoming_data))
         if violations: raise StoryBibleError("；".join(violations))
+    identity = {"tenant_id":tenant_id, "user_id":user_id, "project_id":project_id}
+    authoritative_state = _production_orchestrator().state(identity) if projection_only else {}
+    authoritative_event = (authoritative_state.get("stage_events") or {}).get(canonical_stage(stage_name), {})
+    authoritative_generation = int(authoritative_event.get("stage_generation") or 0)
+    protected_lifecycle = str(authoritative_event.get("lifecycle") or "")
     with PROJECT_STORE_LOCK:
         store = _load_store()
         project = next((item for item in store.get("projects", []) if item.get("id") == project_id and item.get("tenant_id") == tenant_id and item.get("user_id") == user_id), None)
@@ -1108,7 +1495,34 @@ def _write_project_stage(project_id: str, tenant_id: str, user_id: str, stage_na
             raise LookupError("project_not_found")
         current_stage = project.setdefault("stage_state", {}).get(stage_name, {})
         current_data = current_stage.get("data", {}) if isinstance(current_stage, dict) else {}
+        if (
+            projection_only
+            and authoritative_generation > 0
+            and protected_lifecycle in {"pending_confirmation", "completed", "failed", "cancelled"}
+            and lifecycle in {"idle", "queued", "running"}
+        ):
+            # Public project-state writes are UI projections, not production
+            # authority. A snapshot captured before the fenced server commit
+            # must not move the visible stage back to a no-owner running state.
+            incoming_data = {
+                **incoming_data,
+                "status":current_data.get("status") or protected_lifecycle,
+                "error":current_data.get("error") or str(authoritative_event.get("error") or ""),
+            }
+            raw_status = str(incoming_data["status"])
+            lifecycle = {
+                "waiting_confirmation":"pending_confirmation", "pending_confirmation":"pending_confirmation",
+                "confirmed":"completed", "completed":"completed", "failed":"failed", "cancelled":"cancelled",
+            }.get(raw_status, protected_lifecycle)
+            if stage_name == "assets":
+                # Preserve the complete fenced census while accepting media
+                # progress from an older UI snapshot. The normal asset merge
+                # keeps current-only profiles and their generated media.
+                incoming_data["_merge_existing"] = True
+            else:
+                incoming_data = dict(current_data)
         if stage_name == "assets" and incoming_data.pop("_merge_existing", False):
+            authoritative_asset_success = raw_status in {"waiting_confirmation", "confirmed", "completed"}
             def merge_profiles(key: str) -> list[dict]:
                 existing = [dict(item) for item in current_data.get(key, []) if isinstance(item, dict)]
                 by_name = {re.sub(r"\s+", "", str(item.get("name") or "")).lower():item for item in existing}
@@ -1121,6 +1535,9 @@ def _write_project_stage(project_id: str, tenant_id: str, user_id: str, stage_na
                         value = {**old, **candidate}
                         for field in ("status", "image_url", "error", "detail_assets", "confirmation_phase", "baseline_confirmed_at", "model3d_status", "model3d_result", "model3d_job_id"):
                             if field in old: value[field] = old[field]
+                        if authoritative_asset_success and str(value.get("error") or "").strip() == "production stage is already running: assets":
+                            value["status"] = "waiting_confirmation" if value.get("image_url") else "pending"
+                            value["error"] = ""
                     else:
                         value = {**candidate, "status":"pending", "generation_nonce":str(uuid4())}
                     merged.append(value)
@@ -1132,13 +1549,21 @@ def _write_project_stage(project_id: str, tenant_id: str, user_id: str, stage_na
             }
         if stage_name == "assets" and int(current_data.get("census_version", 0) or 0) >= 2 and int(incoming_data.get("census_version", 0) or 0) < 2:
             raise ValueError("stale_asset_census")
+        if stage_name == "assets":
+            incoming_data = _sanitize_asset_media_projection(incoming_data)
         stamp = _iso_now(); revision = int(current_stage.get("revision", 0) or 0) + 1 if isinstance(current_stage, dict) else 1
-        stage = {"data": incoming_data, "updated_at": stamp, "revision":revision}
+        stage = {
+            "data": incoming_data,
+            "updated_at": stamp,
+            "revision":revision,
+            "authority_generation":stage_generation or int(current_stage.get("authority_generation", 0) or 0),
+        }
         project["stage_state"][stage_name] = stage; project["updated_at"] = stamp
         _save_store(store)
         PROJECT_STAGE_CONDITION.notify_all()
     fingerprint = hashlib.sha256(json.dumps(incoming_data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-    identity = {"tenant_id":tenant_id, "user_id":user_id, "project_id":project_id}
+    if projection_only:
+        return {**stage, "workflow":authoritative_state}
     record = PRODUCTION_LEDGER.upsert({
         **identity, "stage":stage_name, "scope_type":"project", "scope_id":"all", "lifecycle":lifecycle,
         "stage_substate":raw_status, "content_fingerprint":fingerprint, "checkpoint":f"revision:{revision}",
@@ -1151,7 +1576,11 @@ def _write_project_stage(project_id: str, tenant_id: str, user_id: str, stage_na
     if lifecycle == "completed":
         record = PRODUCTION_LEDGER.confirm({**identity, "stage":record["stage"], "scope_type":"project", "scope_id":"all"})
         confirmation = record["confirmation"]
-    workflow = _production_orchestrator().report(identity, record["stage"], lifecycle, revision=revision, content_fingerprint=fingerprint, story_bible=story_bible, confirmation=confirmation)
+    workflow = _production_orchestrator().report(
+        identity, record["stage"], lifecycle, revision=revision, content_fingerprint=fingerprint,
+        story_bible=story_bible, confirmation=confirmation, stage_generation=stage_generation,
+        projection_revision=revision if stage_generation else 0,
+    )
     return {**stage, "workflow":workflow}
 
 
@@ -1576,6 +2005,7 @@ def _narrative_repair(body: dict) -> dict:
 
 
 def _audit_and_repair_narrative(stage: str, body: dict, content: dict) -> tuple[dict, list[dict]]:
+    _checkpoint_production_stage(body, stage)
     collection_key = {"outline":"episodes", "script":"scripts", "storyboard":"shots"}[stage]
     items = content.get(collection_key)
     if not body.get("_chunked") and isinstance(items, list) and len(json.dumps(content, ensure_ascii=False)) > 9_000:
@@ -1589,14 +2019,21 @@ def _audit_and_repair_narrative(stage: str, body: dict, content: dict) -> tuple[
         if current: chunks.append(current)
         combined: list[dict] = []; audits: list[dict] = []
         for index, chunk in enumerate(chunks, 1):
+            _checkpoint_production_stage(body, stage)
             revised, chunk_audits = _audit_and_repair_narrative(stage, {**body, "_chunked":True, "range":f"{body.get('range', '全剧')}·批次{index}/{len(chunks)}"}, {**content, collection_key:chunk})
+            _checkpoint_production_stage(body, stage)
             combined.extend(revised[collection_key]); audits.extend(chunk_audits)
         return {**content, collection_key:combined}, audits
-    audit_body = {**body, "stage":stage, "audit_mode":"initial", "content":content}
+    # Stage cancellation is process-local control state.  Keep it available to
+    # checkpoints, but never expose the Event through provider/remote payloads.
+    audit_body = {**{key:value for key, value in body.items() if key != "_cancel_event"}, "stage":stage, "audit_mode":"initial", "content":content}
+    _checkpoint_production_stage(body, stage)
     initial = _invoke_production_capability("audit.narrative", body=audit_body)
+    _checkpoint_production_stage(body, stage)
     if initial.get("status") == "pass":
         return content, [initial]
     repaired = _invoke_production_capability("text.narrative.repair", body={**audit_body, "issues":initial.get("issues", [])})
+    _checkpoint_production_stage(body, stage)
     final_content = repaired["content"]
     original_items = content.get(collection_key); repaired_items = final_content.get(collection_key)
     if not isinstance(original_items, list) or not isinstance(repaired_items, list) or len(repaired_items) != len(original_items):
@@ -1606,7 +2043,9 @@ def _audit_and_repair_narrative(stage: str, body: dict, content: dict) -> tuple[
     identity_key = "episode" if stage != "storyboard" else "shot_number"
     if [item.get(identity_key) for item in repaired_items if isinstance(item, dict)] != [item.get(identity_key) for item in original_items if isinstance(item, dict)]:
         raise ValueError(f"{stage}自动修正改变了条目标识或顺序")
+    _checkpoint_production_stage(body, stage)
     final = _invoke_production_capability("audit.narrative", body={**audit_body, "audit_mode":"final", "content":final_content, "prior_audit":initial})
+    _checkpoint_production_stage(body, stage)
     if final.get("status") != "pass":
         raise RuntimeError(str(final.get("summary") or f"{stage}自动修正后终审未通过"))
     return final_content, [initial, final]
@@ -1735,7 +2174,59 @@ def _prop_contains_live_person(image: dict) -> bool:
     return any(term in evidence for term in human_terms) and not any(term in evidence for term in allowed_terms)
 
 
-def _validate_prop_asset(image: dict) -> tuple[bool, str]:
+def _run_image_validation(
+    job_id: str,
+    phase: str,
+    validator,
+    image: dict,
+    *,
+    timeout_seconds: float = IMAGE_VALIDATION_TIMEOUT_SECONDS,
+    heartbeat_seconds: float = 2.0,
+) -> tuple[bool, str]:
+    """Keep post-generation validation inside the durable image-job lifecycle."""
+    completed = threading.Event()
+    outcome: dict[str, object] = {}
+
+    def validate() -> None:
+        try:
+            outcome["result"] = validator(image)
+        except Exception as error:
+            outcome["error"] = error
+        finally:
+            completed.set()
+
+    _assert_image_job_runnable(job_id)
+    _update_image_job(job_id, status="processing", phase=phase, heartbeat_at=_iso_now(), pid=None, process_group=None)
+    threading.Thread(target=validate, daemon=True, name=f"image-validation-{job_id[:8]}").start()
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            RESOURCE_SCHEDULER.cancel_job(job_id)
+            _terminate_ollama_model("llava:latest")
+            completed.wait(5)
+            raise RuntimeError(f"图片后验收超时（{int(timeout_seconds)}秒）：{phase}")
+        if completed.wait(min(heartbeat_seconds, remaining)):
+            break
+        try:
+            _assert_image_job_runnable(job_id)
+        except Exception:
+            RESOURCE_SCHEDULER.cancel_job(job_id)
+            _terminate_ollama_model("llava:latest")
+            completed.wait(5)
+            raise
+        _update_image_job(job_id, status="processing", phase=phase, heartbeat_at=_iso_now(), pid=None, process_group=None)
+    _assert_image_job_runnable(job_id)
+    validation_error = outcome.get("error")
+    if isinstance(validation_error, Exception):
+        raise validation_error
+    result = outcome.get("result")
+    if not isinstance(result, tuple) or len(result) != 2:
+        raise RuntimeError(f"图片后验收返回无效结果：{phase}")
+    return bool(result[0]), str(result[1])
+
+
+def _validate_prop_asset(image: dict, *, job_id: str = "") -> tuple[bool, str]:
     """Require a single isolated prop instead of merely checking that people are absent."""
     source = _local_media_path(image.get("url"))
     request = Request(
@@ -1754,9 +2245,11 @@ def _validate_prop_asset(image: dict) -> tuple[bool, str]:
         }).encode("utf-8"),
         headers={"Content-Type":"application/json"}, method="POST",
     )
-    with _claim_production_resource("audit", f"prop-audit-{uuid4()}", timeout=900):
+    with _claim_production_resource(
+        "audit", job_id or f"prop-audit-{uuid4()}", timeout=IMAGE_VALIDATION_TIMEOUT_SECONDS,
+    ):
         _require_memory(12 * GIB)
-        with urlopen(request, timeout=600) as response:
+        with urlopen(request, timeout=IMAGE_VALIDATION_TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read())
     evidence = str(payload.get("response", "")).strip()
     try:
@@ -1767,7 +2260,7 @@ def _validate_prop_asset(image: dict) -> tuple[bool, str]:
     return all(verdict.get(key) is True for key in required), json.dumps(verdict, ensure_ascii=False)
 
 
-def _validate_scene_asset(image: dict) -> tuple[bool, str]:
+def _validate_scene_asset(image: dict, *, job_id: str = "") -> tuple[bool, str]:
     """Reject people and model-invented glyphs before optional exact text overlay."""
     source = _local_media_path(image.get("url"))
     request = Request(
@@ -1786,9 +2279,11 @@ def _validate_scene_asset(image: dict) -> tuple[bool, str]:
         }).encode("utf-8"),
         headers={"Content-Type":"application/json"}, method="POST",
     )
-    with _claim_production_resource("audit", f"scene-audit-{uuid4()}", timeout=900):
+    with _claim_production_resource(
+        "audit", job_id or f"scene-audit-{uuid4()}", timeout=IMAGE_VALIDATION_TIMEOUT_SECONDS,
+    ):
         _require_memory(12 * GIB)
-        with urlopen(request, timeout=600) as response:
+        with urlopen(request, timeout=IMAGE_VALIDATION_TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read())
     evidence = str(payload.get("response", "")).strip()
     try:
@@ -1817,6 +2312,22 @@ else:
     )
     payload = json.loads(result.stdout.strip().splitlines()[-1])
     return tuple(payload) if isinstance(payload, list) and len(payload) == 3 else None
+
+
+def _mirror_character_candidate_for_target(candidate: Path, target_pose: str) -> bool:
+    """Correct a pure left/right semantic inversion without regenerating identity or clothing."""
+    pose = _face_pose_angles(candidate)
+    if pose is None:
+        return False
+    yaw = float(pose[1])
+    inverted = (target_pose == "left_45_full" and -60.0 <= yaw <= -30.0) or (
+        target_pose == "right_45_full" and 30.0 <= yaw <= 60.0
+    )
+    if not inverted:
+        return False
+    script = "import cv2,sys; p=sys.argv[1]; im=cv2.imread(p); assert im is not None; assert cv2.imwrite(p,cv2.flip(im,1))"
+    subprocess.run([str(COMFY_PYTHON), "-c", script, str(candidate)], check=True, capture_output=True, text=True, timeout=60)
+    return True
 
 
 def _face_embedding_similarity(reference: Path, candidate: Path) -> float | None:
@@ -2003,6 +2514,36 @@ def _blank_requested_text(prompt: str, required_text: str) -> str:
     )
 
 
+def _sanitize_no_text_asset_prompt(prompt: str) -> str:
+    """Remove positive glyph requests from assets whose contract forbids text."""
+    cue = re.compile(r"(?:笔迹|字迹|文字|字样|书法|铭文|刻字|题字|标签|标牌|招牌|水印|logo|letters?|text|signage)", re.IGNORECASE)
+    before_negative = re.compile(r"(?:无|没有|禁止|不得|不要|避免|去除|不含|干净|空白|no|without)(?:(?:任何|出现|生成|包含|含有|可见的|visible)\s*){0,3}$", re.IGNORECASE)
+    after_negative = re.compile(r"^\s*(?:必须)?(?:不得|禁止|不能|不可|不应|不要|应当去除|必须去除|必须没有|must\s+not|is\s+forbidden)", re.IGNORECASE)
+    def has_positive_cue(value: str) -> bool:
+        for match in cue.finditer(value):
+            if before_negative.search(value[max(0, match.start() - 12):match.start()]):
+                continue
+            if after_negative.search(value[match.end():match.end() + 16]):
+                continue
+            return True
+        return False
+    clauses = re.split(r"([，。；;\n])", str(prompt or ""))
+    sanitized: list[str] = []
+    for clause in clauses:
+        if clause in {"，", "。", "；", ";", "\n"}:
+            sanitized.append(clause)
+            continue
+        if not has_positive_cue(clause):
+            sanitized.append(clause)
+            continue
+        # A model may combine a forbidden glyph detail with valid material
+        # detail using “or/and”. Keep only the independently valid fragments.
+        fragments = re.split(r"(?:或|以及|并且|与|和|\bor\b|\band\b)", clause, flags=re.IGNORECASE)
+        sanitized.append("，".join(fragment.strip() for fragment in fragments if fragment.strip() and not has_positive_cue(fragment)))
+    value = re.sub(r"[，。；;]{2,}", "，", "".join(sanitized)).strip("，。；; \n")
+    return f"{value}。道具表面必须完全无字、无字形、无标签、无标志、无水印。" if value else "单个道具本体，表面完全无字、无字形、无标签、无标志、无水印。"
+
+
 def _apply_required_text_overlay(path: Path, text: str, body: dict) -> dict:
     """Render exact text deterministically; the diffusion model never draws glyphs."""
     if not text:
@@ -2093,9 +2634,9 @@ cv2.imwrite(source,crop,[cv2.IMWRITE_PNG_COMPRESSION,3])
     )
 
 
-def _normalize_character_variant_margins(path: Path) -> None:
-    """Fit the complete person into frame with full hair and 5% below the shoe soles."""
-    script = r'''import cv2,sys,numpy as np
+def _normalize_character_variant_margins(path: Path) -> dict:
+    """Normalize a detected person and return measured pixel-space frame evidence."""
+    script = r'''import cv2,json,sys,numpy as np
 from ultralytics import YOLO
 source=sys.argv[1]
 image=cv2.imread(source)
@@ -2108,33 +2649,98 @@ for cls,conf,box in zip(result.boxes.cls,result.boxes.conf,result.boxes.xyxy):
     if int(cls)==0 and float(conf)>=0.25:
         x1,y1,x2,y2=[float(v) for v in box]
         people.append((float(conf),x1,y1,x2-x1,y2-y1))
-if len(people)!=1: raise RuntimeError(f"person_count={len(people)}")
-_,x,y,bw,bh=people[0]
+# Long robes in strict profile are frequently classified as clothing objects
+# instead of COCO person.  Asset portraits have a required seamless neutral
+# background, so derive a second deterministic foreground seed from the image
+# border instead of treating YOLO as the sole source of truth.
+mask=np.zeros((h,w),np.uint8)
+grabcut_mode=cv2.GC_INIT_WITH_RECT
+if len(people)==1:
+    _,x,y,bw,bh=people[0]
+else:
+    # Preliminary full-frame GrabCut is robust to the subtle studio gradient
+    # and floor shadow that defeat a single global background-color threshold.
+    preliminary=np.zeros((h,w),np.uint8)
+    preliminary_bgd=np.zeros((1,65),np.float64); preliminary_fgd=np.zeros((1,65),np.float64)
+    preliminary_rect=(max(1,int(w*0.03)),max(1,int(h*0.015)),max(2,int(w*0.94)),max(2,int(h*0.965)))
+    cv2.grabCut(image,preliminary,preliminary_rect,preliminary_bgd,preliminary_fgd,5,cv2.GC_INIT_WITH_RECT)
+    foreground=np.where((preliminary==cv2.GC_FGD)|(preliminary==cv2.GC_PR_FGD),255,0).astype(np.uint8)
+    foreground=cv2.morphologyEx(foreground,cv2.MORPH_CLOSE,np.ones((5,5),np.uint8))
+    count,labels,stats,_=cv2.connectedComponentsWithStats(foreground,8)
+    candidates=[i for i in range(1,count) if stats[i,cv2.CC_STAT_AREA]>=int(h*w*0.025) and stats[i,cv2.CC_STAT_HEIGHT]>=int(h*0.35)]
+    if len(candidates)!=1:
+        raise RuntimeError(f"person_count={len(people)};foreground_count={len(candidates)}")
+    owner=candidates[0]
+    x,y,bw,bh=[float(v) for v in stats[owner,:4]]
 if y<=1 or y+bh>=h-1: raise RuntimeError(f"person_touches_vertical_edge:{y},{y+bh},{h}")
-patch=max(12,min(h,w)//24)
-corners=np.concatenate((image[:patch,:patch].reshape(-1,3),image[:patch,-patch:].reshape(-1,3),image[-patch:,:patch].reshape(-1,3),image[-patch:,-patch:].reshape(-1,3)))
-background=np.median(corners,axis=0)
 if bh<h*0.35: raise RuntimeError(f"person_height_invalid:{x},{y},{bw},{bh}")
-target_h=1664*0.95
-target_w=928*0.90
-scale=min(target_h/bh,target_w/bw)
+# Refine the detector rectangle to the visible silhouette. Detection boxes can
+# start below dark hair or end above shoe soles, so they cannot prove margins.
+gx1=max(1,int(np.floor(x-bw*0.025))); gy1=max(1,int(np.floor(y-bh*0.015)))
+gx2=min(w-1,int(np.ceil(x+bw*1.025))); gy2=min(h-1,int(np.ceil(y+bh*1.015)))
+rect=(gx1,gy1,max(2,gx2-gx1),max(2,gy2-gy1))
+bgd=np.zeros((1,65),np.float64); fgd=np.zeros((1,65),np.float64)
+try:
+    cv2.grabCut(image,mask,rect,bgd,fgd,5,grabcut_mode)
+    foreground=np.where((mask==cv2.GC_FGD)|(mask==cv2.GC_PR_FGD),255,0).astype(np.uint8)
+    foreground=cv2.morphologyEx(foreground,cv2.MORPH_CLOSE,np.ones((5,5),np.uint8))
+    count,labels,stats,_=cv2.connectedComponentsWithStats(foreground,8)
+    cx=min(w-1,max(0,int(round(x+bw/2)))); cy=min(h-1,max(0,int(round(y+bh/2))))
+    owner=int(labels[cy,cx])
+    if owner<=0:
+        candidates=[i for i in range(1,count) if stats[i,cv2.CC_STAT_AREA]>=max(64,int(bw*bh*0.08))]
+        owner=max(candidates,key=lambda i:stats[i,cv2.CC_STAT_AREA]) if candidates else 0
+    if owner<=0: raise RuntimeError("foreground_component_missing")
+    sx,sy,sw,sh=[float(v) for v in stats[owner,:4]]
+    if sh<bh*0.72 or sw<bw*0.35: raise RuntimeError(f"foreground_component_invalid:{sx},{sy},{sw},{sh}")
+except Exception as error:
+    raise RuntimeError(f"foreground_segmentation_failed:{type(error).__name__}:{error}") from error
+# Reserve tolerance beyond the public 8%/3% contract. The final deterministic
+# evidence is calculated from this same refined silhouette, not asserted by flag.
+target_h=1664*0.86
+target_w=928*0.88
+scale=min(target_h/sh,target_w/sw)
 resized=cv2.resize(image,None,fx=scale,fy=scale,interpolation=cv2.INTER_LANCZOS4)
-rx,ry,rw,rh=[value*scale for value in (x,y,bw,bh)]
-left=int(round(rx+rw/2-928/2)); top=int(round(ry+rh-1664*0.95))
+rx,ry,rw,rh=[value*scale for value in (sx,sy,sw,sh)]
+left=int(round(rx+rw/2-928/2)); top=int(round(ry-1664*0.09))
 right=left+928; bottom=top+1664
 pad_l=max(0,-left); pad_t=max(0,-top); pad_r=max(0,right-resized.shape[1]); pad_b=max(0,bottom-resized.shape[0])
 if pad_l or pad_t or pad_r or pad_b:
-    color=tuple(int(v) for v in background)
-    resized=cv2.copyMakeBorder(resized,pad_t,pad_b,pad_l,pad_r,cv2.BORDER_CONSTANT,value=color)
+    resized=cv2.copyMakeBorder(resized,pad_t,pad_b,pad_l,pad_r,cv2.BORDER_REPLICATE)
+    rx+=pad_l; ry+=pad_t
     left+=pad_l; top+=pad_t
 crop=resized[top:top+1664,left:left+928]
 if crop.shape[:2]!=(1664,928): raise RuntimeError(f"crop_shape={crop.shape}")
 cv2.imwrite(source,crop,[cv2.IMWRITE_PNG_COMPRESSION,3])
+out_x1=rx-left; out_y1=ry-top; out_x2=rx+rw-left; out_y2=ry+rh-top
+evidence={
+    "source":"grabcut_person_silhouette",
+    "subject_bounds":[round(out_x1,3),round(out_y1,3),round(out_x2,3),round(out_y2,3)],
+    "top_margin_ratio":round(max(0.0,out_y1/1664.0),6),
+    "bottom_margin_ratio":round(max(0.0,(1664.0-out_y2)/1664.0),6),
+    "left_margin_ratio":round(max(0.0,out_x1/928.0),6),
+    "right_margin_ratio":round(max(0.0,(928.0-out_x2)/928.0),6),
+    "output_width":928,"output_height":1664,
+}
+evidence["top_margin_at_least_8_percent"]=evidence["top_margin_ratio"]>=0.08
+evidence["bottom_margin_at_least_3_percent"]=evidence["bottom_margin_ratio"]>=0.03
+if not evidence["top_margin_at_least_8_percent"] or not evidence["bottom_margin_at_least_3_percent"]:
+    raise RuntimeError("normalized_margin_contract_failed:"+json.dumps(evidence,separators=(",",":")))
+print(json.dumps(evidence,separators=(",",":")))
 '''
-    subprocess.run(
+    result = subprocess.run(
         [str(COMFY_PYTHON), "-c", script, str(path)],
         check=True, capture_output=True, text=True, timeout=180,
     )
+    evidence = json.loads(result.stdout.strip().splitlines()[-1])
+    if (
+        evidence.get("output_width") != 928
+        or evidence.get("output_height") != 1664
+        or evidence.get("top_margin_at_least_8_percent") is not True
+        or evidence.get("bottom_margin_at_least_3_percent") is not True
+    ):
+        raise RuntimeError(f"人物安全区确定性归一失败：{json.dumps(evidence, ensure_ascii=False)}")
+    return evidence
 
 
 def _flux_identity_prompt(description: str) -> str:
@@ -2154,6 +2760,70 @@ def _flux_identity_prompt(description: str) -> str:
         translated = translated.replace(source, target)
     translated = re.sub(r"(\d{1,2})岁", r"\1 years old", translated)
     return translated
+
+
+def _verified_character_frame_margins(image: dict) -> tuple[bool, bool, dict]:
+    """Require numeric normalizer evidence; a legacy boolean flag is never sufficient."""
+    metrics = image.get("deterministic_frame_metrics")
+    if (
+        not isinstance(metrics, dict)
+        or image.get("normalized_variant_margins") is not True
+        or metrics.get("source") != "grabcut_person_silhouette"
+    ):
+        return False, False, {}
+    try:
+        top_ratio = float(metrics.get("top_margin_ratio"))
+        bottom_ratio = float(metrics.get("bottom_margin_ratio"))
+    except (TypeError, ValueError):
+        return False, False, metrics
+    top_valid = metrics.get("top_margin_at_least_8_percent") is True and top_ratio >= 0.08
+    bottom_valid = metrics.get("bottom_margin_at_least_3_percent") is True and bottom_ratio >= 0.03
+    return top_valid, bottom_valid, metrics
+
+
+def _prepare_character_full_frame_candidate(image: dict) -> tuple[bool, dict]:
+    """Normalize one full-frame candidate or remove it before a bounded retry."""
+    source = _local_media_path(image.get("url"))
+    try:
+        metrics = _normalize_character_variant_margins(source)
+    except Exception as error:
+        source.unlink(missing_ok=True)
+        return False, {
+            "normalization_failed": True,
+            "error": str(error),
+            "source_removed": not source.exists(),
+        }
+    image["deterministic_frame_metrics"] = metrics
+    image["normalized_variant_margins"] = True
+    return True, metrics
+
+
+def _run_character_full_frame_candidate_loop(
+    initial_image: dict,
+    *,
+    generate_retry,
+    validate_candidate,
+    max_attempts: int,
+    on_attempt=None,
+) -> tuple[dict, str, int]:
+    """Own candidate cleanup and bounded regeneration for every full-frame caller."""
+    image = initial_image
+    evidence = ""
+    for attempt in range(max_attempts):
+        if on_attempt is not None:
+            on_attempt(attempt + 1)
+        normalized, frame_evidence = _prepare_character_full_frame_candidate(image)
+        if normalized:
+            valid, evidence = validate_candidate(image)
+            if valid:
+                return image, evidence, attempt + 1
+            _local_media_path(image.get("url")).unlink(missing_ok=True)
+        else:
+            evidence = json.dumps(frame_evidence, ensure_ascii=False)
+        if attempt == max_attempts - 1:
+            raise RuntimeError(f"character_full_frame_candidates_exhausted:{evidence}")
+        image = generate_retry(attempt + 2, evidence)
+    raise RuntimeError("character_full_frame_candidates_exhausted:unreachable")
 
 
 def _validate_character_baseline(image: dict, identity_prompt: str = "") -> tuple[bool, str]:
@@ -2213,6 +2883,38 @@ def _validate_character_baseline(image: dict, identity_prompt: str = "") -> tupl
     return valid, json.dumps(verdict, ensure_ascii=False)
 
 
+CHARACTER_FULL_BODY_ANATOMY_CHECKS = (
+    "hands_anatomically_valid",
+    "feet_anatomically_valid",
+    "no_fused_missing_or_extra_limbs_or_digits",
+)
+
+
+def _character_variant_required_checks(target_pose: str, strict_clothing_reference: bool) -> tuple[str, ...]:
+    required = ("exactly_one_person", "correct_orientation", "body_shape_consistent", "natural_body_proportion", "top_margin_at_least_8_percent", "bottom_margin_at_least_3_percent", "head_to_body_ratio_7_to_7_8", "plain_background", "required_928x1664", "deterministic_full_frame")
+    if target_pose not in {"front_full", "front_half", "left_45_full", "right_45_full"}:
+        required += ("full_head_visible", "feet_visible", "thigh_calf_difference_within_8_percent", "upper_lower_arm_difference_within_10_percent", "torso_at_least_55_percent_of_lower_limb")
+    if target_pose == "side_90_full":
+        required += ("strict_side_face_88_to_92", "torso_rotation_within_3_degrees")
+    if strict_clothing_reference:
+        required += ("exact_clothing_consistent", "hair_consistent", "clothing_similarity_at_least_0_82")
+    if target_pose == "front_full":
+        required += ("deterministic_full_frame", "identity_consistent", "face_similarity_calibrated_front")
+    elif target_pose == "front_half":
+        return ("exactly_one_person", "correct_orientation", "full_head_visible", "identity_consistent", "hair_consistent", "plain_background", "required_928x1664", "face_similarity_calibrated_front", "waist_crop", "hands_out_of_frame", "subject_height_about_75_percent", "shoulders_clear_of_edges", "balanced_side_margins")
+    elif target_pose == "left_45_full":
+        return ("exactly_one_person", "correct_orientation", "top_margin_at_least_8_percent", "bottom_margin_at_least_3_percent", "plain_background", "required_928x1664", "deterministic_full_frame", "left_45_face_angle_30_to_60", *CHARACTER_FULL_BODY_ANATOMY_CHECKS)
+    elif target_pose == "right_45_full":
+        return ("exactly_one_person", "correct_orientation", "top_margin_at_least_8_percent", "bottom_margin_at_least_3_percent", "plain_background", "required_928x1664", "deterministic_full_frame", "right_45_face_angle_minus_60_to_minus_30", *CHARACTER_FULL_BODY_ANATOMY_CHECKS)
+    if target_pose in {"side_90_full", "back_full"}:
+        required += CHARACTER_FULL_BODY_ANATOMY_CHECKS
+    return required
+
+
+def _character_variant_verdict_passes(verdict: dict, target_pose: str, strict_clothing_reference: bool) -> bool:
+    return all(verdict.get(key) is True for key in _character_variant_required_checks(target_pose, strict_clothing_reference))
+
+
 def _validate_character_variant(reference_url: str, image: dict, target_pose: str, clothing_reference_url: str = "") -> tuple[bool, str]:
     """Reject wrong direction, cropped feet, identity drift and distorted body proportions."""
     reference = _reference_path(reference_url)
@@ -2225,18 +2927,20 @@ def _validate_character_variant(reference_url: str, image: dict, target_pose: st
         data=json.dumps({
             "model":"llava:latest",
             "prompt":(
-                f"The first image is the accepted identity headshot. The second image must be a {pose_label} asset. "
+                f"The first image is the accepted zero-degree front full-body identity baseline. The second image must be a {pose_label} asset. "
                 "Inspect the second image edges literally and compare face and hair with the first image. Return JSON booleans only: "
                 '{"exactly_one_person":...,"full_head_visible":...,"feet_visible":...,'
                 '"correct_orientation":...,"identity_consistent":...,"hair_consistent":...,"exact_clothing_consistent":...,"body_shape_consistent":...,'
-                '"natural_body_proportion":...,"top_margin_about_5_percent":...,"bottom_margin_about_5_percent":...,"head_to_body_ratio_7_to_7_8":...,"plain_background":...,'
+                '"natural_body_proportion":...,"top_margin_at_least_8_percent":...,"bottom_margin_at_least_3_percent":...,"head_to_body_ratio_7_to_7_8":...,"plain_background":...,'
+                '"hands_anatomically_valid":...,"feet_anatomically_valid":...,"no_fused_missing_or_extra_limbs_or_digits":...,'
                 '"head_to_body_ratio":0.0,"thigh_calf_length_difference_percent":0.0,"upper_lower_arm_length_difference_percent":0.0,"torso_to_lower_limb_ratio_percent":0.0,'
                 '"waist_crop":...,"hands_out_of_frame":...,"subject_height_about_75_percent":...,"shoulders_clear_of_edges":...,"balanced_side_margins":...}. '
                 "Set full_head_visible=true when the complete top of the head is inside the image frame. "
                 "Set feet_visible=true when both feet and shoes are visible and not cut by an image edge. "
-                "Set top_margin_about_5_percent=true only when the pure background above the highest hair point is approximately 4% to 6% of image height. "
-                "Set bottom_margin_about_5_percent=true only when the pure background below the lowest shoe sole is approximately 4% to 6% of image height. "
+                "Set top_margin_at_least_8_percent=true only when the pure background above the highest hair point is 8 percent or more of image height; 8 percent is a minimum, not a fixed target. "
+                "Set bottom_margin_at_least_3_percent=true only when the pure background below the lowest shoe sole is 3 percent or more of image height; 3 percent is a minimum, not a fixed target. "
                 "Measure the numeric body ratios from visible anatomical joints. Set head_to_body_ratio_7_to_7_8=true only from 7.0 through 7.8; thigh/calf difference must be at most 8 percent; upper/lower arm difference at most 10 percent; torso height must be at least 55 percent of the full lower-limb height. "
+                "Inspect every visible arm, wrist, hand, finger, leg, ankle, foot and toe at high attention. Set hands_anatomically_valid=false for fused fingers, missing or extra fingers, melted knuckles, broken wrists, duplicated hands or hand-shaped blobs. Set feet_anatomically_valid=false for fused feet, missing or extra toes, broken ankles, duplicated feet or foot-shaped blobs. Set no_fused_missing_or_extra_limbs_or_digits=false for any fused, missing, extra, duplicated or disconnected limb or digit. Occlusion by the body or garment is allowed only when the anatomy is naturally hidden rather than malformed. "
                 "For a side view also return numeric fields side_face_angle_degrees and torso_rotation_degrees. "
                 "Measure side_face_angle_degrees from frontal zero toward a pure profile at 90 degrees. Measure torso_rotation_degrees as deviation from a pure side torso; pure stacked shoulders and hips is zero. "
                 "For a side view only one facial profile may be visible; for a back view no face or front chest may be visible. "
@@ -2358,7 +3062,11 @@ def _validate_character_variant(reference_url: str, image: dict, target_pose: st
         deterministic_orientation = True
     verdict["face_pose"] = list(pose) if pose else None
     verdict["deterministic_orientation"] = deterministic_orientation
-    verdict["correct_orientation"] = verdict.get("correct_orientation") is True and deterministic_orientation
+    verdict["correct_orientation"] = (
+        deterministic_orientation
+        if target_pose == "front_full"
+        else verdict.get("correct_orientation") is True and deterministic_orientation
+    )
     if target_pose in {"front_full", "front_half"}:
         try:
             face_similarity = _face_embedding_similarity(reference, candidate)
@@ -2384,11 +3092,14 @@ def _validate_character_variant(reference_url: str, image: dict, target_pose: st
     dimensions = _png_dimensions(candidate)
     verdict["pixel_dimensions"] = list(dimensions) if dimensions else None
     verdict["required_928x1664"] = dimensions == (928, 1664)
-    if image.get("normalized_variant_margins") is True:
+    deterministic_top_margin, deterministic_bottom_margin, frame_metrics = _verified_character_frame_margins(image)
+    if deterministic_top_margin and deterministic_bottom_margin:
         verdict["full_head_visible"] = True
         verdict["feet_visible"] = True
-        verdict["bottom_margin_about_5_percent"] = True
+        verdict["top_margin_at_least_8_percent"] = deterministic_top_margin
+        verdict["bottom_margin_at_least_3_percent"] = deterministic_bottom_margin
         verdict["frame_validation_source"] = "deterministic_single_person_foreground_normalizer"
+    verdict["deterministic_frame_metrics"] = frame_metrics
     if not strict_clothing_reference:
         verdict["exact_clothing_consistent"] = True
         verdict["body_shape_consistent"] = True
@@ -2398,27 +3109,10 @@ def _validate_character_variant(reference_url: str, image: dict, target_pose: st
     # only facts that can be compared deterministically at this stage. Once the
     # full-body view is confirmed it becomes the strict clothing/body reference
     # for side and back views below.
-    verdict["deterministic_full_frame"] = image.get("normalized_variant_margins") is True
-    required = ("exactly_one_person", "correct_orientation", "body_shape_consistent", "natural_body_proportion", "bottom_margin_about_5_percent", "head_to_body_ratio_7_to_7_8", "plain_background", "required_928x1664")
-    # Pixel-space limb keypoints are unreliable on long garments and occluded joints. Keep
-    # their measured values as evidence, but do not let a noisy detector discard the first
-    # full-body candidate; that candidate has its own mandatory human confirmation gate.
-    # Side/back variants reuse the confirmed body reference and remain strictly gated.
-    if target_pose not in {"front_full", "front_half", "left_45_full", "right_45_full"}:
-        required += ("full_head_visible", "feet_visible", "thigh_calf_difference_within_8_percent", "upper_lower_arm_difference_within_10_percent", "torso_at_least_55_percent_of_lower_limb")
-    if target_pose == "side_90_full":
-        required += ("strict_side_face_88_to_92", "torso_rotation_within_3_degrees")
-    if strict_clothing_reference:
-        required += ("exact_clothing_consistent", "hair_consistent", "clothing_similarity_at_least_0_82")
-    if target_pose == "front_full":
-        required += ("deterministic_full_frame", "identity_consistent", "face_similarity_calibrated_front")
-    if target_pose == "front_half":
-        required = ("exactly_one_person", "correct_orientation", "full_head_visible", "identity_consistent", "hair_consistent", "plain_background", "required_928x1664", "face_similarity_calibrated_front", "waist_crop", "hands_out_of_frame", "subject_height_about_75_percent", "shoulders_clear_of_edges", "balanced_side_margins")
-    if target_pose == "left_45_full":
-        required += ("deterministic_full_frame", "left_45_face_angle_30_to_60")
-    if target_pose == "right_45_full":
-        required += ("deterministic_full_frame", "right_45_face_angle_minus_60_to_minus_30")
-    return all(verdict.get(key) is True for key in required), json.dumps(verdict, ensure_ascii=False)
+    verdict["deterministic_full_frame"] = (
+        deterministic_top_margin and deterministic_bottom_margin and dimensions == (928, 1664)
+    )
+    return _character_variant_verdict_passes(verdict, target_pose, bool(strict_clothing_reference)), json.dumps(verdict, ensure_ascii=False)
 
 
 def _transcribe_media(source: Path) -> str:
@@ -2600,26 +3294,78 @@ def _comfy_json(path: str, payload: dict | None = None, timeout: int = 10) -> di
     return json.loads(raw) if raw else {}
 
 
-def _cancel_comfy_prompt(prompt_id: object) -> None:
-    """Cancel only a prompt owned by this API; never clear another client's queue."""
+def _comfy_prompt_queue_details(prompt_id: object) -> tuple[str, bool]:
     prompt = str(prompt_id or "").strip()
     if not prompt:
+        return "absent", False
+    queue = _comfy_json("/queue")
+    running_ids = {str(item[1]) for item in queue.get("queue_running", []) if isinstance(item, list) and len(item) > 1}
+    pending_ids = {str(item[1]) for item in queue.get("queue_pending", []) if isinstance(item, list) and len(item) > 1}
+    if prompt in running_ids:
+        return "running", bool(running_ids - {prompt})
+    if prompt in pending_ids:
+        return "pending", bool(running_ids)
+    return "absent", bool(running_ids)
+
+
+def _comfy_prompt_queue_state(prompt_id: object) -> str:
+    return _comfy_prompt_queue_details(prompt_id)[0]
+
+
+def _cancel_comfy_prompt(prompt_id: object, *, confirm_seconds: float = 10.0) -> bool:
+    """Cancel one owned prompt and return only after queue disappearance is confirmed."""
+    prompt = str(prompt_id or "").strip()
+    if not prompt:
+        return True
+    deadline = time.monotonic() + max(0.0, confirm_seconds)
+    while True:
+        try:
+            state, foreign_running = _comfy_prompt_queue_details(prompt)
+            if state == "absent":
+                return True
+            if state == "pending":
+                _comfy_json("/queue", {"delete": [prompt]})
+            elif state == "running" and not foreign_running:
+                _comfy_json("/interrupt", {})
+        except Exception:
+            state = "unknown"
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.25)
+
+
+def _cancel_job_comfy_prompts(job: dict, *, confirm_seconds: float = 10.0) -> bool:
+    confirmed = True
+    for key in ("schnell_prompt_id", "qwen_prompt_id", "context_ir_prompt_id", "comfy_prompt_id"):
+        prompt_id = str(job.get(key) or "").strip()
+        if prompt_id and not _cancel_comfy_prompt(prompt_id, confirm_seconds=confirm_seconds):
+            confirmed = False
+    return confirmed
+
+
+def _wait_for_video_comfy_prompts(job_id: str, prompt_ids: list[str]) -> None:
+    owned = list(dict.fromkeys(prompt_id for prompt_id in prompt_ids if prompt_id))
+    if not owned:
         return
+    with VIDEO_JOB_LOCK:
+        ACTIVE_VIDEO_PROMPT_CANCELLERS.add(job_id)
+    attempts = 0
     try:
-        queue = _comfy_json("/queue")
-        running_ids = {str(item[1]) for item in queue.get("queue_running", []) if isinstance(item, list) and len(item) > 1}
-        pending_ids = {str(item[1]) for item in queue.get("queue_pending", []) if isinstance(item, list) and len(item) > 1}
-        if prompt in pending_ids:
-            _comfy_json("/queue", {"delete": [prompt]})
-        if prompt in running_ids:
-            _comfy_json("/interrupt", {})
-    except Exception:
-        return
-
-
-def _cancel_job_comfy_prompts(job: dict) -> None:
-    for key in ("schnell_prompt_id", "qwen_prompt_id", "comfy_prompt_id"):
-        _cancel_comfy_prompt(job.get(key))
+        while owned:
+            attempts += 1
+            remaining = [prompt_id for prompt_id in owned if not _cancel_comfy_prompt(prompt_id, confirm_seconds=5.0)]
+            if not remaining:
+                return
+            _update_video_job(
+                job_id, status="generating", stage="cancel_pending", heartbeat_at=_iso_now(),
+                cancel_attempts=attempts, cancel_prompt_ids=remaining,
+                error="已请求停止，所属Comfy prompt尚未退出；资源票据继续保留并由看门狗监督",
+            )
+            owned = remaining
+            time.sleep(min(5.0, 0.5 * attempts))
+    finally:
+        with VIDEO_JOB_LOCK:
+            ACTIVE_VIDEO_PROMPT_CANCELLERS.discard(job_id)
 
 
 def _cleanup_comfy_temp_inputs(max_age_seconds: int = 3600) -> int:
@@ -2880,6 +3626,24 @@ def _recover_image_jobs() -> None:
             # A request can die after its persisted status changed but before ComfyUI
             # receives the interrupt. Reconcile every owned prompt, not only active states.
             _cancel_job_comfy_prompts(job)
+            if job.get("identity_recovery") == "quarantined_missing_project" and not job.get("identity_recovery_persisted"):
+                job["identity_recovery_persisted"] = True
+                job["identity_recovered_at"] = _iso_now()
+                changed = True
+            if job.get("status") == "completed":
+                image = job.get("image") if isinstance(job.get("image"), dict) else {}
+                output_path = Path(str(job.get("output_path") or ""))
+                media_exists = output_path.is_file()
+                if not media_exists:
+                    try:
+                        media_exists = _local_media_path(image.get("url")).is_file()
+                    except (FileNotFoundError, ValueError):
+                        media_exists = False
+                if not media_exists:
+                    job.update({"status":"failed", "error":"已完成图片文件缺失，请重新生成", "finished_at":_iso_now(),
+                                "pid":None, "process_group":None})
+                    changed = True
+                continue
             if job.get("status") not in {"queued", "generating", "retrying", "processing"}: continue
             owned = _persisted_image_process(job_id, job)
             if owned: _terminate_process_tree(pid=owned[0], process_group=owned[1])
@@ -2942,11 +3706,13 @@ def _monitor_image_jobs() -> None:
             store = _load_image_jobs(); changed = False
             for job_id, job in store.get("jobs", {}).items():
                 status = str(job.get("status", "")); process = ACTIVE_IMAGE_PROCESSES.get(job_id)
+                worker = ACTIVE_IMAGE_WORKERS.get(job_id)
+                worker_alive = bool(worker and worker.is_alive())
                 running = bool(process and process.poll() is None)
                 age = now - _parse_job_time(job.get("heartbeat_at") or job.get("started_at"))
                 hard_age = now - _parse_job_time(job.get("started_at"))
                 hard_timeout = int(job.get("timeout_seconds") or IMAGE_TASK_TIMEOUT_SECONDS) + int(job.get("queue_timeout_seconds") or IMAGE_QUEUE_TIMEOUT_SECONDS)
-                if status in {"generating", "retrying", "processing"} and not running and age > IMAGE_WATCHDOG_SECONDS * 2:
+                if status in {"generating", "retrying", "processing"} and not running and not worker_alive and age > IMAGE_WATCHDOG_SECONDS * 2:
                     _cancel_job_comfy_prompts(job)
                     job.update({"status":"failed", "error":"看门狗已回收无实际进程的图片任务", "finished_at":_iso_now(), "pid":None, "process_group":None}); changed = True
                 elif status == "queued" and age > IMAGE_QUEUE_TIMEOUT_SECONDS:
@@ -2978,7 +3744,7 @@ def _shutdown_image_jobs() -> None:
                 job.update({"status":"failed", "error":"服务关闭已回收图片任务", "finished_at":_iso_now(),
                             "heartbeat_at":_iso_now(), "pid":None, "process_group":None}); changed = True
         if changed: _save_image_jobs(store)
-        ACTIVE_IMAGE_PROCESSES.clear(); ACTIVE_IMAGE_JOBS.clear(); ACTIVE_IMAGE_SUBJECTS.clear()
+        ACTIVE_IMAGE_PROCESSES.clear(); ACTIVE_IMAGE_JOBS.clear(); ACTIVE_IMAGE_SUBJECTS.clear(); ACTIVE_IMAGE_WORKERS.clear()
 
 
 def _load_video_jobs() -> dict:
@@ -3043,7 +3809,7 @@ def _project_tasks(tenant_id: str, user_id: str, project_id: str) -> list[dict]:
     return result
 
 
-def _stop_text_generation(*, stage: str, project_id: str, requested_job_id: str = "", client_generation_id: str = "") -> tuple[bool, list[str], str]:
+def _stop_text_generation(*, stage: str, project_id: str, requested_job_id: str = "", client_generation_id: str = "", identity: dict | None = None) -> tuple[bool, list[str], str]:
     with TEXT_JOB_LOCK:
         store = _load_text_jobs(); targets = []
         for job_id, active in list(ACTIVE_TEXT_JOBS.items()):
@@ -3052,7 +3818,7 @@ def _stop_text_generation(*, stage: str, project_id: str, requested_job_id: str 
                 bool(project_id) and active.get("project_id") == project_id and active.get("stage") == stage
                 and (not client_generation_id or stored.get("client_generation_id") == client_generation_id)
             )
-            if matches: targets.append(job_id)
+            if matches and _job_matches_scope(stored, identity): targets.append(job_id)
     owner = _formal_model_owner()
     for job_id in targets: RESOURCE_SCHEDULER.cancel_job(job_id)
     if owner in targets and not _terminate_ollama_model(TEXT_FORMAL_MODEL):
@@ -3067,16 +3833,29 @@ def _stop_text_generation(*, stage: str, project_id: str, requested_job_id: str 
     return True, stopped, ""
 
 
-def _stop_image_generation(*, project_id: str, requested_name: str = "", stop_all: bool = False) -> list[str]:
+def _job_matches_scope(job: dict, identity: dict | None) -> bool:
+    if not identity:
+        return True
+    expected = tuple(str(identity.get(key) or "").strip() for key in ("tenant_id", "user_id", "project_id"))
+    if not all(expected):
+        return False
+    request = job.get("request") if isinstance(job.get("request"), dict) else {}
+    actual = tuple(str(job.get(key) or request.get(key) or "").strip() for key in ("tenant_id", "user_id", "project_id"))
+    if all(actual):
+        return actual == expected
+    return str(job.get("subject_key") or "").startswith(":".join(expected) + ":")
+
+
+def _stop_image_generation(*, project_id: str, requested_name: str = "", stop_all: bool = False, identity: dict | None = None) -> list[str]:
     with IMAGE_JOB_LOCK:
         store = _load_image_jobs(); nonterminal = {"queued", "generating", "retrying", "processing"}
-        if requested_name in store.get("jobs", {}) and store["jobs"][requested_name].get("status") in nonterminal:
+        if requested_name in store.get("jobs", {}) and store["jobs"][requested_name].get("status") in nonterminal and _job_matches_scope(store["jobs"][requested_name], identity):
             targets = [requested_name]
         elif requested_name:
-            matches = [(job_id, job) for job_id, job in store.get("jobs", {}).items() if job.get("request_name") == requested_name and job.get("status") in nonterminal]
+            matches = [(job_id, job) for job_id, job in store.get("jobs", {}).items() if job.get("request_name") == requested_name and job.get("status") in nonterminal and _job_matches_scope(job, identity)]
             targets = [max(matches, key=lambda pair:_parse_job_time(pair[1].get("started_at")))[0]] if matches else []
         else:
-            targets = [job_id for job_id, job in store.get("jobs", {}).items() if stop_all and job.get("status") in nonterminal and (not project_id or str(job.get("subject_key", "")).startswith(project_id + ":"))]
+            targets = [job_id for job_id, job in store.get("jobs", {}).items() if stop_all and job.get("status") in nonterminal and _job_matches_scope(job, identity) and (identity is not None or not project_id or str(job.get("subject_key", "")).startswith(project_id + ":"))]
         for job_id in targets:
             process = ACTIVE_IMAGE_PROCESSES.pop(job_id, None)
             if process: _terminate_process_tree(process)
@@ -3088,25 +3867,35 @@ def _stop_image_generation(*, project_id: str, requested_name: str = "", stop_al
     return targets
 
 
-def _stop_video_generation(*, requested_job_id: str = "", subject_key: str = "") -> list[str]:
+def _stop_video_generation(*, requested_job_id: str = "", subject_key: str = "", identity: dict | None = None) -> list[str]:
     with VIDEO_JOB_LOCK:
-        store = _load_video_jobs(); matches = [(job_id, job) for job_id, job in store.get("jobs", {}).items() if job.get("status") in {"waiting_memory", "generating"} and (job_id == requested_job_id or (subject_key and job.get("subject_key") == subject_key))]
+        store = _load_video_jobs(); matches = [(job_id, job) for job_id, job in store.get("jobs", {}).items() if job.get("status") in {"waiting_memory", "generating"} and _job_matches_scope(job, identity) and (job_id == requested_job_id or (subject_key and job.get("subject_key") == subject_key))]
         targets = [max(matches, key=lambda pair:_parse_job_time(pair[1].get("queued_at")))] if matches else []
         processes = [(job_id, ACTIVE_VIDEO_PROCESSES.get(job_id)) for job_id, _ in targets]
+        for job_id, _ in targets:
+            store["jobs"][job_id].update({"cancel_requested_at":_iso_now(), "stage":"cancelling", "heartbeat_at":_iso_now()})
+        if targets:
+            _save_video_jobs(store)
     for _, process in processes:
         if process: _terminate_process_tree(process)
-    for _, job in targets:
-        _cancel_job_comfy_prompts(job)
-    for job_id, _ in targets: RESOURCE_SCHEDULER.cancel_job(job_id)
+    confirmed = [(job_id, job) for job_id, job in targets if _cancel_job_comfy_prompts(job)]
+    for job_id, _ in confirmed: RESOURCE_SCHEDULER.cancel_job(job_id)
+    committed: list[tuple[str, dict]] = []
+    for job_id, job in confirmed:
+        _commit_video_terminal(job_id, status="cancelled", stage="cancelled", error="视频任务已停止", finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None)
+        committed.append((job_id, job))
     with VIDEO_JOB_LOCK:
         store = _load_video_jobs()
-        for job_id, _ in targets:
+        for job_id, _ in committed:
             job = store["jobs"][job_id]
-            job.update({"status":"cancelled", "stage":"cancelled", "error":"视频任务已停止", "finished_at":_iso_now(), "heartbeat_at":_iso_now(), "pid":None, "process_group":None})
             ACTIVE_VIDEO_JOBS.discard(job_id); ACTIVE_VIDEO_PROCESSES.pop(job_id, None)
             if ACTIVE_VIDEO_SUBJECTS.get(str(job.get("subject_key"))) == job_id: ACTIVE_VIDEO_SUBJECTS.pop(str(job.get("subject_key")), None)
+        for job_id, _ in targets:
+            if any(committed_id == job_id for committed_id, _ in committed):
+                continue
+            store["jobs"][job_id].update({"status":"generating", "stage":"cancel_pending", "error":"停止请求尚未确认所属Comfy prompt退出", "heartbeat_at":_iso_now()})
         if targets: _save_video_jobs(store)
-    return [job_id for job_id, _ in targets]
+    return [job_id for job_id, _ in committed]
 
 
 def _resume_persisted_task(body: dict, operation_key: str) -> tuple[bool, str]:
@@ -3162,9 +3951,11 @@ def _start_comfy() -> None:
 
 
 def _free_comfy_memory() -> None:
+    global LAST_COMFY_FREE_AT
     try:
         request = Request(f"{COMFY_API}/free", data=b'{"unload_models":true,"free_memory":true}', headers={"Content-Type":"application/json"}, method="POST")
         with urlopen(request, timeout=30): pass
+        LAST_COMFY_FREE_AT = time.monotonic()
     except Exception:
         pass
 
@@ -3361,13 +4152,242 @@ def _update_video_job(job_id: str, **changes: object) -> dict:
         job.update(changes); _save_video_jobs(store); return dict(job)
 
 
-def _generate_h3_rv2v_video(job_id: str, body: dict, target: Path, *, duration: int, instruction: str) -> Path:
+def _video_job_stopping(job: dict) -> bool:
+    return job.get("status") in {"cancelled", "failed"} or bool(job.get("cancel_requested_at"))
+
+
+def _commit_video_terminal(job_id: str, *, status: str, stage: str, **changes: object) -> dict:
+    current = _load_video_jobs().get("jobs", {}).get(job_id, {})
+    prompt_ids = [str(current.get(key) or "").strip() for key in ("context_ir_prompt_id", "comfy_prompt_id")]
+    _wait_for_video_comfy_prompts(job_id, prompt_ids)
+    committed = _update_video_job(job_id, status=status, stage=stage, **changes)
+    prompt_ids = [str(committed.get(key) or "").strip() for key in ("context_ir_prompt_id", "comfy_prompt_id")]
+    _wait_for_video_comfy_prompts(job_id, prompt_ids)
+    return committed
+
+
+def _context_ir_history_text(record: dict, node_id: str) -> str:
+    output = record.get("outputs", {}).get(node_id, {}) if isinstance(record, dict) else {}
+    for key in ("text", "string", "value"):
+        value = output.get(key) if isinstance(output, dict) else None
+        if isinstance(value, list):
+            value = value[0] if value else ""
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+class _ContextIRPersistenceError(RuntimeError):
+    """A durable-output failure that must never trigger another heavy inference."""
+
+
+def _persist_h3_context_ir_outputs(job_id: str, optimized_prompt: str, selected_skills: str, raw_json: str) -> dict:
+    if not optimized_prompt.strip() or not selected_skills.strip() or not raw_json.strip():
+        raise RuntimeError("H3 Context IR输出不完整")
+    job_root = H3_CONTEXT_IR_OUTPUT_ROOT / _safe_name(job_id)
+    job_root.mkdir(parents=True, exist_ok=True)
+    publication_id = uuid4().hex
+    staging_dir = job_root / f".{publication_id}.staging"
+    output_dir = job_root / publication_id
+    staging_dir.mkdir()
+    values = {
+        "optimized_prompt": (optimized_prompt.strip(), ".txt"),
+        "selected_skills": (selected_skills.strip(), ".json"),
+        "raw_json": (raw_json.strip(), ".json"),
+    }
+    try:
+        filenames: dict[str, str] = {}
+        for key, (value, suffix) in values.items():
+            filename = f"{key}{suffix}"
+            (staging_dir / filename).write_text(value, encoding="utf-8")
+            filenames[key] = filename
+        # The completed three-file set becomes visible in one filesystem step.
+        os.replace(staging_dir, output_dir)
+        return {key:str(output_dir / filename) for key, filename in filenames.items()}
+    finally:
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+
+def _optimize_h3_ref2va_prompt(job_id: str, body: dict, *, duration: int, prompt: str) -> str:
+    """Run Context IR as a standalone persisted stage before H3 is loaded."""
+    if not prompt.strip():
+        raise RuntimeError("H3 Context IR缺少原始提示词")
+    identity_reference = _resolve_media_input(body.get("identity_reference_url"))
+    identity_name = f"short_drama_h3_context_ir/{uuid4().hex}{identity_reference.suffix.lower()}"
+    identity_input = COMFY_INPUT / identity_name
+    frames = max(5, round(duration * 24))
+    frames += (5 - frames % 17) % 17
+    prefix_root = f"h3_context_ir/{_safe_name(job_id)}_{uuid4().hex[:8]}"
+    prompt_ids: list[str] = []
+    saved_files: list[Path] = []
+    uncommitted_publication_dirs: list[Path] = []
+    result: tuple[str, str, str] | None = None
+    try:
+        _start_comfy()
+        identity_input.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(identity_reference, identity_input)
+        for attempt in range(2):
+            current = _load_video_jobs().get("jobs", {}).get(job_id, {})
+            if _video_job_stopping(current):
+                raise RuntimeError(str(current.get("error") or "视频任务已停止"))
+            graph = {
+                "1":{"class_type":"LoadImage","inputs":{"image":identity_name}},
+                "2":{"class_type":"MiniMaxH3Ref2VAPromptAgentOpenAIAPI","inputs":{
+                    "prompt":prompt,"length":frames,"ref_images":{"ref_image_0":["1",0]},
+                    "model":"custom","custom_model":H3_CONTEXT_IR_MODEL,"reasoning_effort":"medium","api_mode":"responses",
+                }},
+                "3":{"class_type":"SaveText","inputs":{"text":["2",0],"filename_prefix":f"{prefix_root}_optimized_a{attempt + 1}","format":"txt"}},
+                "4":{"class_type":"SaveText","inputs":{"text":["2",1],"filename_prefix":f"{prefix_root}_skills_a{attempt + 1}","format":"json"}},
+                "5":{"class_type":"SaveText","inputs":{"text":["2",2],"filename_prefix":f"{prefix_root}_raw_a{attempt + 1}","format":"json"}},
+            }
+            prompt_id = ""
+            try:
+                prompt_id = str(_comfy_json("/prompt", {"prompt":graph}, timeout=30)["prompt_id"])
+                prompt_ids.append(prompt_id)
+                _update_video_job(
+                    job_id, status="generating", stage="h3_context_ir", context_ir_stage="optimizing",
+                    context_ir_prompt_id=prompt_id, comfy_prompt_id=prompt_id, context_ir_attempt=attempt + 1,
+                    context_ir_started_at=_iso_now(), heartbeat_at=_iso_now(),
+                )
+                deadline = time.time() + H3_CONTEXT_IR_TIMEOUT_SECONDS
+                history_errors = 0
+                while time.time() < deadline:
+                    current = _load_video_jobs().get("jobs", {}).get(job_id, {})
+                    if _video_job_stopping(current):
+                        raise RuntimeError(str(current.get("error") or "视频任务已停止"))
+                    try:
+                        record = _comfy_json(f"/history/{prompt_id}", timeout=30).get(prompt_id)
+                    except Exception:
+                        history_errors += 1
+                        if history_errors > 1:
+                            raise RuntimeError("H3 Context IR历史查询异常")
+                        time.sleep(1)
+                        continue
+                    if record:
+                        status = record.get("status", {})
+                        if status.get("status_str") == "error":
+                            raise RuntimeError("H3 Context IR执行失败")
+                        if status.get("status_str") == "success":
+                            optimized = _context_ir_history_text(record, "3")
+                            skills = _context_ir_history_text(record, "4")
+                            raw = _context_ir_history_text(record, "5")
+                            if not all((optimized, skills, raw)):
+                                patterns = {
+                                    "optimized": f"{prefix_root}_optimized_a{attempt + 1}*.txt",
+                                    "skills": f"{prefix_root}_skills_a{attempt + 1}*.json",
+                                    "raw": f"{prefix_root}_raw_a{attempt + 1}*.json",
+                                }
+                                files = {key:sorted(COMFY_OUTPUT.glob(pattern), key=lambda path:path.stat().st_mtime, reverse=True) for key, pattern in patterns.items()}
+                                saved_files.extend(path for matches in files.values() for path in matches)
+                                optimized = optimized or (files["optimized"][0].read_text(encoding="utf-8").strip() if files["optimized"] else "")
+                                skills = skills or (files["skills"][0].read_text(encoding="utf-8").strip() if files["skills"] else "")
+                                raw = raw or (files["raw"][0].read_text(encoding="utf-8").strip() if files["raw"] else "")
+                            if not all((optimized, skills, raw)):
+                                raise RuntimeError("H3 Context IR未返回完整优化结果")
+                            paths = _persist_h3_context_ir_outputs(job_id, optimized, skills, raw)
+                            try:
+                                source_paths = {
+                                    key:Path(paths[key])
+                                    for key in ("optimized_prompt", "selected_skills", "raw_json")
+                                }
+                                declared_job_root = Path(os.path.abspath(H3_CONTEXT_IR_OUTPUT_ROOT / _safe_name(job_id)))
+                                declared_paths = {key:Path(os.path.abspath(path)) for key, path in source_paths.items()}
+                                publication_dirs_declared = {path.parent for path in declared_paths.values()}
+                                if (
+                                    len(publication_dirs_declared) != 1
+                                    or next(iter(publication_dirs_declared)).parent != declared_job_root
+                                    or declared_job_root.is_symlink()
+                                    or next(iter(publication_dirs_declared)).is_symlink()
+                                    or any(path.is_symlink() for path in declared_paths.values())
+                                ):
+                                    raise ValueError("persisted output path components must be one non-symlink publication")
+                                resolved = {
+                                    key:path.resolve(strict=True) for key, path in declared_paths.items()
+                                }
+                                publication_dirs = {path.parent for path in resolved.values()}
+                                expected_job_root = (H3_CONTEXT_IR_OUTPUT_ROOT / _safe_name(job_id)).resolve(strict=True)
+                                if len(publication_dirs) != 1 or next(iter(publication_dirs)).parent != expected_job_root:
+                                    raise ValueError("persisted outputs are not one current-job publication")
+                                if not all(path.is_file() for path in resolved.values()):
+                                    raise ValueError("persisted output is not a regular file")
+                                publication_dir = next(iter(publication_dirs))
+                                uncommitted_publication_dirs.append(publication_dir)
+                                persisted_optimized = resolved["optimized_prompt"].read_text(encoding="utf-8").strip()
+                                persisted_skills = resolved["selected_skills"].read_text(encoding="utf-8").strip()
+                                persisted_raw = resolved["raw_json"].read_text(encoding="utf-8").strip()
+                                if not all((persisted_optimized, persisted_skills, persisted_raw)):
+                                    raise ValueError("empty persisted output")
+                                json.loads(persisted_skills)
+                                json.loads(persisted_raw)
+                            except (KeyError, OSError, ValueError, json.JSONDecodeError) as error:
+                                raise _ContextIRPersistenceError("H3 Context IR持久输出不可用") from error
+                            _update_video_job(
+                                job_id, stage="h3_context_ir", context_ir_stage="completed", context_ir_prompt_id=prompt_id,
+                                comfy_prompt_id=prompt_id, optimized_prompt=persisted_optimized,
+                                context_ir_selected_skills=persisted_skills, context_ir_raw_json=persisted_raw,
+                                context_ir_outputs=paths, context_ir_finished_at=_iso_now(), heartbeat_at=_iso_now(),
+                            )
+                            uncommitted_publication_dirs.remove(publication_dir)
+                            result = (persisted_optimized, persisted_skills, persisted_raw)
+                            break
+                    _update_video_job(job_id, stage="h3_context_ir", context_ir_stage="optimizing", heartbeat_at=_iso_now())
+                    time.sleep(2)
+                if result:
+                    break
+                if time.time() >= deadline:
+                    raise TimeoutError("H3 Context IR超过硬截止时间")
+            except (TimeoutError, OSError, _ContextIRPersistenceError):
+                raise
+            except Exception:
+                current = _load_video_jobs().get("jobs", {}).get(job_id, {})
+                if _video_job_stopping(current) or attempt >= 1:
+                    raise
+                _update_video_job(job_id, stage="h3_context_ir", context_ir_stage="retrying", context_ir_attempt=2, heartbeat_at=_iso_now())
+            finally:
+                if prompt_id:
+                    _wait_for_video_comfy_prompts(job_id, [prompt_id])
+        if result is None:
+            raise RuntimeError("H3 Context IR未生成优化提示词")
+    finally:
+        _wait_for_video_comfy_prompts(job_id, prompt_ids)
+        try:
+            identity_input.unlink(missing_ok=True)
+        except OSError:
+            pass
+        try:
+            identity_input.parent.rmdir()
+        except OSError:
+            pass
+        owned_intermediates = set(saved_files)
+        try:
+            owned_intermediates.update(path for path in COMFY_OUTPUT.glob(f"{prefix_root}_*") if path.is_file())
+        except OSError:
+            pass
+        for path in owned_intermediates:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        for path in uncommitted_publication_dirs:
+            shutil.rmtree(path, ignore_errors=True)
+        unloaded = _terminate_ollama_model(H3_CONTEXT_IR_MODEL)
+        _free_comfy_memory()
+        if not unloaded or _ollama_model_loaded(H3_CONTEXT_IR_MODEL):
+            raise RuntimeError("H3 Context IR模型未卸载，已阻断H3视频推理")
+    return result[0]
+
+
+def _generate_h3_rv2v_video(job_id: str, body: dict, target: Path, *, duration: int, optimized_prompt: str) -> Path:
     """Render one shot with local MiniMax H3 Ref2VA.
 
     Blender video is the geometry/camera reference and the approved 2D portrait
     is the identity reference.  Both remain independent files and are joined
     only by the H3 graph.
     """
+    current = _load_video_jobs().get("jobs", {}).get(job_id, {})
+    if _video_job_stopping(current):
+        raise RuntimeError(str(current.get("error") or "视频任务已停止"))
     source_video = _resolve_media_input(body.get("source_video_url"))
     identity_reference = _resolve_media_input(body.get("identity_reference_url"))
     required = {
@@ -3388,13 +4408,9 @@ def _generate_h3_rv2v_video(job_id: str, body: dict, target: Path, *, duration: 
     frames += (5 - frames % 17) % 17
     width, height = (480, 864) if str(body.get("orientation") or "portrait") == "portrait" else (864, 480)
     prefix = f"short_drama/h3_rv2v_{_safe_name(job_id)}_{uuid4().hex[:8]}"
-    prompt = (
-        "Use <Video 1> as the exact geometry, blocking, camera motion and occlusion reference. "
-        "Use <Picture 1> as the exact protagonist facial identity reference. Preserve the same face, hair, costume, body proportions, "
-        "environment layout and lighting across every frame. Replace only the synthetic 3D facial appearance with the 2D identity; "
-        "do not change camera timing or scene geometry. No text, watermark, duplicate person, face drift, body deformation or flicker. "
-        f"Shot direction: {instruction}"
-    )
+    prompt = str(optimized_prompt or "").strip()
+    if not prompt:
+        raise RuntimeError("H3 Ref2VA禁止使用未优化的原始提示词")
     graph = {
         "1":{"class_type":"UNETLoader","inputs":{"unet_name":H3_REF2VA_MODEL,"weight_dtype":"default"}},
         "2":{"class_type":"CLIPLoader","inputs":{"clip_name":H3_TEXT_ENCODER,"type":"minimax","device":"default"}},
@@ -3402,15 +4418,14 @@ def _generate_h3_rv2v_video(job_id: str, body: dict, target: Path, *, duration: 
         "4":{"class_type":"VAELoader","inputs":{"vae_name":H3_AUDIO_VAE}},
         "5":{"class_type":"LoadImage","inputs":{"image":identity_name}},
         "6":{"class_type":"VHS_LoadVideoPath","inputs":{"video":str(source_video),"force_rate":24,"custom_width":width,"custom_height":height,"frame_load_cap":frames,"skip_first_frames":0,"select_every_nth":1,"format":"None"}},
-        "7":{"class_type":"MiniMaxH3ReferenceToVideo","inputs":{"clip":["2",0],"vae":["3",0],"audio_vae":["4",0],"prompt":prompt,"width":width,"height":height,"length":frames,"ref_image_size":"max","ref_image_1":["5",0],"ref_video_1":["6",0]}},
+        "7":{"class_type":"MiniMaxH3ReferenceToVideo","inputs":{"clip":["2",0],"vae":["3",0],"audio_vae":["4",0],"prompt":prompt,"width":width,"height":height,"length":frames,"ref_image_size":"max","ref_images":{"ref_image_0":["5",0]},"ref_videos":{"ref_video_0":["6",0]}}},
         "8":{"class_type":"RandomNoise","inputs":{"noise_seed":int(time.time_ns() % (2**63))}},
         "9":{"class_type":"KSamplerSelect","inputs":{"sampler_name":"res_multistep"}},
         "10":{"class_type":"BasicScheduler","inputs":{"model":["1",0],"scheduler":"normal","steps":20,"denoise":1.0}},
         "11":{"class_type":"BasicGuider","inputs":{"model":["1",0],"conditioning":["7",0]}},
         "12":{"class_type":"SamplerCustomAdvanced","inputs":{"noise":["8",0],"guider":["11",0],"sampler":["9",0],"sigmas":["10",0],"latent_image":["7",1]}},
         "13":{"class_type":"VAEDecode","inputs":{"samples":["12",0],"vae":["3",0]}},
-        "14":{"class_type":"VAEDecodeAudio","inputs":{"samples":["12",0],"vae":["4",0]}},
-        "15":{"class_type":"CreateVideo","inputs":{"images":["13",0],"audio":["14",0],"fps":24,"bit_depth":8}},
+        "15":{"class_type":"CreateVideo","inputs":{"images":["13",0],"fps":24,"bit_depth":8}},
         "16":{"class_type":"SaveVideo","inputs":{"video":["15",0],"filename_prefix":prefix,"format":"mp4","codec":"auto"}},
     }
     prompt_id = ""
@@ -3422,7 +4437,7 @@ def _generate_h3_rv2v_video(job_id: str, body: dict, target: Path, *, duration: 
         deadline = time.time() + VIDEO_TASK_TIMEOUT_SECONDS
         while time.time() < deadline:
             current = _load_video_jobs().get("jobs", {}).get(job_id, {})
-            if current.get("status") in {"cancelled", "failed"}:
+            if _video_job_stopping(current):
                 raise RuntimeError(str(current.get("error") or "视频任务已停止"))
             record = _comfy_json(f"/history/{prompt_id}", timeout=30).get(prompt_id)
             if record:
@@ -3441,9 +4456,31 @@ def _generate_h3_rv2v_video(job_id: str, body: dict, target: Path, *, duration: 
         raise TimeoutError("MiniMax H3 Ref2VA超过硬截止时间")
     finally:
         if prompt_id:
-            _cancel_comfy_prompt(prompt_id)
+            _wait_for_video_comfy_prompts(job_id, [prompt_id])
         identity_input.unlink(missing_ok=True)
         _free_comfy_memory()
+
+
+def _run_h3_context_then_ref2va(job_id: str, body: dict, target: Path, *, duration: int, instruction: str) -> str:
+    context_prompt = (
+        "Use <Video 1> as the exact geometry, blocking, camera motion and occlusion reference. "
+        "Use <Picture 1> as the exact protagonist facial identity reference. Preserve the same face, hair, costume, body proportions, "
+        "environment layout and lighting across every frame. Replace only the synthetic 3D facial appearance with the 2D identity; "
+        "do not change camera timing or scene geometry. No text, watermark, duplicate person, face drift, body deformation or flicker. "
+        f"Shot direction: {instruction}"
+    )
+    optimized_prompt = _optimize_h3_ref2va_prompt(job_id, body, duration=duration, prompt=context_prompt)
+    current = _load_video_jobs().get("jobs", {}).get(job_id, {})
+    if _video_job_stopping(current):
+        raise RuntimeError(str(current.get("error") or "视频任务已停止"))
+    if _ollama_model_loaded(H3_CONTEXT_IR_MODEL):
+        raise RuntimeError("H3 Context IR模型仍驻留，禁止启动H3 Ref2VA")
+    _require_memory(55 * GIB)
+    _invoke_production_capability(
+        "video.shot.h3_ref2va", job_id=job_id, body=body, target=target,
+        duration=duration, optimized_prompt=optimized_prompt,
+    )
+    return optimized_prompt
 
 
 def _generate_video_job(job_id: str, body: dict) -> None:
@@ -3456,7 +4493,9 @@ def _generate_video_job(job_id: str, body: dict) -> None:
             _require_memory(VIDEO_ESTIMATED_MEMORY)
             image = _local_media_path(body.get("image_url"))
             episode = max(1, int(body.get("episode", 1))); shot = max(1, int(body.get("shot_number", 1)))
-            duration = min(5, max(1, int(round(float(body.get("business_duration", 2))))))
+            use_h3_rv2v = bool(body.get("source_video_url") and body.get("identity_reference_url"))
+            duration_limit = 15 if use_h3_rv2v else 5
+            duration = min(duration_limit, max(1, int(round(float(body.get("business_duration", 2))))))
             target_dir = OUTPUT_ROOT / "videos"; target_dir.mkdir(parents=True, exist_ok=True)
             target = target_dir / f"episode_{episode}_shot_{shot}.mp4"
             motion = body.get("motion_strategy") if isinstance(body.get("motion_strategy"), dict) else {}
@@ -3475,11 +4514,11 @@ def _generate_video_job(job_id: str, body: dict) -> None:
                 "warped body, changing clothes, duplicate person, background morphing, moving walls, bent doors, distorted furniture, "
                 "flicker, temporal inconsistency, blur, camera shake, abrupt zoom, fast pan, text, watermark"
             )
-            use_h3_rv2v = bool(body.get("source_video_url") and body.get("identity_reference_url"))
             if use_h3_rv2v:
-                _require_memory(55 * GIB)
-                _invoke_production_capability("video.shot.h3_ref2va", job_id=job_id, body=body, target=target, duration=duration, instruction=instruction)
-                _update_video_job(job_id, status="completed", stage="completed", engine="minimax-h3-ref2va",
+                optimized_prompt = _run_h3_context_then_ref2va(job_id, body, target, duration=duration, instruction=instruction)
+                _commit_video_terminal(job_id, status="completed", stage="completed", engine="minimax-h3-ref2va",
+                                  optimized_prompt=optimized_prompt,
+                                  audio_mode="not_applicable_h3_source_video",
                                   video={"url":f"/api/result-media?filename={target.name}&subfolder=videos"},
                                   finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None)
                 return
@@ -3500,7 +4539,7 @@ shutil.copy2(result,target)
             started = time.time()
             while process.poll() is None:
                 current = _load_video_jobs().get("jobs", {}).get(job_id, {})
-                if current.get("status") in {"cancelled", "failed"}:
+                if _video_job_stopping(current):
                     _terminate_process_tree(process); raise RuntimeError(str(current.get("error") or "视频任务已停止"))
                 if time.time() - started > VIDEO_TASK_TIMEOUT_SECONDS:
                     _terminate_process_tree(process); raise TimeoutError("视频生成超过硬截止时间")
@@ -3510,11 +4549,18 @@ shutil.copy2(result,target)
             if process.returncode:
                 raise RuntimeError((stderr or stdout or "视频模型进程失败")[-500:])
             if not target.is_file(): raise RuntimeError("视频模型未生成输出文件")
-            _update_video_job(job_id, status="completed", stage="completed", video={"url":f"/api/result-media?filename={target.name}&subfolder=videos"}, finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None)
+            _commit_video_terminal(job_id, status="completed", stage="completed", video={"url":f"/api/result-media?filename={target.name}&subfolder=videos"}, finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None)
     except Exception as error:
         if process and process.poll() is None: _terminate_process_tree(process)
-        engine = "MiniMax H3 Ref2VA" if body.get("source_video_url") and body.get("identity_reference_url") else "Wan2.2"
-        _update_video_job(job_id, status="failed", stage="failed", error=f"{engine} 分镜视频生成失败：{str(error)[:500]}", finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None)
+        current = _load_video_jobs().get("jobs", {}).get(job_id, {})
+        prompt_ids = [str(current.get(key) or "").strip() for key in ("context_ir_prompt_id", "comfy_prompt_id")]
+        _wait_for_video_comfy_prompts(job_id, prompt_ids)
+        if current.get("cancel_requested_at") or current.get("status") == "cancelled":
+            RESOURCE_SCHEDULER.cancel_job(job_id)
+            _commit_video_terminal(job_id, status="cancelled", stage="cancelled", error="视频任务已停止", finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None)
+        else:
+            engine = "MiniMax H3 Ref2VA" if body.get("source_video_url") and body.get("identity_reference_url") else "Wan2.2"
+            _commit_video_terminal(job_id, status="failed", stage="failed", error=f"{engine} 分镜视频生成失败：{str(error)[:500]}", finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None)
     finally:
         with VIDEO_JOB_LOCK:
             ACTIVE_VIDEO_PROCESSES.pop(job_id, None); ACTIVE_VIDEO_JOBS.discard(job_id)
@@ -3537,23 +4583,71 @@ def _launch_waiting_video_job(job_id: str, body: dict) -> None:
     threading.Thread(target=_invoke_production_capability, args=("video.shot",), kwargs={"job_id":job_id, "body":body}, daemon=True, name=f"video-{job_id[:8]}").start()
 
 
+def _recover_terminal_video_prompt(job_id: str, body: dict, terminal_status: str, terminal_stage: str, terminal_error: str) -> None:
+    subject_key = _video_key(body)
+    try:
+        with _claim_production_resource("video", job_id, estimated_memory=0, timeout=VIDEO_QUEUE_TIMEOUT_SECONDS, identity=body):
+            current = _load_video_jobs().get("jobs", {}).get(job_id, {})
+            prompt_ids = [str(current.get(key) or "").strip() for key in ("context_ir_prompt_id", "comfy_prompt_id")]
+            _wait_for_video_comfy_prompts(job_id, prompt_ids)
+            _update_video_job(job_id, status=terminal_status, stage=terminal_stage, error=terminal_error,
+                              prompt_recovered_at=_iso_now(), finished_at=current.get("finished_at") or _iso_now(), heartbeat_at=_iso_now())
+    finally:
+        with VIDEO_JOB_LOCK:
+            ACTIVE_VIDEO_JOBS.discard(job_id)
+            if ACTIVE_VIDEO_SUBJECTS.get(subject_key) == job_id:
+                ACTIVE_VIDEO_SUBJECTS.pop(subject_key, None)
+
+
 def _monitor_waiting_video_jobs() -> None:
     while not VIDEO_MEMORY_MONITOR_STOP.wait(VIDEO_WATCHDOG_SECONDS):
         now = time.time()
+        recoveries: list[tuple[str, dict, str, str, str]] = []
         with VIDEO_JOB_LOCK:
             jobs = _load_video_jobs(); changed = False
             for job_id, job in jobs.get("jobs", {}).items():
                 process = ACTIVE_VIDEO_PROCESSES.get(job_id); running = bool(process and process.poll() is None)
                 status = str(job.get("status")); age = now - _parse_job_time(job.get("heartbeat_at") or job.get("queued_at"))
-                if status == "generating" and not running and age > VIDEO_WATCHDOG_SECONDS * 3:
-                    job.update({"status":"failed", "stage":"failed", "error":"看门狗已回收无实际进程的视频任务", "finished_at":_iso_now(), "pid":None, "process_group":None}); changed = True
-                    ACTIVE_VIDEO_JOBS.discard(job_id)
+                if status in {"completed", "failed", "cancelled"}:
+                    prompt_ids = [str(job.get(key) or "").strip() for key in ("context_ir_prompt_id", "comfy_prompt_id")]
+                    queued = False
+                    for prompt_id in dict.fromkeys(value for value in prompt_ids if value):
+                        try:
+                            queued = queued or _comfy_prompt_queue_state(prompt_id) != "absent"
+                        except Exception:
+                            queued = True
+                    if queued and not _cancel_job_comfy_prompts(job, confirm_seconds=2.0):
+                        terminal_stage, terminal_error = str(job.get("stage") or status), str(job.get("error") or "")
+                        job.update({"status":"generating", "stage":"cancel_pending", "pending_terminal_status":status,
+                                    "pending_terminal_stage":terminal_stage, "pending_terminal_error":terminal_error,
+                                    "heartbeat_at":_iso_now(), "error":"看门狗发现终态任务仍有所属Comfy prompt，正在恢复核销"})
+                        request_body = dict(job.get("request") or {})
+                        ACTIVE_VIDEO_JOBS.add(job_id); ACTIVE_VIDEO_SUBJECTS[str(job.get("subject_key") or _video_key(request_body))] = job_id
+                        recoveries.append((job_id, request_body, status, terminal_stage, terminal_error)); changed = True
+                elif status == "generating" and not running and job_id in ACTIVE_VIDEO_PROMPT_CANCELLERS:
+                    continue
+                elif status == "generating" and str(job.get("stage")) == "cancel_pending" and job_id not in ACTIVE_VIDEO_JOBS:
+                    request_body = dict(job.get("request") or {})
+                    terminal_status = str(job.get("pending_terminal_status") or ("cancelled" if job.get("cancel_requested_at") else "failed"))
+                    terminal_stage = str(job.get("pending_terminal_stage") or terminal_status)
+                    terminal_error = str(job.get("pending_terminal_error") or job.get("error") or "残留Comfy prompt已回收")
+                    ACTIVE_VIDEO_JOBS.add(job_id); ACTIVE_VIDEO_SUBJECTS[str(job.get("subject_key") or _video_key(request_body))] = job_id
+                    recoveries.append((job_id, request_body, terminal_status, terminal_stage, terminal_error))
+                elif status == "generating" and not running and age > VIDEO_WATCHDOG_SECONDS * 3:
+                    if _cancel_job_comfy_prompts(job):
+                        job.update({"status":"failed", "stage":"failed", "error":"看门狗已回收无实际进程的视频任务", "finished_at":_iso_now(), "pid":None, "process_group":None}); changed = True
+                        ACTIVE_VIDEO_JOBS.discard(job_id)
+                    else:
+                        job.update({"status":"generating", "stage":"cancel_pending", "error":"看门狗等待所属Comfy prompt退出", "heartbeat_at":_iso_now()}); changed = True
                 elif status == "waiting_memory" and age > VIDEO_QUEUE_TIMEOUT_SECONDS:
                     job.update({"status":"failed", "stage":"failed", "error":"视频任务排队超时", "finished_at":_iso_now()}); changed = True
                 elif running and status not in {"generating"}:
-                    _terminate_process_tree(process); ACTIVE_VIDEO_PROCESSES.pop(job_id, None); ACTIVE_VIDEO_JOBS.discard(job_id); changed = True
+                    if _cancel_job_comfy_prompts(job):
+                        _terminate_process_tree(process); ACTIVE_VIDEO_PROCESSES.pop(job_id, None); ACTIVE_VIDEO_JOBS.discard(job_id); changed = True
             if changed: _save_video_jobs(jobs)
             waiting = None if ACTIVE_VIDEO_JOBS or _heavy_task_busy() else next(((job_id, job) for job_id, job in jobs.get("jobs", {}).items() if job.get("status") == "waiting_memory" and isinstance(job.get("request"), dict)), None)
+        for recovery in recoveries:
+            threading.Thread(target=_recover_terminal_video_prompt, args=recovery, daemon=True, name=f"video-prompt-recovery-{recovery[0][:8]}").start()
         if not waiting: continue
         job_id, job = waiting
         ready, memory = _memory_ready(VIDEO_ESTIMATED_MEMORY)
@@ -3562,14 +4656,22 @@ def _monitor_waiting_video_jobs() -> None:
 
 
 def _recover_video_jobs() -> None:
+    recoveries: list[tuple[str, dict, str, str, str]] = []
     with VIDEO_JOB_LOCK:
         ACTIVE_VIDEO_JOBS.clear(); ACTIVE_VIDEO_SUBJECTS.clear(); ACTIVE_VIDEO_PROCESSES.clear()
         store = _load_video_jobs(); changed = False
-        for job in store.get("jobs", {}).values():
+        for job_id, job in store.get("jobs", {}).items():
             if job.get("status") in {"generating", "waiting_memory"}:
-                _cancel_job_comfy_prompts(job)
-                job.update({"status":"failed", "stage":"failed", "error":"服务重启已回收视频任务，请重新生成", "finished_at":_iso_now(), "pid":None, "process_group":None}); changed = True
+                if _cancel_job_comfy_prompts(job):
+                    job.update({"status":"failed", "stage":"failed", "error":"服务重启已回收视频任务，请重新生成", "finished_at":_iso_now(), "pid":None, "process_group":None}); changed = True
+                else:
+                    request_body = dict(job.get("request") or {})
+                    job.update({"status":"generating", "stage":"cancel_pending", "error":"服务重启正在核销残留Comfy prompt", "heartbeat_at":_iso_now()}); changed = True
+                    ACTIVE_VIDEO_JOBS.add(job_id); ACTIVE_VIDEO_SUBJECTS[str(job.get("subject_key") or _video_key(request_body))] = job_id
+                    recoveries.append((job_id, request_body, "failed", "failed", "服务重启已回收视频任务，请重新生成"))
         if changed: _save_video_jobs(store)
+    for recovery in recoveries:
+        threading.Thread(target=_recover_terminal_video_prompt, args=recovery, daemon=True, name=f"video-restart-recovery-{recovery[0][:8]}").start()
 
 
 def _shutdown_video_jobs() -> None:
@@ -3580,10 +4682,12 @@ def _shutdown_video_jobs() -> None:
         store = _load_video_jobs(); changed = False
         for job in store.get("jobs", {}).values():
             if job.get("status") in {"generating", "waiting_memory"}:
-                _cancel_job_comfy_prompts(job)
-                job.update({"status":"failed", "stage":"failed", "error":"服务关闭已回收视频任务", "finished_at":_iso_now(), "pid":None, "process_group":None}); changed = True
+                if _cancel_job_comfy_prompts(job):
+                    job.update({"status":"failed", "stage":"failed", "error":"服务关闭已回收视频任务", "finished_at":_iso_now(), "pid":None, "process_group":None}); changed = True
+                else:
+                    job.update({"status":"generating", "stage":"cancel_pending", "error":"服务关闭时所属Comfy prompt尚未退出，等待重启恢复核销", "heartbeat_at":_iso_now()}); changed = True
         if changed: _save_video_jobs(store)
-        ACTIVE_VIDEO_JOBS.clear(); ACTIVE_VIDEO_SUBJECTS.clear(); ACTIVE_VIDEO_PROCESSES.clear()
+        ACTIVE_VIDEO_PROCESSES.clear()
 
 
 def _load_resources() -> dict:
@@ -3841,7 +4945,8 @@ def _generate_image(
     with _claim_production_resource("image", job_id or f"image-{_safe_name(name)}", timeout=1800):
         pixel_count = max(256, min(1664, int(width or 928))) * max(256, min(1664, int(height or 1664)))
         is_klein9b = (base_model or "") == "flux2-klein-9b"
-        _require_memory(max(42 * GIB if is_klein9b else 40 * GIB if lora else 0, int((16 + 8 * pixel_count / 1_000_000) * GIB)))
+        estimated_memory = max(42 * GIB if is_klein9b else 40 * GIB if lora else 0, int((16 + 8 * pixel_count / 1_000_000) * GIB))
+        _wait_for_post_comfy_memory(estimated_memory, job_id=job_id)
         if not target.is_file():
             if lora:
                 lora_path = Path(lora["path"])
@@ -3925,7 +5030,7 @@ def _generate_klein9b_asset_baseline(name: object, prompt: str, width: object, h
     width_value = max(512, min(1024, int(width or 928))) // 16 * 16
     height_value = max(768, min(1664, int(height or 1664))) // 16 * 16
     _update_image_job(job_id, status="processing", phase="klein9b_baseline", model="FLUX.2 Klein 9B 8-bit", heartbeat_at=_iso_now())
-    _require_memory(42 * GIB)
+    _wait_for_post_comfy_memory(42 * GIB, job_id=job_id)
     loras = _klein9b_houtu_loras(request_body)
     triggers = [item["trigger"] for item in loras if item["trigger"]]
     effective_prompt = f"{', '.join(triggers)}, {prompt}" if triggers else prompt
@@ -3940,7 +5045,7 @@ def _generate_klein9b_asset_baseline(name: object, prompt: str, width: object, h
         target=target,
     )
     kind = str(request_body.get("asset_kind") or "").strip()
-    reference_angle = "left_45_full" if kind == "character" else "three_quarter_45"
+    reference_angle = "front_full" if kind == "character" else "three_quarter_45"
     return {
         "url":f"/api/result-media?filename={target.name}&subfolder=images", "filename":target.name, "subfolder":"images",
         "generation_workflow":"FLUX.2 Klein 9B 8-bit/8-step", "workflow_mode":"single_3d_reference_baseline",
@@ -3988,7 +5093,7 @@ def _generate_asset_3d(body: dict, job_id: str) -> dict:
     if kind not in {"character", "prop", "scene"}:
         raise ValueError("3D资产类型只支持人物、道具、场景")
     source_baseline_url = str(body.get("source_baseline_url") or "").strip()
-    expected_angle = "left_45_full" if kind == "character" else "three_quarter_45"
+    expected_angle = "front_full" if kind == "character" else "three_quarter_45"
     if str(body.get("reference_angle") or "").strip() != expected_angle:
         raise ValueError(f"{kind} 3D输入角度必须标记为 {expected_angle}")
     if not source_baseline_url or body.get("baseline_confirmed") is not True:
@@ -4002,12 +5107,12 @@ def _generate_asset_3d(body: dict, job_id: str) -> dict:
     asset_name = _safe_name(body.get("asset_name") or body.get("name") or "asset")
     root = OUTPUT_ROOT / "assets3d" / project_id / kind / asset_name
     root.mkdir(parents=True, exist_ok=True)
-    reference = root / "reference_45.png"
+    reference = root / ("reference_front.png" if kind == "character" else "reference_45.png")
     prompt = str(body.get("prompt") or body.get("asset_prompt") or body.get("asset_name") or "").strip()
     if kind == "character":
         locked_prompt = (
             "One single Chinese character, full body from head to feet, standing neutral A-pose, camera at eye level, "
-            "strict left 45-degree full-body view showing front and side structure, complete head, hands and shoes visible, centered, plain neutral gray background, "
+            "strict zero-degree front-facing full-body view with face, shoulders, torso, pelvis, knees and feet square to camera, complete head, hands and shoes visible, centered, plain neutral gray background, "
             "soft even studio light, stable face, exact garment layers and accessories, no prop, no text, no cropped limbs, no duplicate person. "
             f"CHARACTER: {prompt}"
         )
@@ -4132,19 +5237,21 @@ def _execute_asset_3d_job(body: dict, job_id: str, subject_key: str) -> None:
 
 def _confirm_asset_3d_job(body: dict) -> dict:
     job_id = str(body.get("job_id") or "")
-    project_id = _safe_name(body.get("project_id") or "")
+    project_identity = str(body.get("project_id") or "").strip()
+    project_id = _safe_name(project_identity)
     kind = str(body.get("asset_kind") or "")
-    asset_name = _safe_name(body.get("asset_name") or "")
-    if not job_id or not project_id or kind not in {"character", "prop", "scene"} or not asset_name:
+    asset_identity = str(body.get("asset_name") or "").strip()
+    asset_name = _safe_name(asset_identity)
+    if not job_id or not project_identity or not project_id or kind not in {"character", "prop", "scene"} or not asset_identity or not asset_name:
         raise ValueError("3D确认参数不完整")
     with IMAGE_JOB_LOCK:
         store = _load_image_jobs(); job = store.get("jobs", {}).get(job_id)
         if not job or job.get("workflow") != "asset_3d" or job.get("status") != "completed":
             raise ValueError("3D候选任务尚未完成")
-        expected_subject = f"{project_id}:3d:{kind}:{asset_name}"
-        if (job.get("asset_kind") != kind or _safe_name(job.get("asset_name") or "") != asset_name
+        expected_subject = f"{project_identity}:3d:{kind}:{asset_identity}"
+        if (job.get("asset_kind") != kind or str(job.get("asset_name") or "") != asset_identity
                 or str(job.get("subject_key") or "") != expected_subject
-                or (job.get("project_id") and _safe_name(job.get("project_id")) != project_id)):
+                or (job.get("project_id") and str(job.get("project_id")) != project_identity)):
             raise ValueError("3D候选与资产不匹配")
         result = job.get("result") if isinstance(job.get("result"), dict) else None
         if not result or result.get("status") != "pending_confirmation":
@@ -4155,7 +5262,7 @@ def _confirm_asset_3d_job(body: dict) -> dict:
             raise ValueError("3D候选文件不存在")
         is_costume = kind == "prop" and str(job.get("asset_type") or result.get("asset_type") or "") == "costume"
         archive_bucket = "costumes" if is_costume else {"character":"characters", "prop":"props", "scene":"scenes"}[kind]
-        archive_id = _safe_name(job.get("costume_id") or result.get("costume_id") or asset_name) if is_costume else asset_name
+        archive_id = _safe_name(job.get("costume_id") or result.get("costume_id") or asset_identity) if is_costume else asset_name
         archive_root = APPLICATION_ROOT / "data/hot/projects" / project_id / "3d" / archive_bucket / archive_id
         version_root = archive_root.parent / f"{archive_id}.versions" / datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
         version_root.parent.mkdir(parents=True, exist_ok=True)
@@ -4757,7 +5864,7 @@ def _repair_schnell_output_with_qwen(source: Path, target: Path, prompt: str, wi
         "15":{"class_type":"SaveImage","inputs":{"images":["14",0],"filename_prefix":f"short_drama/{_safe_name(name)}_qwen_repaired"}},
     }
     try:
-        _require_memory(60 * GIB)
+        _wait_for_post_comfy_memory(60 * GIB, job_id=job_id)
         request = Request(f"{COMFY_API}/prompt", data=json.dumps({"prompt":graph}).encode(), headers={"Content-Type":"application/json"}, method="POST")
         with urlopen(request, timeout=30) as response:
             prompt_id = json.loads(response.read())["prompt_id"]
@@ -4828,15 +5935,23 @@ def _generate_qwen_character_variant(
     """Generate one fixed character view with ComfyUI's official angle LoRA."""
     pose_prompts = {
         "front_full": "Keep the camera at an exact zero-degree full-body front view, facing the viewer.",
-        "left_45_full": "Rotate the same person exactly 45 degrees toward the person's left side. Show a strict left three-quarter full-body view; never mirror it into a right view.",
-        "right_45_full": "Rotate the same person exactly 45 degrees toward the person's right side. Show a strict right three-quarter full-body view; never mirror it into a left view.",
+        "left_45_full": "Turn the same person only 35 degrees from the front toward the person's left, producing a left three-quarter view that measures 30 to 60 degrees. Both eyes, the far cheek and part of both sides of the torso must remain visible. This must not become a 90-degree side profile and must never mirror into a right view.",
+        "right_45_full": "Turn the same person only 35 degrees from the front toward the person's right, producing a right three-quarter view that measures 30 to 60 degrees. Both eyes, the far cheek and part of both sides of the torso must remain visible. This must not become a 90-degree side profile and must never mirror into a left view.",
         "side_90_full": "Rotate the camera exactly 90 degrees to the right into a strict full-body side profile.",
         "back_full": "Rotate the camera exactly 180 degrees into a strict full-body rear view; the face must be completely invisible.",
         "front_half": "Create a close-up half-body portrait at exact zero-degree front eye level. Center the person; crop at the waist; keep hands fully out of frame; keep a tiny margin above the complete head. The head-to-waist subject occupies about 75 percent of image height, with both shoulders clear of the side edges and balanced side margins.",
     }
     if target_pose not in pose_prompts:
         raise RuntimeError(f"Qwen多角度不支持的目标角度：{target_pose}")
-    _require_memory(60 * GIB)
+    if target_pose != "front_half":
+        pose_prompts[target_pose] += " Keep clear background above the highest hair point at no less than 8 percent of image height and below the lowest shoe sole at no less than 3 percent; these are minimum margins, not fixed targets."
+    angle_lora_weight = 0.35 if target_pose in {"left_45_full", "right_45_full"} else 1.0
+    # Qwen variants are serialized by the shared image resource claim, but
+    # ComfyUI releases the previous model asynchronously.  Use the same
+    # bounded/cancellable release handshake as the other image providers so a
+    # serial batch cannot mistake the preceding Qwen allocation for a second
+    # concurrent workload.
+    _wait_for_post_comfy_memory(60 * GIB, job_id=job_id)
     identity_source = _reference_path(identity_reference_url)
     try:
         clothing_source = _reference_path(clothing_reference_url)
@@ -4873,7 +5988,12 @@ for index,im in enumerate(thumbs):sheet.paste(im,((index%cols)*360,(index//cols)
 sheet.save(out)
 """
             subprocess.run([str(COMFY_PYTHON), "-c", script, *[str(path) for path in sheet_sources], str(sheet_input)], check=True, capture_output=True, text=True, timeout=120)
-        fixed_seed = int(hashlib.sha256(identity_source.read_bytes()).hexdigest()[:8], 16)
+        # Keep each command reproducible without turning retries into identical
+        # clones. The retry correction is part of `prompt`, so a corrected
+        # attempt receives a different deterministic seed while the same exact
+        # command remains stable across recovery/replay.
+        seed_material = identity_source.read_bytes() + target_pose.encode("utf-8") + str(prompt).encode("utf-8")
+        fixed_seed = int(hashlib.sha256(seed_material).hexdigest()[:8], 16)
     except Exception:
         identity_input.unlink(missing_ok=True)
         clothing_input.unlink(missing_ok=True)
@@ -4899,7 +6019,7 @@ sheet.save(out)
         "5":{"class_type":"ImageScale","inputs":{"image":["4",0],"upscale_method":"lanczos","width":928,"height":1664,"crop":"disabled"}},
         "6":{"class_type":"FluxKontextImageScale","inputs":{"image":["5",0]}},
         "7":{"class_type":"UNETLoader","inputs":{"unet_name":"qwen_image_edit_2511_bf16.safetensors","weight_dtype":"default"}},
-        "8":{"class_type":"LoraLoaderModelOnly","inputs":{"model":["7",0],"lora_name":"qwen-image-edit-2511-multiple-angles-lora.safetensors","strength_model":1.0}},
+        "8":{"class_type":"LoraLoaderModelOnly","inputs":{"model":["7",0],"lora_name":"qwen-image-edit-2511-multiple-angles-lora.safetensors","strength_model":angle_lora_weight}},
         "9":{"class_type":"ModelSamplingAuraFlow","inputs":{"model":["8",0],"shift":3.1}},
         "10":{"class_type":"CFGNorm","inputs":{"model":["9",0],"strength":1.0}},
         "11":{"class_type":"LoraLoaderModelOnly","inputs":{"model":["10",0],"lora_name":"Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors","strength_model":1.0}},
@@ -4950,7 +6070,7 @@ sheet.save(out)
             return {
                 "url":f"/api/result-media?filename={target.name}&subfolder=images", "filename":target.name, "subfolder":"images",
                 "workflow_mode":"qwen_2511_multiple_angles", "base_model":"qwen_image_edit_2511_bf16.safetensors",
-                "angle_lora":"qwen-image-edit-2511-multiple-angles-lora.safetensors", "angle_lora_weight":1.0,
+                "angle_lora":"qwen-image-edit-2511-multiple-angles-lora.safetensors", "angle_lora_weight":angle_lora_weight,
                 "acceleration_lora":"Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors", "steps":4, "cfg":1.0,
                 "identity_reference_url":identity_reference_url, "clothing_reference_url":clothing_reference_url,
                 "target_pose":target_pose, "comfy_prompt_id":prompt_id, "seed":fixed_seed,
@@ -5162,7 +6282,7 @@ def _generate_ipadapter_image(name: object, prompt: object, width: object, heigh
     profile.setdefault("clothing_end", 0.70)
     profile.setdefault("refine_denoise", 0.24)
     body_ratio = "幼态或少女角色固定约6.5头身，禁止成人超模九头身。" if any(token in str(prompt).lower() for token in ("少女", "幼态", "young girl", "cute girl")) else "使用自然影视人物约7头身比例，禁止九头身、腿部拉长和躯干压缩。"
-    conditioned_prompt = f"{visual_lock}{profile['positive']} exact same embroidery pattern, identical fabric color, consistent clothing cut with baseline image. 严格保留基准图实际可见的脸、刘海、分缝、扎发方式、辫子、发长、发色、领口、扣饰、服装主色和简洁程度；禁止改发型、解开发辫、增加印花、撞色面板、发冠、头饰、皇冠、金甲、披风、拖尾、繁复刺绣或礼服。完整发顶必须入框但不强制顶部留白，鞋底最低点下方必须保留画高约5%的纯背景；无缝平整纯色哑光中性灰摄影棚背景，禁止纹理、斑驳、渐变、阴影墙、建筑、家具、花木、景深或环境布景。{body_ratio}{prompt or 'cinematic portrait'}"
+    conditioned_prompt = f"{visual_lock}{profile['positive']} exact same embroidery pattern, identical fabric color, consistent clothing cut with baseline image. 严格保留基准图实际可见的脸、刘海、分缝、扎发方式、辫子、发长、发色、领口、扣饰、服装主色和简洁程度；禁止改发型、解开发辫、增加印花、撞色面板、发冠、头饰、皇冠、金甲、披风、拖尾、繁复刺绣或礼服。完整发顶上方纯背景留白不得少于画高8%，完整鞋底下方纯背景留白不得少于画高3%；两者都是最低值而非固定值。无缝平整纯色哑光中性灰摄影棚背景，禁止纹理、斑驳、渐变、阴影墙、建筑、家具、花木、景深或环境布景。{body_ratio}{prompt or 'cinematic portrait'}"
     negative_prompt = (
         "different person, changed identity, changed face shape, changed facial features, different hairstyle, changed hairline, changed hair color, "
         "changed clothes, changed embroidery, altered color, modified clothing style, extra decorations, crown, headdress, hair ornament, gold armor, ornate ceremonial robe, cape, train, heavy embroidery, exposed shoulders, bare shoulders, sleeveless, low neckline, cleavage, underwear, modern dress, modern shoes, "
@@ -5364,7 +6484,7 @@ def _export_capability(body: dict) -> dict:
     export_id = uuid4().hex[:12]; target_dir = OUTPUT_ROOT / "exports" / export_id; target_dir.mkdir(parents=True, exist_ok=False); files = []
     for item in body.get("items", []):
         source = _resolve_media_input(item.get("path")); filename = f"episode_{int(item.get('episode', 0)):02d}_{body.get('source_version', 'base')}{source.suffix}"; target = target_dir / filename; shutil.copy2(source, target)
-        files.append({"episode":item.get("episode"), "filename":filename, "url":_media_url(target), "size":target.stat().st_size})
+        files.append({"episode":item.get("episode"), "filename":filename, "url":_media_url(target), "size":target.stat().st_size, "source_version":body.get("source_version"), "content_fingerprint":item.get("content_fingerprint"), "audit_batch_id":item.get("audit_batch_id"), "production_evidence":item.get("production_evidence"), "audit_evidence":item.get("audit_evidence")})
     manifest = target_dir / "manifest.json"; atomic_write_json(manifest, {"export_id":export_id, "created_at":datetime.now(UTC).isoformat(), "project_name":body.get("project_name"), "mode":body.get("mode"), "source_version":body.get("source_version"), "production_parameters":body.get("production_parameters"), "audit_results":body.get("audit_results"), "files":files})
     return {"files":files, "manifest_url":_media_url(manifest)}
 
@@ -5406,7 +6526,10 @@ def _import_media_audit_capability(body: dict) -> dict:
 
 
 def _install_builtin_production_capabilities() -> None:
+    global BUILTIN_PRODUCTION_CAPABILITIES_INSTALLED
     with PRODUCTION_CAPABILITIES_INSTALL_LOCK:
+        if BUILTIN_PRODUCTION_CAPABILITIES_INSTALLED:
+            return
         registrations = (
             ("image.generate", "mlx-flux2-klein", _generate_image),
             ("image.baseline.schnell", "comfy-flux1-schnell-q8", _generate_flux1_schnell_baseline),
@@ -5435,12 +6558,14 @@ def _install_builtin_production_capabilities() -> None:
             ("text.generate.json", "ollama-qwen3-vl-32b", _ollama_json_local),
             ("audit.narrative", "ollama-qwen25-72b", _narrative_audit),
             ("text.narrative.repair", "ollama-qwen25-72b", _narrative_repair),
+            ("web.search", "search-provider-router", search_web),
         )
         for capability, provider_id, handler in registrations:
             if not PRODUCTION_CAPABILITIES.has(capability, provider_id):
                 PRODUCTION_CAPABILITIES.register(capability, provider_id, handler, metadata={"builtin": True})
             elif PRODUCTION_CAPABILITIES.get(capability, provider_id).metadata.get("builtin"):
                 PRODUCTION_CAPABILITIES.register(capability, provider_id, handler, metadata={"builtin": True}, replace_provider=True)
+        BUILTIN_PRODUCTION_CAPABILITIES_INSTALLED = True
 
 
 def _invoke_production_capability(capability: str, **inputs: object):
@@ -5495,8 +6620,10 @@ def _optional_audit(capability: str, body: dict) -> tuple[HTTPStatus, dict]:
 
 PRODUCTION_ENDPOINT_STAGES = {
     "/api/outline/plan":"outline", "/api/outline/episodes":"outline", "/api/script/episode":"script",
-    "/api/storyboard":"storyboard", "/api/storyboard/shot":"storyboard", "/api/characters/generate":"assets",
-    "/api/shots/generate":"image", "/api/shots/repair":"image", "/api/videos/generate":"video",
+    "/api/storyboard":"storyboard", "/api/storyboard/shot":"storyboard",
+    "/api/characters/generate":"image", "/api/shots/generate":"image", "/api/shots/repair":"image",
+    "/api/assistant/images/generate":"image", "/api/assets/3d/generate":"assets",
+    "/api/videos/generate":"video",
     "/api/audio/tts":"video", "/api/videos/lipsync":"video", "/api/videos/latentsync":"video",
     "/api/videos/merge":"composition", "/api/videos/audit":"review_export", "/api/exports/create":"review_export",
 }
@@ -5504,10 +6631,22 @@ PRODUCTION_ENDPOINT_RESOURCES = {
     "/api/outline/plan":"text", "/api/outline/episodes":"text", "/api/script/episode":"text",
     "/api/storyboard":"text", "/api/storyboard/shot":"text", "/api/audit/narrative":"audit",
     "/api/characters/generate":"image", "/api/shots/generate":"image", "/api/shots/repair":"image",
+    "/api/assistant/images/generate":"image",
     "/api/videos/generate":"video", "/api/audio/tts":"audio", "/api/videos/lipsync":"video",
     "/api/videos/latentsync":"video", "/api/videos/merge":"video", "/api/videos/audit":"audit",
-    "/api/exports/create":"control", "/api/assets/3d":"3d", "/api/images/upscale":"upscale", "/api/videos/upscale":"upscale",
+    "/api/exports/create":"control", "/api/assets/3d/generate":"3d", "/api/images/upscale":"upscale", "/api/videos/upscale":"upscale",
 }
+
+
+def _is_asset_subtask_request(path: str, body: dict) -> bool:
+    """Asset construction is input to the assets gate, not a downstream stage transition."""
+    if path == "/api/assets/3d/generate":
+        return True
+    return (
+        path == "/api/characters/generate"
+        and str(body.get("asset_kind") or "").strip() in {"character", "scene", "prop"}
+        and str(body.get("asset_phase") or "").strip() in {"baseline", "variant", "repair"}
+    )
 
 
 def _forward_production_request(path: str, body: dict, dispatched: bool) -> tuple[int, dict] | None:
@@ -5515,31 +6654,42 @@ def _forward_production_request(path: str, body: dict, dispatched: bool) -> tupl
     if dispatched or not resource_class:
         return None
     _heartbeat_local_worker()
-    worker = WORKLOAD_ROUTER.route(resource_class, service_scope=WORKER_SCOPE)
-    if worker.worker_id == WORKER_ID:
-        return None
-    if not worker.endpoint.startswith("http://") and not worker.endpoint.startswith("https://"):
-        raise RuntimeError("selected worker has no dispatch endpoint")
-    payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
-    request = Request(
-        f"{worker.endpoint.rstrip('/')}{path}", data=payload, method="POST",
-        headers={"Content-Type":"application/json", "X-Production-Dispatched":"1", "X-Production-Worker":worker.worker_id},
+    explicit_request_id = str(body.get("request_id") or body.get("job_id") or "").strip()
+    request_id = explicit_request_id or "dispatch-" + hashlib.sha256(json.dumps(
+        {"path":path, "body":body}, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
+    ).encode("utf-8")).hexdigest()
+    worker = WORKER_REGISTRY.reserve(
+        request_id, resource_class, estimated_memory=max(0, int(body.get("estimated_memory") or 0)),
+        service_scope=WORKER_SCOPE, heartbeat_timeout=30, reservation_ttl=1950,
     )
     try:
-        with urlopen(request, timeout=1900) as response:
-            response_body = json.loads(response.read() or b"{}")
+        if worker.worker_id == WORKER_ID:
+            return None
+        if not worker.endpoint.startswith("http://") and not worker.endpoint.startswith("https://"):
+            raise RuntimeError("selected worker has no dispatch endpoint")
+        payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        request = Request(
+            f"{worker.endpoint.rstrip('/')}{path}", data=payload, method="POST",
+            headers={"Content-Type":"application/json", "X-Production-Dispatched":"1", "X-Production-Worker":worker.worker_id,
+                     "X-Production-Reservation":request_id},
+        )
+        try:
+            with urlopen(request, timeout=1900) as response:
+                response_body = json.loads(response.read() or b"{}")
+                if isinstance(response_body, dict): response_body["_dispatch"] = {"worker_id":worker.worker_id, "endpoint":worker.endpoint}
+                return int(response.status), response_body
+        except HTTPError as error:
+            try: response_body = json.loads(error.read() or b"{}")
+            except (ValueError, json.JSONDecodeError): response_body = {"error":"remote_worker_failed"}
+            if int(error.code) in {502, 503, 504}:
+                return int(HTTPStatus.SERVICE_UNAVAILABLE), {
+                    "error":"workload_dispatch_failed", "message":str(response_body.get("message") or response_body.get("error") or "remote worker unavailable"),
+                    "_dispatch":{"worker_id":worker.worker_id, "endpoint":worker.endpoint},
+                }
             if isinstance(response_body, dict): response_body["_dispatch"] = {"worker_id":worker.worker_id, "endpoint":worker.endpoint}
-            return int(response.status), response_body
-    except HTTPError as error:
-        try: response_body = json.loads(error.read() or b"{}")
-        except (ValueError, json.JSONDecodeError): response_body = {"error":"remote_worker_failed"}
-        if int(error.code) in {502, 503, 504}:
-            return int(HTTPStatus.SERVICE_UNAVAILABLE), {
-                "error":"workload_dispatch_failed", "message":str(response_body.get("message") or response_body.get("error") or "remote worker unavailable"),
-                "_dispatch":{"worker_id":worker.worker_id, "endpoint":worker.endpoint},
-            }
-        if isinstance(response_body, dict): response_body["_dispatch"] = {"worker_id":worker.worker_id, "endpoint":worker.endpoint}
-        return int(error.code), response_body
+            return int(error.code), response_body
+    finally:
+        WORKER_REGISTRY.release_reservation(request_id)
 
 
 def _local_api(path: str, body: dict) -> dict:
@@ -5557,54 +6707,319 @@ def _local_get(path: str) -> dict:
         return json.loads(response.read() or b"{}")
 
 
+def _checkpoint_production_stage(body: dict, stage: str) -> None:
+    """Use the existing stage lease/cancel event as the only cancellation fact."""
+    cancel_event = body.get("_cancel_event")
+    if cancel_event is None:
+        return
+    if not hasattr(cancel_event, "is_set"):
+        raise RuntimeError(f"production stage cancelled or lease lost: {stage}")
+    if cancel_event.is_set():
+        raise RuntimeError(f"production stage cancelled or lease lost: {stage}")
+    if getattr(cancel_event, "lease_key", ""):
+        _ensure_production_stage_request_active(cancel_event, stage)
+
+
+def _production_stage_local_api(body: dict, stage: str, path: str, payload: dict) -> dict:
+    _checkpoint_production_stage(body, stage)
+    result = _local_api(path, payload)
+    _checkpoint_production_stage(body, stage)
+    return result
+
+
+def _production_stage_local_get(body: dict, stage: str, path: str) -> dict:
+    _checkpoint_production_stage(body, stage)
+    result = _local_get(path)
+    _checkpoint_production_stage(body, stage)
+    return result
+
+
+def _validated_review_export_authority(body: dict, command: dict, episodes: list[int], *, audit_required: bool) -> dict[int, dict]:
+    """Validate authoritative audit when required and authoritative media always."""
+    declarations = command.get("audit_results") or []
+    if not isinstance(declarations, list):
+        raise ValueError("review_export audit declarations must be a list")
+    try:
+        declaration_episodes = [int(item.get("episode") or 0) for item in declarations if isinstance(item, dict)]
+    except (TypeError, ValueError):
+        raise ValueError("review_export audit declaration requires a valid episode") from None
+    if len(declaration_episodes) != len(declarations) or any(episode < 1 for episode in declaration_episodes) or len(set(declaration_episodes)) != len(declaration_episodes):
+        raise ValueError("review_export audit declarations require unique valid episodes")
+    declared = {episode:item for episode, item in zip(declaration_episodes, declarations)}
+    source_version = str(command.get("source_version") or "").strip()
+    if source_version not in {"base", "enhanced"}:
+        raise ValueError("review_export source_version must be base or enhanced")
+    all_records = PRODUCTION_LEDGER.list(body)
+    records = {
+        int(str(record.get("scope_id") or "").split(":", 1)[1]):record
+        for record in all_records
+        if record.get("stage") == "review_export" and record.get("scope_type") == "episode"
+        and str(record.get("scope_id") or "").startswith("review:")
+        and str(record.get("scope_id") or "").split(":", 1)[1].isdigit()
+    }
+    rejected: list[int] = []; authoritative_media: dict[int, dict] = {}
+    for episode in episodes:
+        declaration = declared.get(episode) or {}
+        record = records.get(episode) or {}
+        confirmation = record.get("confirmation") if isinstance(record.get("confirmation"), dict) else {}
+        fingerprint = str(record.get("content_fingerprint") or "")
+        audit_batch_id = str(record.get("audit_batch_id") or "")
+        audit_valid = (
+            declaration.get("status") == "pass"
+            and declaration.get("confirmed") is True
+            and record.get("lifecycle") == "completed"
+            and bool(fingerprint and audit_batch_id and confirmation)
+            and confirmation.get("content_fingerprint") == fingerprint
+            and confirmation.get("audit_batch_id") == audit_batch_id
+            and str(declaration.get("content_fingerprint") or "") == fingerprint
+            and str(declaration.get("audit_batch_id") or "") == audit_batch_id
+        )
+        if audit_required and not audit_valid:
+            rejected.append(episode)
+            continue
+        media_claim = next((item for item in command.get("items") or [] if isinstance(item, dict) and int(item.get("episode") or 0) == episode), {})
+        media_fingerprint = str(media_claim.get("content_fingerprint") or "")
+        media_batch_id = str(media_claim.get("audit_batch_id") or "")
+        try:
+            media_generation = int(media_claim.get("generation") or 0)
+        except (TypeError, ValueError):
+            media_generation = 0
+        media_records = [record for record in all_records if (
+            source_version == "base" and record.get("stage") == "composition" and record.get("scope_type") == "episode" and str(record.get("scope_id")) == str(episode)
+        ) or (
+            source_version == "enhanced" and record.get("stage") == "review_export" and record.get("scope_type") == "episode" and str(record.get("scope_id")) == f"upscale:{episode}"
+        )]
+        media_valid = any(
+            item.get("lifecycle") == "completed"
+            and bool(item.get("content_fingerprint") and item.get("audit_batch_id"))
+            and item.get("content_fingerprint") == media_fingerprint
+            and (source_version == "base" or bool(media_batch_id and item.get("audit_batch_id") == media_batch_id))
+            and isinstance(item.get("confirmation"), dict)
+            and item["confirmation"].get("content_fingerprint") == item.get("content_fingerprint")
+            and item["confirmation"].get("audit_batch_id") == item.get("audit_batch_id")
+            and (
+                source_version == "base"
+                or bool(
+                    media_generation > 0
+                    and int(item.get("generation") or 0) == media_generation
+                    and int(item["confirmation"].get("generation") or 0) == media_generation
+                )
+            )
+            for item in media_records
+        )
+        if not media_fingerprint or not media_valid:
+            rejected.append(episode)
+        else:
+            selected_record = next(item for item in media_records if (
+                item.get("lifecycle") == "completed"
+                and item.get("content_fingerprint") == media_fingerprint
+                and (source_version == "base" or item.get("audit_batch_id") == media_batch_id)
+                and (source_version == "base" or int(item.get("generation") or 0) == media_generation)
+                and isinstance(item.get("confirmation"), dict)
+            ))
+            production_evidence = selected_record.get("production_evidence")
+            audit_evidence = selected_record.get("audit_evidence")
+            if source_version == "enhanced":
+                try:
+                    _canonical_evidence_json(production_evidence, f"episode {episode} authoritative production evidence")
+                    _canonical_evidence_json(audit_evidence, f"episode {episode} authoritative audit evidence")
+                except RuntimeError:
+                    rejected.append(episode)
+                    continue
+            authoritative_media[episode] = {
+                "source_version":source_version, "content_fingerprint":selected_record["content_fingerprint"],
+                "audit_batch_id":selected_record["audit_batch_id"],
+                "generation":int(selected_record.get("generation") or 0),
+                "production_evidence":production_evidence if production_evidence is not None else {"status":"not_available", "reason":"legacy_base_scope"},
+                "audit_evidence":audit_evidence if audit_evidence is not None else {"status":"not_applicable", "reason":"legacy_base_scope"},
+            }
+    if rejected:
+        raise ValueError(f"review_export export requires authoritative confirmed audit and media: {rejected}")
+    return authoritative_media
+
+
+def _storyboard_shot_key(shot: dict) -> tuple[int, int]:
+    episode = int(shot.get("episode") or 0); shot_number = int(shot.get("shot_number") or 0)
+    if episode <= 0 or shot_number <= 0:
+        raise ValueError("storyboard shot requires positive episode and shot_number")
+    return episode, shot_number
+
+
+def _validated_storyboard_shots(shots: list[dict]) -> list[dict]:
+    result: list[dict] = []; seen: set[tuple[int, int]] = set()
+    for raw in shots:
+        if not isinstance(raw, dict):
+            raise ValueError("storyboard shots must be objects")
+        key = _storyboard_shot_key(raw)
+        if key in seen:
+            raise ValueError(f"duplicate storyboard shot: {key[0]}:{key[1]}")
+        seen.add(key); result.append(raw)
+    return result
+
+
+def _storyboard_episode_is_complete(shots: list[dict], script: dict, context: dict) -> bool:
+    """Only a structurally complete, continuous episode may be resumed as authoritative."""
+    if not 15 <= len(shots) <= 23:
+        return False
+    ordered = sorted(shots, key=lambda item:int(item.get("shot_number") or 0))
+    if [int(item.get("shot_number") or 0) for item in ordered] != list(range(1, len(ordered) + 1)):
+        return False
+    target = float(script.get("target_duration") or context.get("duration") or 60)
+    previous_end = 0.0
+    for shot in ordered:
+        try:
+            start = float(shot.get("start_second")); end = float(shot.get("end_second"))
+        except (TypeError, ValueError):
+            return False
+        if abs(start - previous_end) > .05 or end <= start or end - start < 2 or end - start > 9:
+            return False
+        previous_end = end
+    return abs(previous_end - target) <= 1
+
+
+def _validate_upscale_commands(commands: object) -> tuple[list[dict], list[int]]:
+    """Validate the entire batch before the first mutating provider call."""
+    if not isinstance(commands, list) or not commands:
+        raise ValueError("review_export upscale requires at least one episode command")
+    validated: list[dict] = []; episodes: list[int] = []
+    for command in commands:
+        if not isinstance(command, dict):
+            raise ValueError("review_export upscale command must be an object")
+        raw_episode = command.get("episode")
+        if isinstance(raw_episode, bool):
+            raise ValueError("review_export upscale command requires a positive integer episode")
+        try:
+            episode = int(raw_episode)
+        except (TypeError, ValueError):
+            raise ValueError("review_export upscale command requires a positive integer episode") from None
+        if episode < 1 or str(raw_episode).strip() != str(episode):
+            raise ValueError("review_export upscale command requires a positive integer episode")
+        source = str(command.get("path") or command.get("source_url") or "").strip()
+        parsed_source = urlparse(source)
+        valid_source = bool(source) and (
+            parsed_source.scheme in {"http", "https"} and bool(parsed_source.netloc)
+            or source.startswith("/api/result-media?")
+            or Path(source).is_absolute()
+        )
+        if not valid_source:
+            raise ValueError(f"review_export upscale episode {episode} requires an absolute media path or URL")
+        if str(command.get("source_version") or "") != "base":
+            raise ValueError(f"review_export upscale episode {episode} source_version must be base")
+        target = command.get("target")
+        if not isinstance(target, dict):
+            raise ValueError(f"review_export upscale episode {episode} requires target parameters")
+        try:
+            width, height, fps = (int(target.get(key) or 0) for key in ("width", "height", "fps"))
+        except (TypeError, ValueError):
+            raise ValueError(f"review_export upscale episode {episode} has invalid target parameters") from None
+        if width < 1 or height < 1 or fps < 1 or str(target.get("mode") or "") not in {"quality", "speed"}:
+            raise ValueError(f"review_export upscale episode {episode} has invalid target parameters")
+        validated.append({**command, "episode":episode, "path":source}); episodes.append(episode)
+    if len(set(episodes)) != len(episodes):
+        raise ValueError("review_export upscale commands require unique episodes")
+    return validated, episodes
+
+
+def _canonical_evidence_json(value: object, label: str) -> str:
+    if value is None or value == "" or value == {} or value == []:
+        raise RuntimeError(f"{label} is empty")
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError) as error:
+        raise RuntimeError(f"{label} is not canonical JSON: {error}") from error
+
+
 def _run_server_production_stage(body: dict) -> dict:
     """Server-owned batching, retry and final audit for narrative stages."""
     stage = str(body.get("stage") or ""); context = dict(body.get("context") or {}); audit_enabled = bool(body.get("audit_enabled", False))
+    _checkpoint_production_stage(body, stage)
     if stage == "outline":
-        plan = _local_api("/api/outline/plan", context)["plan"]; episodes: list[dict] = []
+        plan = _production_stage_local_api(body, stage, "/api/outline/plan", context)["plan"]; episodes: list[dict] = []
         total = int(context.get("episode_count") or 1); batch_size = max(1, int(body.get("batch_size") or 10))
         for start in range(1, total + 1, batch_size):
-            response = _local_api("/api/outline/episodes", {**context, "plan":plan, "start_episode":start, "count":min(batch_size, total - start + 1), "total_episodes":total, "previous_episodes":episodes})
+            _checkpoint_production_stage(body, stage)
+            response = _production_stage_local_api(body, stage, "/api/outline/episodes", {**context, "plan":plan, "start_episode":start, "count":min(batch_size, total - start + 1), "total_episodes":total, "previous_episodes":episodes})
             episodes.extend(response.get("episodes") or [])
         audits: list[dict] = []
         if audit_enabled:
-            revised, audits = _audit_and_repair_narrative("outline", {**context, "range":"全剧"}, {"plan":plan, "episodes":episodes})
+            _checkpoint_production_stage(body, stage)
+            revised, audits = _audit_and_repair_narrative("outline", {**context, "range":"全剧", "_cancel_event":body.get("_cancel_event")}, {"plan":plan, "episodes":episodes})
+            _checkpoint_production_stage(body, stage)
             plan = revised.get("plan") or plan; episodes = list(revised.get("episodes") or episodes)
+        _checkpoint_production_stage(body, stage)
         return {"stage":"outline", "plan":plan, "episodes":episodes, "audit":audits[-1] if audits else None, "audits":audits}
     if stage == "script":
         plan = body.get("plan") or {}; outlines = list(body.get("episodes") or []); scripts: list[dict] = []
         for index, outline in enumerate(outlines):
+            _checkpoint_production_stage(body, stage)
             last_error = ""
             for attempt in range(1, 3):
+                _checkpoint_production_stage(body, stage)
                 try:
-                    response = _local_api("/api/script/episode", {**context, "general_outline":plan.get("general_outline"), "episode_outline":outline, "all_episode_outlines":outlines, "previous_outline":outlines[index - 1] if index else None, "next_outline":outlines[index + 1] if index + 1 < len(outlines) else None, "previous_scripts":scripts, "characters":plan.get("characters", []), "retry_attempt":attempt, "retry_requirement":last_error})
+                    response = _production_stage_local_api(body, stage, "/api/script/episode", {**context, "general_outline":plan.get("general_outline"), "episode_outline":outline, "all_episode_outlines":outlines, "previous_outline":outlines[index - 1] if index else None, "next_outline":outlines[index + 1] if index + 1 < len(outlines) else None, "previous_scripts":scripts, "characters":plan.get("characters", []), "retry_attempt":attempt, "retry_requirement":last_error})
                     scripts.append(response["script"]); break
                 except RuntimeError as error:
                     last_error = str(error)
                     if attempt == 2: raise
         audits: list[dict] = []
         if audit_enabled:
-            revised, audits = _audit_and_repair_narrative("script", {**context, "range":"全剧", "upstream_context":{"outline_plan":plan, "episode_outlines":outlines}}, {"scripts":scripts})
+            _checkpoint_production_stage(body, stage)
+            revised, audits = _audit_and_repair_narrative("script", {**context, "range":"全剧", "_cancel_event":body.get("_cancel_event"), "upstream_context":{"outline_plan":plan, "episode_outlines":outlines}}, {"scripts":scripts})
+            _checkpoint_production_stage(body, stage)
             scripts = list(revised.get("scripts") or scripts)
+        _checkpoint_production_stage(body, stage)
         return {"stage":"script", "scripts":scripts, "audits":audits}
     if stage == "storyboard":
-        scripts = list(body.get("scripts") or []); shots: list[dict] = []
+        scripts = list(body.get("scripts") or [])
+        existing = _validated_storyboard_shots(list(body.get("shots") or context.get("shots") or context.get("existing_shots") or []))
+        scripts_by_episode = {int(item.get("episode") or 0):item for item in scripts if isinstance(item, dict) and int(item.get("episode") or 0) > 0}
+        if len(scripts_by_episode) != len(scripts):
+            raise ValueError("storyboard scripts require unique positive episodes")
+        unknown_existing = sorted({episode for episode, _ in map(_storyboard_shot_key, existing)} - set(scripts_by_episode))
+        if unknown_existing:
+            raise ValueError(f"existing storyboard contains episodes absent from scripts: {unknown_existing}")
+        existing_by_episode = {episode:[item for item in existing if int(item.get("episode") or 0) == episode] for episode in scripts_by_episode}
+        complete_episodes = {
+            episode for episode, script in scripts_by_episode.items()
+            if _storyboard_episode_is_complete(existing_by_episode.get(episode, []), script, context)
+        }
+        preserved = [item for item in existing if int(item.get("episode") or 0) in complete_episodes]
+        generated: list[dict] = []; shots: list[dict] = list(preserved)
         cancel_event = body.get("_cancel_event")
-        if not hasattr(cancel_event, "is_set"):
-            cancel_event = threading.Event()
         for script in scripts:
-            if cancel_event.is_set(): raise RuntimeError("storyboard generation stopped")
-            response = _local_api("/api/storyboard", {**context, "episode":script.get("episode"), "script":script.get("content"), "duration":script.get("target_duration") or context.get("duration", 60), "characters":body.get("characters") or []})
-            if cancel_event.is_set(): raise RuntimeError("storyboard generation stopped")
-            shots.extend((response.get("storyboard") or {}).get("shots") or [])
-            _write_storyboard_stream_progress(body, shots, int(script.get("episode") or 0), cancel_event)
-        audits: list[dict] = []
-        if audit_enabled:
-            revised, audits = _audit_and_repair_narrative("storyboard", {**context, "range":"全剧", "upstream_context":{"scripts":scripts}}, {"shots":shots})
-            shots = list(revised.get("shots") or shots)
-        return {"stage":"storyboard", "shots":shots, "audits":audits}
+            episode = int(script.get("episode") or 0)
+            if episode in complete_episodes:
+                continue
+            _checkpoint_production_stage(body, stage)
+            response = _production_stage_local_api(body, stage, "/api/storyboard", {**context, "episode":episode, "script":script.get("content"), "duration":script.get("target_duration") or context.get("duration", 60), "characters":body.get("characters") or []})
+            episode_shots = _validated_storyboard_shots(list((response.get("storyboard") or {}).get("shots") or []))
+            if any(int(item.get("episode") or 0) != episode for item in episode_shots):
+                raise ValueError(f"storyboard provider returned a foreign episode for {episode}")
+            if not _storyboard_episode_is_complete(episode_shots, script, context):
+                raise ValueError(f"storyboard provider returned an incomplete episode: {episode}")
+            generated.extend(episode_shots); shots.extend(episode_shots)
+            shots.sort(key=_storyboard_shot_key)
+            _checkpoint_production_stage(body, stage)
+            _write_storyboard_stream_progress(body, shots, episode, cancel_event if hasattr(cancel_event, "is_set") else threading.Event())
+        audits: list[dict] = list(body.get("audits") or [])
+        generated_episodes = sorted(set(scripts_by_episode) - complete_episodes)
+        if audit_enabled and generated:
+            _checkpoint_production_stage(body, stage)
+            revised, new_audits = _audit_and_repair_narrative("storyboard", {**context, "range":f"分集{generated_episodes}", "_cancel_event":body.get("_cancel_event"), "upstream_context":{"scripts":[scripts_by_episode[item] for item in generated_episodes]}}, {"shots":generated})
+            _checkpoint_production_stage(body, stage)
+            revised_generated = _validated_storyboard_shots(list(revised.get("shots") or generated))
+            if {int(item.get("episode") or 0) for item in revised_generated} != set(generated_episodes):
+                raise ValueError("storyboard audit changed the generated episode scope")
+            for episode in generated_episodes:
+                audited_episode = [item for item in revised_generated if int(item.get("episode") or 0) == episode]
+                if not _storyboard_episode_is_complete(audited_episode, scripts_by_episode[episode], context):
+                    raise ValueError(f"storyboard audit returned an incomplete episode: {episode}")
+            shots = sorted([*preserved, *revised_generated], key=_storyboard_shot_key)
+            audits.extend(new_audits)
+        _checkpoint_production_stage(body, stage)
+        return {"stage":"storyboard", "shots":shots, "audits":audits, "generated_episodes":generated_episodes}
     if stage == "assets":
-        extraction = _local_api("/api/characters/extract", {
+        extraction = _production_stage_local_api(body, stage, "/api/characters/extract", {
             **context,
             "outline": body.get("outline") or "",
             "scripts": body.get("scripts") or "",
@@ -5614,6 +7029,7 @@ def _run_server_production_stage(body: dict) -> dict:
             "style": body.get("style") or context.get("style") or "",
             "max_characters": body.get("max_characters") or 12,
         })
+        _checkpoint_production_stage(body, stage)
         return {
             "stage":"assets",
             "characters":list(extraction.get("characters") or []),
@@ -5624,36 +7040,44 @@ def _run_server_production_stage(body: dict) -> dict:
     if stage == "image":
         results = []
         for command in body.get("commands") or []:
-            generated = _local_api("/api/shots/generate", command)["image"]
+            _checkpoint_production_stage(body, stage)
+            generated = _production_stage_local_api(body, stage, "/api/shots/generate", command)["image"]
             audit_body = {**(command.get("identity") or {}), "image_url":generated["url"], "expected_visual":command.get("expected_visual"), "expected_characters":command.get("expected_characters", []), "references":command.get("references", [])}
-            audit = _local_api("/api/shots/semantic-audit", audit_body)
+            audit = _production_stage_local_api(body, stage, "/api/shots/semantic-audit", audit_body)
             repair_count = 0
             if not audit.get("passed"):
                 repair_count = 1; issue = "；".join([*(audit.get("missing_subjects") or []), *(audit.get("contradictions") or []), str(audit.get("summary") or "")])
-                generated = _local_api("/api/shots/repair", {**command, "original_url":generated["url"], "issue":issue})["image"]
-                audit = _local_api("/api/shots/semantic-audit", {**audit_body, "image_url":generated["url"]})
+                generated = _production_stage_local_api(body, stage, "/api/shots/repair", {**command, "original_url":generated["url"], "issue":issue})["image"]
+                audit = _production_stage_local_api(body, stage, "/api/shots/semantic-audit", {**audit_body, "image_url":generated["url"]})
+            _checkpoint_production_stage(body, stage)
             results.append({"episode":command.get("episode"), "shot_number":command.get("shot_number"), "image_url":generated["url"], "status":"waiting_confirmation" if audit.get("passed") else "failed", "repair_count":repair_count, "audit_summary":audit.get("summary", ""), "error":"" if audit.get("passed") else f"复检未通过：{audit.get('summary', '')}"})
+        _checkpoint_production_stage(body, stage)
         return {"stage":"image", "items":results}
     if stage == "video":
         results = []
         for command in body.get("commands") or []:
+            _checkpoint_production_stage(body, stage)
             identity = command.get("identity") or {}; episode = int(command["episode"]); shot = int(command["shot_number"])
-            _local_api("/api/videos/generate", {**identity, **command.get("video", {})})
+            _production_stage_local_api(body, stage, "/api/videos/generate", {**identity, **command.get("video", {})})
             video_result = {}
             for _ in range(900):
-                video_result = _local_get(f"/api/videos/result?{urlencode({**identity, 'episode':episode, 'shot_number':shot})}")
+                _checkpoint_production_stage(body, stage)
+                video_result = _production_stage_local_get(body, stage, f"/api/videos/result?{urlencode({**identity, 'episode':episode, 'shot_number':shot})}")
                 if video_result.get("status") in {"completed", "failed", "stopped"}: break
                 time.sleep(2)
             if video_result.get("status") != "completed": raise RuntimeError(str(video_result.get("error") or "分镜视频生成超时"))
             item = {"episode":episode, "shot_number":shot, "video_url":video_result.get("video", {}).get("url"), "source_video_url":video_result.get("video", {}).get("url"), "status":"waiting_confirmation", "voice_status":"not_applicable", "lip_sync_status":"not_applicable", "subtitle_status":"not_applicable", "audit_evidence":{"speaker":"not_applicable", "emotion":"not_applicable", "lipsync":"not_applicable", "face":"not_applicable", "continuity":"not_applicable"}}
             voice = command.get("voice") if isinstance(command.get("voice"), dict) else None
             if voice and voice.get("text"):
-                audio = _local_api("/api/audio/tts", {**identity, "episode":episode, "shot_number":shot, **voice})["audio"]
+                audio = _production_stage_local_api(body, stage, "/api/audio/tts", {**identity, "episode":episode, "shot_number":shot, **voice})["audio"]
                 item.update(audio_url=audio["url"], voice_status="completed", speaker=voice.get("character_name") or "旁白", voice_preset=voice.get("speaker"), voice_cast_version="qwen-1.7b-role-cast-v3", emotion=voice.get("emotion"), subtitle_status="completed")
-                try: synced = _local_api("/api/videos/lipsync", {**identity, "episode":episode, "shot_number":shot, "video_url":item["video_url"], "audio_url":item["audio_url"]})
-                except RuntimeError: synced = _local_api("/api/videos/latentsync", {**identity, "episode":episode, "shot_number":shot, "video_url":item["video_url"], "audio_url":item["audio_url"], "inference_steps":8})
+                try: synced = _production_stage_local_api(body, stage, "/api/videos/lipsync", {**identity, "episode":episode, "shot_number":shot, "video_url":item["video_url"], "audio_url":item["audio_url"]})
+                except RuntimeError:
+                    _checkpoint_production_stage(body, stage)
+                    synced = _production_stage_local_api(body, stage, "/api/videos/latentsync", {**identity, "episode":episode, "shot_number":shot, "video_url":item["video_url"], "audio_url":item["audio_url"], "inference_steps":8})
                 item.update(video_url=synced.get("video_url"), path=synced.get("path"), lip_sync_status="completed", lip_sync_model=synced.get("model", "LatentSync-1.6"), lip_sync_version="server-media-package-v1")
             results.append(item)
+        _checkpoint_production_stage(body, stage)
         return {"stage":"video", "items":results}
     if stage == "composition":
         commands = body.get("commands") or []
@@ -5661,6 +7085,7 @@ def _run_server_production_stage(body: dict) -> dict:
             raise ValueError("composition requires at least one episode command")
         episodes: list[int] = []
         for command in commands:
+            _checkpoint_production_stage(body, stage)
             if not isinstance(command, dict):
                 raise ValueError("composition command requires a valid episode")
             try:
@@ -5674,9 +7099,145 @@ def _run_server_production_stage(body: dict) -> dict:
             raise ValueError("composition episode commands must be unique")
         results = []
         for command, episode in zip(commands, episodes):
-            merged = _local_api("/api/videos/merge", {**context, **command})
+            _checkpoint_production_stage(body, stage)
+            merged = _production_stage_local_api(body, stage, "/api/videos/merge", {**context, **command})
             results.append({"episode":episode, "status":"waiting_confirmation", **merged})
+        _checkpoint_production_stage(body, stage)
         return {"stage":"composition", "items":results}
+    if stage == "review_export":
+        operation = str(body.get("operation") or "").strip().lower()
+        if operation == "upscale":
+            commands, episodes = _validate_upscale_commands(body.get("commands"))
+            batch_id = "upscale-" + uuid4().hex
+            identity = {key:str(body.get(key) or "").strip() for key in ("tenant_id", "user_id", "project_id")}
+            generations = {
+                episode: PRODUCTION_LEDGER.reserve_upscale_generation({
+                    **identity, "stage":"review_export", "scope_type":"episode", "scope_id":f"upscale:{episode}",
+                })
+                for episode in episodes
+            }
+            results = []
+            for command, episode in zip(commands, episodes):
+                _checkpoint_production_stage(body, stage)
+                enhanced = _production_stage_local_api(body, stage, "/api/videos/upscale", {**context, **command})
+                path = str(enhanced.get("path") or "")
+                if not path:
+                    raise RuntimeError(f"episode {episode} upscale returned no media path")
+                subtitles = command.get("subtitles") or []
+                step_evidence: dict[str, dict] = {
+                    "ocr":{"status":"not_applicable", "reason":"no_subtitles"},
+                    "face":{"status":"not_applicable", "reason":"no_reference_urls"},
+                }
+                if subtitles:
+                    ocr = _production_stage_local_api(body, stage, "/api/subtitles/ocr-audit", {**context, "path":path, "subtitles":subtitles})
+                    if ocr.get("status") != "pass":
+                        raise RuntimeError(f"episode {episode} enhanced subtitle audit failed")
+                    ocr_evidence = ocr.get("evidence") if isinstance(ocr.get("evidence"), dict) else {}
+                    if not ocr_evidence:
+                        raise RuntimeError(f"episode {episode} enhanced subtitle audit lacks evidence")
+                    step_evidence["ocr"] = {"status":"pass", "evidence":ocr_evidence}
+                references = command.get("reference_urls") or []
+                if references:
+                    face = _production_stage_local_api(body, stage, "/api/videos/face-consistency-audit", {**context, "episode":episode, "video_url":enhanced.get("video_url"), "reference_urls":references})
+                    if face.get("status") != "pass":
+                        raise RuntimeError(f"episode {episode} enhanced face audit failed")
+                    face_evidence = face.get("evidence") if isinstance(face.get("evidence"), dict) else {}
+                    if not face_evidence:
+                        raise RuntimeError(f"episode {episode} enhanced face audit lacks evidence")
+                    step_evidence["face"] = {"status":"pass", "evidence":face_evidence}
+                audit = _production_stage_local_api(body, stage, "/api/videos/audit", {**context, **command, "path":path, "video_url":enhanced.get("video_url"), "ocr_status":"pass" if subtitles else "not_applicable"})
+                if audit.get("status") != "pass":
+                    raise RuntimeError(f"episode {episode} enhanced final audit failed: {'；'.join(audit.get('issues') or [])}")
+                production_evidence = enhanced.get("production_evidence")
+                _canonical_evidence_json(production_evidence, f"episode {episode} production evidence")
+                final_evidence = audit.get("evidence") if isinstance(audit.get("evidence"), dict) else {}
+                if not final_evidence:
+                    raise RuntimeError(f"episode {episode} enhanced output lacks authoritative evidence")
+                step_evidence["final"] = {"status":"pass", "evidence":final_evidence}
+                fingerprint_payload = {
+                    "generation":generations[episode], "audit_batch_id":batch_id,
+                    "command":command, "enhanced_output":enhanced,
+                    "source":command["path"], "source_version":command["source_version"], "target":command["target"],
+                    "production_evidence":production_evidence, "audit_evidence":step_evidence,
+                }
+                canonical_payload = _canonical_evidence_json(fingerprint_payload, f"episode {episode} upscale fingerprint payload")
+                fingerprint = hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
+                results.append({"episode":episode, "status":"waiting_confirmation", **enhanced, "production_evidence":production_evidence, "audit_evidence":step_evidence, "content_fingerprint":fingerprint, "audit_batch_id":batch_id, "generation":generations[episode]})
+            _checkpoint_production_stage(body, stage)
+            authority_records = [{
+                **identity, "stage":"review_export", "scope_type":"episode", "scope_id":f"upscale:{item['episode']}",
+                "stage_substate":"upscale", "content_fingerprint":item["content_fingerprint"],
+                "audit_batch_id":batch_id, "generation":item["generation"],
+                "production_evidence":item["production_evidence"], "audit_evidence":item["audit_evidence"],
+                "progress":{"completed":1, "total":1},
+                "checkpoint":f"upscale:{batch_id}", "confirmation":None,
+            } for item in results]
+            # Authority publication is deliberately deferred to the stage
+            # commit protocol.  Returning from physical execution must not
+            # expose pending-confirmation evidence before cancellation loses.
+            return {"stage":"review_export", "operation":"upscale", "items":results, "_authority_records":authority_records}
+        if operation == "audit":
+            commands = body.get("commands") or []
+            if not isinstance(commands, list) or not commands:
+                raise ValueError("review_export audit requires at least one episode command")
+            episodes: list[int] = []
+            for command in commands:
+                _checkpoint_production_stage(body, stage)
+                if not isinstance(command, dict):
+                    raise ValueError("review_export audit command requires a valid episode")
+                try:
+                    episode = int(command.get("episode") or 0)
+                except (TypeError, ValueError):
+                    raise ValueError("review_export audit command requires a valid episode") from None
+                if episode < 1:
+                    raise ValueError("review_export audit command requires a valid episode")
+                episodes.append(episode)
+            if len(set(episodes)) != len(episodes):
+                raise ValueError("review_export audit episode commands must be unique")
+            results = []
+            for command, episode in zip(commands, episodes):
+                _checkpoint_production_stage(body, stage)
+                max_attempts = max(1, min(2, int(command.get("max_attempts") or 2)))
+                audit: dict = {"status":"needs_fix", "issues":["审核未返回结果"], "evidence":{}}
+                attempts = 0
+                for attempt in range(1, max_attempts + 1):
+                    _checkpoint_production_stage(body, stage)
+                    attempts = attempt
+                    try:
+                        audit = _production_stage_local_api(body, stage, "/api/videos/audit", {**context, **command, "audit_attempt":attempt})
+                    except RuntimeError as error:
+                        _checkpoint_production_stage(body, stage)
+                        audit = {"status":"needs_fix", "issues":[str(error)], "evidence":{"error_type":type(error).__name__, "attempt":attempt}}
+                        if attempt < max_attempts:
+                            continue
+                    break
+                if audit.get("status") not in {"pass", "needs_fix"}:
+                    audit = {**audit, "status":"needs_fix", "issues":[*(audit.get("issues") or []), "审核返回了非法状态"]}
+                results.append({"episode":episode, **audit, "attempts":attempts})
+            _checkpoint_production_stage(body, stage)
+            return {"stage":"review_export", "operation":"audit", "items":results}
+        if operation == "export":
+            command = body.get("command")
+            if not isinstance(command, dict):
+                raise ValueError("review_export export requires one export command")
+            items = command.get("items") or []
+            if not isinstance(items, list) or not items:
+                raise ValueError("review_export export requires at least one media item")
+            try:
+                episodes = [int(item.get("episode") or 0) for item in items if isinstance(item, dict)]
+            except (TypeError, ValueError):
+                raise ValueError("review_export export item requires a valid episode") from None
+            if len(episodes) != len(items) or any(episode < 1 for episode in episodes):
+                raise ValueError("review_export export item requires a valid episode")
+            if len(set(episodes)) != len(episodes):
+                raise ValueError("review_export export episode items must be unique")
+            authority = _validated_review_export_authority(body, command, episodes, audit_required=bool(command.get("audit_required", True)))
+            command = {**command, "items":[{**item, **authority[int(item["episode"])]} for item in items]}
+            _checkpoint_production_stage(body, stage)
+            exported = _production_stage_local_api(body, stage, "/api/exports/create", {**context, **command})
+            _checkpoint_production_stage(body, stage)
+            return {"stage":"review_export", "operation":"export", **exported}
+        raise ValueError("review_export operation must be audit or export")
     raise ValueError("unsupported server narrative stage")
 
 
@@ -5706,28 +7267,189 @@ def _validated_composition_media_packages(records: list[dict]) -> dict[str, str]
     return {shot_id: evidence["video"][shot_id] for shot_id in sorted(shot_ids)}
 
 
+def _current_stage_report_fence(brain: Any, identity: dict, stage: str) -> dict[str, int]:
+    """Advance an already leased stage event without inventing a new owner."""
+    if not callable(getattr(brain, "state", None)):
+        return {}
+    state = brain.state(identity)
+    generation = int((state.get("stage_generations") or {}).get(stage) or 0)
+    if generation <= 0:
+        return {}
+    revision = int((state.get("projection_revisions") or {}).get(stage) or 0)
+    return {"stage_generation":generation, "projection_revision":revision + 1}
+
+
 def _confirm_production_scope(payload: dict) -> tuple[dict, dict]:
     brain = _production_orchestrator(); stage = canonical_stage(payload.get("stage"))
     candidate = next((item for item in PRODUCTION_LEDGER.list(payload) if item["stage"] == stage and item["scope_type"] == str(payload.get("scope_type")) and item["scope_id"] == str(payload.get("scope_id"))), None)
     if not candidate: raise ProductionLedgerError("production scope does not exist")
-    proposed_confirmation = {"content_fingerprint":candidate["content_fingerprint"], "audit_batch_id":candidate["audit_batch_id"], "confirmed_by":str(payload.get("user_id")), "confirmed_at":_iso_now()}
+    if stage == "review_export" and str(payload.get("scope_type")) == "episode" and str(payload.get("scope_id") or "").startswith("upscale:"):
+        try:
+            claimed_generation = int(payload.get("generation") or 0)
+        except (TypeError, ValueError):
+            claimed_generation = 0
+        if not (
+            claimed_generation > 0
+            and claimed_generation == int(candidate.get("generation") or 0)
+            and str(payload.get("content_fingerprint") or "") == str(candidate.get("content_fingerprint") or "")
+            and str(payload.get("audit_batch_id") or "") == str(candidate.get("audit_batch_id") or "")
+        ):
+            raise ProductionLedgerError("upscale confirmation requires the current authoritative generation")
+    proposed_confirmation = {"content_fingerprint":candidate["content_fingerprint"], "audit_batch_id":candidate["audit_batch_id"], "generation":int(candidate.get("generation") or 0), "confirmed_by":str(payload.get("user_id")), "confirmed_at":_iso_now()}
     brain.validate_completion(payload, stage, confirmation=proposed_confirmation)
     record = PRODUCTION_LEDGER.confirm(payload)
     try:
-        stage_records = _stage_gate_records(stage, PRODUCTION_LEDGER.list(payload))
-        lifecycle = "completed" if stage_records and all(item["lifecycle"] == "completed" and item.get("confirmation") for item in stage_records) else "pending_confirmation"
-        workflow = brain.report(payload, stage, lifecycle, confirmation=record["confirmation"])
+        all_records = PRODUCTION_LEDGER.list(payload)
+        stage_records = _stage_gate_records(stage, all_records)
+        lifecycle = "completed" if stage_records and _production_stage_gate_complete(stage, all_records) else "pending_confirmation"
+        workflow = brain.report(
+            payload, stage, lifecycle, confirmation=record["confirmation"],
+            **_current_stage_report_fence(brain, payload, stage),
+        )
     except Exception:
         PRODUCTION_LEDGER.restore_pending_confirmation(payload, "LangGraph确认提交失败，已回滚")
         raise
     return record, workflow
 
 
-def _stage_gate_records(stage: str, records: list[dict]) -> list[dict]:
-    """Select authoritative confirmation scopes; detail rows remain trace evidence only."""
+def _confirm_asset_scope_deferred(payload: dict) -> tuple[dict, dict]:
+    """Confirm one asset now, but defer aggregate stage promotion until storyboard completes."""
+    brain = _production_orchestrator()
+    candidate = next((item for item in PRODUCTION_LEDGER.list(payload) if (
+        item["stage"] == "assets"
+        and item["scope_type"] == str(payload.get("scope_type"))
+        and item["scope_id"] == str(payload.get("scope_id"))
+    )), None)
+    if not candidate:
+        raise ProductionLedgerError("production scope does not exist")
+    record = PRODUCTION_LEDGER.confirm(payload)
+    try:
+        proposed = record.get("confirmation") or {}
+        brain.validate_completion(payload, "assets", confirmation=proposed)
+    except ValueError as error:
+        if not str(error).startswith("previous stage is not completed:"):
+            PRODUCTION_LEDGER.restore_pending_confirmation(payload, "资产确认校验失败，已回滚")
+            raise
+        workflow = brain.report(
+            payload, "assets", "pending_confirmation",
+            deferred_confirmation=True, deferred_reason=str(error), confirmed_asset_scope=str(payload.get("scope_id") or ""),
+            **_current_stage_report_fence(brain, payload, "assets"),
+        )
+        return record, workflow
+    try:
+        all_records = PRODUCTION_LEDGER.list(payload)
+        stage_records = _stage_gate_records("assets", all_records)
+        lifecycle = "completed" if stage_records and _production_stage_gate_complete("assets", all_records) else "pending_confirmation"
+        workflow = brain.report(
+            payload, "assets", lifecycle, confirmation=record.get("confirmation"),
+            **_current_stage_report_fence(brain, payload, "assets"),
+        )
+    except Exception:
+        PRODUCTION_LEDGER.restore_pending_confirmation(payload, "LangGraph确认提交失败，已回滚")
+        raise
+    return record, workflow
+
+
+def _confirmed_production_gate_record(record: dict) -> bool:
+    """One shared definition for facts that may promote a production stage."""
+    confirmation = record.get("confirmation")
+    if record.get("lifecycle") != "completed" or not isinstance(confirmation, dict) or not confirmation:
+        return False
+    if str(record.get("stage") or "") in {"image", "video", "audio", "subtitle"} and record.get("scope_type") == "shot":
+        fingerprint = str(record.get("content_fingerprint") or "").strip()
+        audit_batch_id = str(record.get("audit_batch_id") or "").strip()
+        return bool(
+            fingerprint
+            and audit_batch_id
+            and str(confirmation.get("content_fingerprint") or "").strip() == fingerprint
+            and str(confirmation.get("audit_batch_id") or "").strip() == audit_batch_id
+        )
+    return True
+
+
+def _shot_scope_parts(scope_id: object) -> tuple[int, int] | None:
+    raw = str(scope_id or "")
+    match = re.fullmatch(r"([1-9]\d*):([1-9]\d*)", raw)
+    if not match:
+        return None
+    parts = (int(match.group(1)), int(match.group(2)))
+    return parts if raw == f"{parts[0]}:{parts[1]}" else None
+
+
+def _media_stage_gate_records(stage: str, records: list[dict]) -> list[dict]:
+    """Return every actual media scope plus explicit fail-closed gate facts."""
     stage_records = [record for record in records if str(record.get("stage") or "") == stage]
     if not stage_records:
         return []
+    failures: list[dict] = []
+
+    def failure(scope_id: str, error: str) -> None:
+        failures.append({
+            "stage":stage, "scope_type":"shot", "scope_id":scope_id,
+            "lifecycle":"stale", "confirmation":None, "error":error, "_gate_error":True,
+        })
+
+    expected_by_episode: dict[int, set[str]] = {}
+    seen_expected: set[str] = set()
+    for record in records:
+        if str(record.get("stage") or "") != "storyboard" or record.get("scope_type") != "shot":
+            continue
+        raw_scope = str(record.get("scope_id") or "")
+        parts = _shot_scope_parts(raw_scope)
+        if not parts:
+            failure(f"invalid-storyboard:{raw_scope}", "storyboard shot scope is invalid or non-canonical")
+            continue
+        canonical = f"{parts[0]}:{parts[1]}"
+        if canonical in seen_expected:
+            failure(f"duplicate-storyboard:{canonical}", "storyboard shot census contains a duplicate or alias collision")
+            continue
+        seen_expected.add(canonical)
+        expected_by_episode.setdefault(parts[0], set()).add(canonical)
+    if not expected_by_episode:
+        failure("missing-storyboard-census", "storyboard shot census is required")
+
+    actual_by_scope: dict[str, dict] = {}
+    for record in stage_records:
+        raw_scope = str(record.get("scope_id") or "")
+        if record.get("scope_type") != "shot":
+            failure(f"invalid-scope-type:{raw_scope}", "media stage only accepts shot scopes")
+            continue
+        parts = _shot_scope_parts(raw_scope)
+        if not parts:
+            failure(f"invalid-media:{raw_scope}", "media shot scope is invalid or non-canonical")
+            continue
+        canonical = f"{parts[0]}:{parts[1]}"
+        if canonical in actual_by_scope:
+            failure(f"duplicate-media:{canonical}", "media shot scope contains a duplicate or alias collision")
+            continue
+        actual_by_scope[canonical] = record
+        if canonical not in seen_expected:
+            failure(f"unexpected-media:{canonical}", "media shot scope is outside the authoritative storyboard census")
+
+    complete_episode = any(
+        expected and all(
+            scope_id in actual_by_scope and _confirmed_production_gate_record(actual_by_scope[scope_id])
+            for scope_id in expected
+        )
+        for expected in expected_by_episode.values()
+    )
+    if not complete_episode:
+        failure("incomplete-episode-coverage", "no episode has complete confirmed media shot coverage")
+    return [*stage_records, *failures]
+
+
+def _stage_gate_records(stage: str, records: list[dict]) -> list[dict]:
+    """Select the exact durable scopes whose confirmation promotes one stage.
+
+    Shot stages use the confirmed storyboard census as their expected set.  A
+    stage is promotable when at least one episode has every expected shot; one
+    present/confirmed row must never stand in for missing sibling shots.
+    """
+    stage_records = [record for record in records if str(record.get("stage") or "") == stage]
+    if not stage_records:
+        return []
+    if stage in {"image", "video", "audio", "subtitle"}:
+        return _media_stage_gate_records(stage, records)
     scope_types = {str(record.get("scope_type") or "") for record in stage_records}
     preferred: tuple[str, ...]
     if stage == "requirements":
@@ -5738,8 +7460,6 @@ def _stage_gate_records(stage: str, records: list[dict]) -> list[dict]:
         preferred = ("story_arc_batch", "episode_batch", "episode")
     elif stage == "assets":
         preferred = ("asset",)
-    elif stage in {"image", "video", "audio", "subtitle"}:
-        preferred = ("shot",)
     elif stage in {"composition", "review_export"}:
         preferred = ("episode_batch", "episode")
     else:
@@ -5754,23 +7474,33 @@ def _stage_gate_records(stage: str, records: list[dict]) -> list[dict]:
     return stage_records
 
 
+def _production_stage_gate_complete(stage: str, records: list[dict]) -> bool:
+    gate_records = _stage_gate_records(stage, records)
+    if not gate_records:
+        return False
+    if stage in {"image", "video", "audio", "subtitle"}:
+        return not any(record.get("_gate_error") is True for record in gate_records)
+    return all(_confirmed_production_gate_record(record) for record in gate_records)
+
+
 def _reconcile_completed_production_stages(identity: dict, records: list[dict]) -> dict:
     """Heal a stale LangGraph projection from durable confirmed ledger facts."""
     brain = _production_orchestrator()
-    by_stage: dict[str, list[dict]] = {}
-    for record in records:
-        by_stage.setdefault(str(record.get("stage") or ""), []).append(record)
     state = brain.state(identity)
     for stage in CANONICAL_STAGES:
-        stage_records = _stage_gate_records(stage, by_stage.get(stage, []))
+        stage_records = _stage_gate_records(stage, records)
         if not stage_records:
             break
-        complete = all(record.get("lifecycle") == "completed" and isinstance(record.get("confirmation"), dict) for record in stage_records)
+        complete = _production_stage_gate_complete(stage, records)
         if not complete:
             break
         if state.get("stages", {}).get(stage) != "completed":
             confirmation = next(record["confirmation"] for record in stage_records if isinstance(record.get("confirmation"), dict))
-            state = brain.report(identity, stage, "completed", confirmation=confirmation, reconciled_from="production_ledger")
+            state = brain.report(
+                identity, stage, "completed", confirmation=confirmation,
+                reconciled_from="production_ledger",
+                **_current_stage_report_fence(brain, identity, stage),
+            )
     return state
 
 
@@ -5788,6 +7518,34 @@ def _recover_production_workflows() -> None:
             continue
         state = brain.state(identity)
         current_stage = str(state.get("current_stage") or "")
+        event = state.get("event") if isinstance(state.get("event"), dict) else {}
+        authority_commit = event.get("authority_commit") if isinstance(event, dict) else None
+        if (
+            current_stage == "review_export"
+            and state.get("stages", {}).get(current_stage) == "pending_confirmation"
+            and isinstance(authority_commit, dict)
+            and authority_commit.get("kind") == "upscale"
+        ):
+            expected = authority_commit.get("records") if isinstance(authority_commit.get("records"), list) else []
+            actual = {
+                (str(item.get("scope_id") or ""), int(item.get("generation") or 0),
+                 str(item.get("content_fingerprint") or ""), str(item.get("audit_batch_id") or ""))
+                for item in PRODUCTION_LEDGER.list(identity)
+                if item.get("stage") == "review_export" and str(item.get("scope_id") or "").startswith("upscale:")
+            }
+            expected_keys = {
+                (str(item.get("scope_id") or ""), int(item.get("generation") or 0),
+                 str(item.get("content_fingerprint") or ""), str(item.get("audit_batch_id") or ""))
+                for item in expected if isinstance(item, dict)
+            }
+            if not expected_keys or not expected_keys.issubset(actual):
+                brain.report(
+                    identity, current_stage, "failed",
+                    error="服务重启检测到未完成的增强权威提交，已失败关闭",
+                    stage_generation=int(event.get("stage_generation") or 0),
+                    projection_revision=int(event.get("projection_revision") or 0) + 1,
+                )
+                continue
         if current_stage and state.get("stages", {}).get(current_stage) == "running":
             storage_stage = stage_storage.get(current_stage, "")
             stored = project.get("stage_state", {}).get(storage_stage) if storage_stage else None
@@ -5796,10 +7554,12 @@ def _recover_production_workflows() -> None:
                 recovered.update({"status":"failed", "error":"服务重启已回收未完成生产阶段"})
                 _write_project_stage(identity["project_id"], identity["tenant_id"], identity["user_id"], storage_stage, recovered)
             else:
-                brain.report(identity, current_stage, "failed", error="服务重启已回收未完成生产阶段")
+                brain.report(identity, current_stage, "failed", error="服务重启已回收未完成生产阶段",
+                    **_current_stage_report_fence(brain, identity, current_stage),
+                )
 
 
-def _begin_production_request(body: dict, stage: str) -> dict:
+def _begin_production_request(body: dict, stage: str, *, stage_generation: int = 0) -> dict:
     identity = {
         "tenant_id":str(body.get("tenant_id") or "local-default").strip(),
         "user_id":str(body.get("user_id") or "aoo").strip(),
@@ -5818,13 +7578,11 @@ def _begin_production_request(body: dict, stage: str) -> dict:
         if not project_exists:
             raise ValueError("project does not exist")
         brain.report(identity, "requirements", "completed", trusted=True, evidence={"source":"project_store"})
-    completed_records = {str(record["stage"]) for record in PRODUCTION_LEDGER.list(identity) if record.get("lifecycle") == "completed" and record.get("confirmation")}
-    for completed_stage in CANONICAL_STAGES:
-        if completed_stage in completed_records and stages.get(completed_stage) != "completed":
-            brain.report(identity, completed_stage, "completed", trusted=True, evidence={"source":"production_ledger"})
+    records = PRODUCTION_LEDGER.list(identity)
+    _reconcile_completed_production_stages(identity, records)
     if stage == "composition":
-        _validated_composition_media_packages(PRODUCTION_LEDGER.list(identity))
-    return brain.begin(identity, stage)
+        _validated_composition_media_packages(records)
+    return brain.begin(identity, stage, stage_generation=stage_generation)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -5848,7 +7606,7 @@ class Handler(BaseHTTPRequestHandler):
                 {"name":TEXT_LIGHT_MODEL, "role":"分集梗概与轻量任务", "selected":True},
                 {"name":TEXT_FORMAL_MODEL, "role":"故事总纲、正式剧本与分镜", "selected":True},
                 {"name":TEXT_AUDIT_MODEL, "role":"大纲、剧本与分镜初审终审", "selected":True},
-            ], "skills": ["项目对话", "短剧策划", "资源查询"]})
+            ], "skills": ["项目对话", "短剧策划", "资源查询", "联网搜索与来源核验"], "web_search":{"available":True,"providers":list(WEB_SEARCH_PROVIDER_DESCRIPTIONS)}})
         if parsed.path == "/api/assistant/agents/status":
             job_id = parse_qs(parsed.query).get("job_id", [""])[0]
             with AGENT_JOB_LOCK:
@@ -6011,7 +7769,27 @@ class Handler(BaseHTTPRequestHandler):
             matches = [(job_id, job) for job_id, job in _load_video_jobs().get("jobs", {}).items() if job.get("subject_key") == subject_key or job_id == query.get("job_id", [""])[0]]
             job_id, job = max(matches, key=lambda pair:_parse_job_time(pair[1].get("queued_at"))) if matches else ("", None)
             if job and job.get("status") == "generating" and job_id not in ACTIVE_VIDEO_JOBS:
-                job = _update_video_job(job_id, status="failed", stage="failed", error="视频任务已中断，请点击继续生成", finished_at=_iso_now(), pid=None, process_group=None)
+                terminal_error = "视频任务已中断，请点击继续生成"
+                if _cancel_job_comfy_prompts(job):
+                    job = _commit_video_terminal(
+                        job_id, status="failed", stage="failed", error=terminal_error,
+                        finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None,
+                    )
+                else:
+                    request_body = dict(job.get("request") or {})
+                    job = _update_video_job(
+                        job_id, status="generating", stage="cancel_pending", error="正在核销中断任务所属的Comfy prompt",
+                        pending_terminal_status="failed", pending_terminal_stage="failed",
+                        pending_terminal_error=terminal_error, heartbeat_at=_iso_now(),
+                    )
+                    with VIDEO_JOB_LOCK:
+                        ACTIVE_VIDEO_JOBS.add(job_id)
+                        ACTIVE_VIDEO_SUBJECTS[str(job.get("subject_key") or _video_key(request_body))] = job_id
+                    threading.Thread(
+                        target=_recover_terminal_video_prompt,
+                        args=(job_id, request_body, "failed", "failed", terminal_error),
+                        daemon=True, name=f"video-result-recovery-{job_id[:8]}",
+                    ).start()
             return self._json(HTTPStatus.OK, job or {"status": "pending"})
         return self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
 
@@ -6040,6 +7818,15 @@ class Handler(BaseHTTPRequestHandler):
         body = self._body()
         if body is None:
             return self._json(HTTPStatus.BAD_REQUEST, {"error": "invalid_json"})
+        if (
+            parsed.path == "/api/characters/generate"
+            and str(body.get("asset_kind") or "").strip() == "scene"
+            and str(body.get("asset_phase") or "").strip() == "baseline"
+            and not _is_reusable_empty_scene_name(
+                body.get("asset_subject") or body.get("name"), _project_character_names(body)
+            )
+        ):
+            return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_scene_asset_subject", "detail":"场景资产必须是可复用的纯空地点，不能是人物动作或人物状态"})
         PRODUCTION_REQUEST_SCOPE.identity = _production_identity(body)
         try:
             forwarded = _forward_production_request(parsed.path, body, self.headers.get("X-Production-Dispatched") == "1")
@@ -6052,21 +7839,19 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 with _claim_production_stage_request(body, stage) as cancel_event:
                     body["_cancel_event"] = cancel_event
-                    _begin_production_request(body, stage)
+                    stage_generation = int(getattr(cancel_event, "lease_generation", 0) or 0)
+                    _begin_production_request(body, stage, stage_generation=stage_generation)
                     result = _run_server_production_stage(body)
-                    if stage == "assets":
-                        census = dict(result.get("census") or {})
-                        _write_project_stage(
-                            str(body.get("project_id") or ""), str(body.get("tenant_id") or "local-default"), str(body.get("user_id") or "aoo"), "assets",
-                            {"_merge_existing":True, "characters":result.get("characters") or [], "scenes":result.get("scenes") or [], "props":result.get("props") or [],
-                             "status":"waiting_confirmation", "error":"", "source_episodes":census.get("episodes") or body.get("target_episodes") or [], "census_version":2},
-                        )
-                    workflow = _production_orchestrator().report(body, stage, "pending_confirmation", evidence={"server_coordinated":True})
+                    _ensure_production_stage_request_active(cancel_event, stage)
+                    workflow = _commit_server_production_stage_result(
+                        body, stage, result, cancel_event, stage_generation,
+                    )
                 return self._json(HTTPStatus.OK, {"result":result, "workflow":workflow})
             except (ProductionLedgerError, ValueError) as error:
                 return self._json(HTTPStatus.CONFLICT, {"error":"production_gate_blocked", "message":str(error), "stage":stage})
             except Exception as error:
-                if stage == "assets" and str(body.get("project_id") or ""):
+                cancelled_stage = "cancelled or lease lost" in str(error)
+                if stage == "assets" and str(body.get("project_id") or "") and not cancelled_stage:
                     try:
                         _write_project_stage(
                             str(body.get("project_id") or ""), str(body.get("tenant_id") or "local-default"), str(body.get("user_id") or "aoo"), "assets",
@@ -6074,10 +7859,20 @@ class Handler(BaseHTTPRequestHandler):
                         )
                     except Exception:
                         pass
-                _production_orchestrator().report(body, stage, "failed", error=str(error))
+                lifecycle = "cancelled" if cancelled_stage else "failed"
+                event = locals().get("cancel_event")
+                explicit_cancel = bool(getattr(event, "cancel_requested", False))
+                # A pure lease loss means a newer generation may already own the
+                # stage. The stale owner must not emit any terminal graph event.
+                if lifecycle != "cancelled" or explicit_cancel:
+                    _production_orchestrator().report(
+                        body, stage, lifecycle, error=str(error),
+                        stage_generation=int(getattr(event, "lease_generation", 0) or 0),
+                        projection_revision=1,
+                    )
                 return self._json(HTTPStatus.BAD_GATEWAY, {"error":"production_stage_failed", "message":str(error), "stage":stage})
         production_stage = PRODUCTION_ENDPOINT_STAGES.get(parsed.path)
-        if production_stage and self.headers.get("X-Production-Dispatched") != "1":
+        if production_stage and not _is_asset_subtask_request(parsed.path, body) and self.headers.get("X-Production-Dispatched") != "1":
             try:
                 _begin_production_request(body, production_stage)
             except (ProductionLedgerError, ValueError) as error:
@@ -6087,9 +7882,19 @@ class Handler(BaseHTTPRequestHandler):
                 body["duration"] = _validated_episode_duration(body.get("duration", 60))
             except ValueError as error:
                 return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_episode_duration", "message":str(error)})
+        scoped_stop_paths = {"/api/generation/stop", "/api/characters/stop", "/api/images/stop", "/api/videos/stop", "/api/tasks/stop"}
+        if parsed.path in scoped_stop_paths and not all(str(body.get(key) or "").strip() for key in ("tenant_id", "user_id", "project_id")):
+            return self._json(HTTPStatus.BAD_REQUEST, {"ok":False, "error":"invalid_production_scope", "message":"tenant_id, user_id and project_id are required", "stopped":0})
+        if parsed.path == "/api/generation/stop" and body.get("stage") in CANONICAL_STAGES:
+            stage = canonical_stage(str(body.get("stage")))
+            stage_cancelled = _cancel_scoped_production_stage(body, stage)
+            if not stage_cancelled:
+                return self._json(HTTPStatus.CONFLICT, {"ok":False, "stopped":False, "stage_cancelled":False, "error":"production_stage_not_running", "stage":stage})
+            return self._json(HTTPStatus.OK, {"ok":True, "stopped":True, "stage_cancelled":True, "stage":stage})
         if parsed.path == "/api/generation/stop" and body.get("kind") in {"outline", "script"}:
-            ok, stopped, error = _stop_text_generation(stage=str(body.get("kind")), project_id=str(body.get("project_id") or ""), client_generation_id=str(body.get("client_generation_id") or ""), requested_job_id=str(body.get("job_id") or ""))
-            return self._json(HTTPStatus.OK if ok else HTTPStatus.SERVICE_UNAVAILABLE, {"ok":ok, "stopped":stopped, **({"error":error} if error else {})})
+            stage_cancelled = _cancel_scoped_production_stage(body, str(body.get("kind")))
+            ok, stopped, error = _stop_text_generation(stage=str(body.get("kind")), project_id=str(body.get("project_id") or ""), client_generation_id=str(body.get("client_generation_id") or ""), requested_job_id=str(body.get("job_id") or ""), identity=body)
+            return self._json(HTTPStatus.OK if ok else HTTPStatus.SERVICE_UNAVAILABLE, {"ok":ok, "stopped":stopped, "stage_cancelled":stage_cancelled, **({"error":error} if error else {})})
         if parsed.path == "/api/generation/stop" and body.get("kind") == "storyboard":
             try:
                 cancelled = _cancel_production_stage(body, "storyboard")
@@ -6136,15 +7941,69 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/assistant":
             context = body.get("context", {})
             recent = context.get("recent_messages", [])
+            message = str(body.get('message', '')).strip()
+            explicit_search = body.get("web_search")
+            if isinstance(explicit_search, bool):
+                search_needed = explicit_search
+            else:
+                local_context = bool(re.search(r"(?:当前|现在)(?:项目|资源|分镜|任务|剧本|大纲|卡片|页面|生成)", message, re.I))
+                explicit_web = bool(re.search(r"(?:联网|网上|全网|搜索|搜一下|查一下|查找|官网|网页|新闻|来源|网址)", message, re.I))
+                temporal_web = bool(re.search(r"(?:最新|最近|今天|截至|价格|版本|许可|授权|商用)", message, re.I))
+                search_needed = explicit_web or (temporal_web and not local_context)
+            sources = []
+            search_meta = None
+            if search_needed:
+                try:
+                    search_query = re.sub(r"(?:请|帮我|你帮我)", " ", message, flags=re.I)
+                    search_query = re.sub(r"(?:联网搜索|网上搜索|全网搜索|联网查找|搜索|搜一下|查一下|查找)", " ", search_query, flags=re.I)
+                    search_query = re.sub(r"(?:给出|附上|提供)?(?:可核验)?(?:来源|链接|网址)[。！？?!]*", " ", search_query, flags=re.I)
+                    search_query = re.sub(r"\s+", " ", search_query).strip(" ，。！？?!")
+                    translations = (("文生图",'"image generation"'),("图生图",'"image-to-image"'),("视频生成",'"video generation"'),("开源",'"open-source"'),("最新","latest 2026"),("模型","model"),("商用","commercial license"),("苹果芯片",'"Apple Silicon"'),("本地运行","local inference"),("本地部署","local deployment"),("可下载","downloadable weights"),("许可证","license"),("授权","license"))
+                    translated_terms = [english for chinese, english in translations if chinese in message]
+                    if translated_terms:
+                        named_entities = " ".join(re.findall(r"[A-Za-z][A-Za-z0-9._+-]{2,}", message))
+                        date_constraints = " ".join(re.findall(r"(?:19|20)\d{2}(?:[-/.年]\d{1,2}(?:[-/.月]\d{1,2}日?)?)?", message))
+                        search_query = " ".join(filter(None, (named_entities, date_constraints, *translated_terms, "official release")))
+                    if re.search(r"(?:商用|许可|授权)", message, re.I):
+                        search_query += " license commercial official GitHub"
+                    result_count = 8 if re.search(r"(?:最新|最近|今天|截至)", message, re.I) else 5
+                    search_meta = _invoke_production_capability("web.search", body={"query":search_query or message,"count":result_count})
+                    sources = list(search_meta.get("results") or [])
+                except Exception as error:
+                    return self._json(HTTPStatus.BAD_GATEWAY, {"error":f"联网搜索失败，已阻止无来源回答：{str(error)[:500]}","code":"web_search_unavailable"})
+                if not sources:
+                    return self._json(HTTPStatus.BAD_GATEWAY, {"error":"联网搜索没有返回可核验来源，已阻止无来源回答","code":"web_search_no_results"})
+                dated_sources = [item for item in sources if item.get("published_at")]
+                if re.search(r"(?:最新|最近|今天|截至)", message, re.I) and dated_sources:
+                    lines = ["仅凭“最新”无法安全断言唯一型号；以下是相关来源按发布时间排列的结果，标题没有写明型号时不会自行猜测："]
+                    for index, item in enumerate(dated_sources, 1):
+                        lines.append(f"{index}. {item['published_at']} — {item['title']}")
+                    lines.append("如需确定“最新可下载的开源权重”，还应继续核对候选项目的官方模型卡、发布时间和许可证。")
+                    lines.append("\n来源：")
+                    lines.extend(f"- {item['title']}：{item['url']}" for item in dated_sources)
+                    return self._json(HTTPStatus.OK, {"reply":"\n".join(lines),"intent":"question","sources":dated_sources,"search":{key:search_meta.get(key) for key in ("query","provider_id","searched_at","cache_hit","cache_recovered_at","live_attempts") if key in search_meta}})
+            evidence = json.dumps([{"index":index + 1, **item} for index, item in enumerate(sources)], ensure_ascii=False)
             prompt = f"""你是中文短剧制作助手。正常理解并直接回答用户，不虚构已完成操作。
 当前项目：{context.get('current_project', '')}
 当前资源：{context.get('selected_resource', '')}
 近期对话：{json.dumps(recent, ensure_ascii=False)}
-用户消息：{body.get('message', '')}
-输出严格 JSON：{{"reply":"自然、准确、简洁的中文回答","intent":"chat"}}"""
+用户消息：{message}
+联网证据：{evidence}
+联网规则：有联网证据时只能依据证据回答时效性事实；不得编造来源；citations只填实际使用的证据index。回答中出现的模型名、产品名、版本号和发布日期必须原样存在于实际引用来源的title、snippet或published_at；“最新”必须比较published_at后再判断，没有足够证据就明确说无法确定。没有联网证据时不要声称查过网络。
+输出严格 JSON：{{"reply":"自然、准确、简洁的中文回答","intent":"chat","citations":[1]}}"""
             try:
                 result = _ollama_json(prompt)
-                return self._json(HTTPStatus.OK, {"reply": str(result.get("reply", "")), "intent": result.get("intent", "chat")})
+                reply = str(result.get("reply", "")).strip()
+                used = []
+                if sources:
+                    for value in list(result.get("citations") or []):
+                        try: index = int(value) - 1
+                        except (TypeError, ValueError): continue
+                        if 0 <= index < len(sources) and index not in used: used.append(index)
+                    if not used:
+                        return self._json(HTTPStatus.BAD_GATEWAY, {"error":"联网回答未提供有效来源引用，已阻止无证据回答","code":"web_search_citations_missing"})
+                    reply += "\n\n来源：\n" + "\n".join(f"- {sources[index]['title']}：{sources[index]['url']}" for index in used)
+                return self._json(HTTPStatus.OK, {"reply":reply,"intent":result.get("intent", "chat"),"sources":[sources[index] for index in used],"search":({key:search_meta.get(key) for key in ("query","provider_id","searched_at","cache_hit","cache_recovered_at","live_attempts") if key in search_meta} if search_meta else None)})
             except Exception as error:
                 return self._json(HTTPStatus.BAD_GATEWAY, {"error": f"本地对话模型调用失败：{error}"})
         if parsed.path == "/api/assistant/agents/run":
@@ -6393,13 +8252,21 @@ JSON 格式：{{"direction":{{"palette":"≤24字","lighting":"≤24字","camera
 剧本：{body.get('scripts', '')}
 画面风格：{body.get('style', '')}
 人物提取硬性规则：characters 必须包含本集实际出场人物 {required_characters}，姓名完全一致；不得加入只在其他集出现的人物。
-场景提取硬性规则：按可复用的实体地点归并，内外空间必须分开；动作、人物状态、光晕变化不得另算场景。
+场景提取硬性规则：按可复用的实体地点归并，内外空间必须分开；scene.name只能是地点或空间名称，严禁人物姓名、人物动作、姿态、状态或剧情句子；动作、人物状态、光晕变化不得另算场景。场景image_prompt只能描述空间、建筑、固定陈设和光线，人物数量严格为零。
 道具提取硬性规则：只保留本集由人物持有、使用或推动剧情的可独立绘制实体；树木、花草、山景属于场景环境，金光、光晕、符文光效属于特效。服装是独立道具资产，剧本或分镜出现的日常服、战斗服、礼服、长袍、披风等必须进入props，category固定为“服装”，asset_type固定为“costume”，owner必须指向角色名，并提供稳定costume_id、costume_version、tags；禁止把服装并入人物本体。
 服装基准图固定为45度三分之二完整展示图，清楚展示正面、顶面/肩部结构与侧面层次，纯中性背景、无人、无人体模型、无文字；确认后按道具3D链进入TripoSR和Blender。
 每项必须给出出现集数 episodes；只输出指定集数范围内的完整清单，不得用全剧其他集补足。
 JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/配角/反派","gender":"男性/女性","image_prompt":"年龄、性别、五官、发型、体态和电影画面风格；服装只引用costume_id","status":"pending"}}],"scenes":[{{"name":"场景名","location":"地点","period":"时间","first_episode":1,"episodes":[1],"layout":"空间布局","lighting":"光线","fixed_elements":[],"continuity_rules":"连续性规则","image_prompt":"空间、时间、光线、陈设和电影画面风格，无人物","status":"pending"}}],"props":[{{"name":"道具或服装名","category":"类别或服装","asset_type":"prop或costume","owner":"持有人","costume_id":"服装稳定ID，普通道具留空","costume_version":"v1","tags":[],"first_episode":1,"episodes":[1],"appearance":"外观","continuity_rules":"连续性规则","image_prompt":"材质、形状、颜色和使用痕迹，45度三分之二，中性背景，无人物","status":"pending"}}]}}"""
             try:
-                result = _ollama_json(prompt)
+                try:
+                    result = _ollama_json(prompt)
+                except (json.JSONDecodeError, ValueError) as first_error:
+                    result = _ollama_json(
+                        prompt
+                        + "\n上一次输出不是可解析的完整JSON（"
+                        + str(first_error)[:240]
+                        + "）。只重试一次：必须关闭所有引号、数组和对象，不要截断，不要输出Markdown。"
+                    )
                 characters = [item for item in result.get("characters", []) if isinstance(item, dict) and str(item.get("name", "")).strip()]
                 by_name = {str(item.get("name", "")).strip(): item for item in characters}
                 for name in required_characters:
@@ -6442,7 +8309,7 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                         "status":"pending",
                     })
                     known_costume_ids.add(costume_id)
-                scenes = [item for item in result.get("scenes", []) if isinstance(item, dict) and str(item.get("name", "")).strip()]
+                scenes = _normalize_empty_scene_assets(result.get("scenes", []), required_characters)
                 return self._json(HTTPStatus.OK, {"characters":list(by_name.values()), "scenes":scenes, "props":props, "census":{"episodes":target_episodes,"characters":len(by_name),"scenes":len(scenes),"props":len(props)}})
             except Exception as error:
                 return self._json(HTTPStatus.BAD_GATEWAY, {"error": f"本地资产模型调用失败：{error}"})
@@ -6513,6 +8380,10 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
             requested_phase = str(body.get("asset_phase", "")).strip()
             if requested_kind in {"scene", "prop"} and requested_phase == "variant":
                 return self._json(HTTPStatus.BAD_REQUEST, {"error":"asset_2d_variants_disabled_for_3d_asset", "asset_kind":requested_kind})
+            if requested_kind == "scene" and requested_phase == "baseline" and not _is_reusable_empty_scene_name(
+                body.get("asset_subject") or name, _project_character_names(body)
+            ):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_scene_asset_subject", "detail":"场景资产必须是可复用的纯空地点，不能是人物动作或人物状态"})
             subject_key = ":".join(str(value or "") for value in (body.get("project_id"), body.get("asset_kind"), body.get("asset_subject") or name))
             _cleanup_invalid_image_tasks()
             with IMAGE_JOB_LOCK:
@@ -6524,11 +8395,13 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                 jobs = _load_image_jobs()
                 jobs.setdefault("jobs", {})[job_id] = {
                     "job_id":job_id, "request_name":request_name, "subject_key":subject_key, "endpoint":parsed.path, "request":dict(body), "status":"queued", "started_at":_iso_now(),
+                    "project_id":str(body.get("project_id") or ""),
                     "heartbeat_at":_iso_now(), "timeout_seconds":IMAGE_TASK_TIMEOUT_SECONDS,
                     "queue_timeout_seconds":IMAGE_QUEUE_TIMEOUT_SECONDS, "retry_count":0, "pid":None, "process_group":None,
                 }
                 _save_image_jobs(jobs)
                 ACTIVE_IMAGE_JOBS.add(job_id)
+                ACTIVE_IMAGE_WORKERS[job_id] = threading.current_thread()
             try:
                 references = body.get("references") or []
                 base_image_prompt = str(body.get("prompt", "")).strip()
@@ -6553,14 +8426,23 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                 base_image_prompt = _blank_requested_text(base_image_prompt, required_text)
                 if parsed.path == "/api/characters/generate" and asset_kind == "character" and asset_phase == "baseline":
                     identity_description = str(body.get("identity_prompt", "")).strip() or base_image_prompt
+                    identity_description = re.sub(
+                        r"(?:单人物\s*)?(?:(?:0\s*(?:°|度)\s*)?正面|左\s*45\s*(?:°|度)?|右\s*45\s*(?:°|度)?|90\s*(?:°|度)?\s*侧面|侧面\s*90\s*(?:°|度)?|180\s*(?:°|度)?\s*背面|背面\s*180\s*(?:°|度)?)\s*(?:完整\s*)?(?:近照|半身\s*(?:照)?|全身\s*(?:照|视图)?|视图)?",
+                        "", identity_description,
+                    )
+                    identity_description = re.sub(
+                        r"(?:单人物\s*)?(?:完整\s*)?(?:近照|半身\s*照|全身\s*(?:照|视图)|多角度\s*视图)", "", identity_description,
+                    )
+                    identity_description = re.sub(r"，{2,}", "，", identity_description).strip("，。；、 ")
                     flux_identity = _flux_identity_prompt(identity_description)
                     base_image_prompt = (
                         f"PRIMARY SUBJECT: {flux_identity}.\n"
-                        "A single centered full-body identity and 3D-reconstruction reference, strict left 45-degree three-quarter view showing both front and side structure, eye-level camera, neutral expression. "
+                        "A single centered full-body identity and 3D-reconstruction reference at exact zero-degree front view, eye-level camera and neutral expression. "
+                        "The face, shoulders, chest, pelvis, knees and both feet must be square to the camera; face yaw and roll must be near zero. "
                         "The complete hairstyle, head, both relaxed hands, garment layers, legs and both shoes must be visible with safe margins from head to feet. "
                         "Neutral standing A-pose, natural human proportions, specified traditional garment colors and accessories fully visible. "
                         "Flat solid neutral gray studio background. No scenery, props, extra people, duplicated person, collage, panels, labels, letters, Chinese characters, "
-                        "numbers, arrows, captions, stamps, logos, border or watermark. No crop, sitting, dynamic action, right three-quarter view, profile or back view."
+                        "numbers, arrows, captions, stamps, logos, border or watermark. No crop, sitting, dynamic action, left or right three-quarter view, profile, back view, close-up or half-body framing."
                     )
                 if parsed.path == "/api/characters/generate" and asset_kind == "scene":
                     base_image_prompt = (
@@ -6570,6 +8452,7 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                         f"场景描述：{base_image_prompt}"
                     )
                 if parsed.path == "/api/characters/generate" and asset_kind == "prop":
+                    base_image_prompt = _sanitize_no_text_asset_prompt(base_image_prompt)
                     sculpture_subject = any(token in base_image_prompt for token in ("雕像", "雕塑", "人偶", "玩偶"))
                     base_image_prompt = (
                         "最高优先级硬性限制：这是单个独立道具资产图，画面中真人和真实人体数量必须严格等于零。"
@@ -6621,8 +8504,14 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                     validation_evidence = ""
                     variant_attempts = 2 if asset_phase == "variant" and target_pose else 1
                     for variant_attempt in range(variant_attempts):
+                        pose_retry = {
+                            "left_45_full":"上一张过度旋转成了侧面。本次从正面只向人物左侧转约35度；必须同时看见双眼、远侧脸颊和躯干正面，严禁90度侧脸。",
+                            "right_45_full":"上一张过度旋转成了侧面。本次从正面只向人物右侧转约35度；必须同时看见双眼、远侧脸颊和躯干正面，严禁90度侧脸。",
+                            "side_90_full":"本次必须是严格90度纯侧面，只看见一侧面部轮廓。",
+                            "back_full":"本次必须严格背对镜头，面部完全不可见。",
+                        }.get(target_pose, "本次必须严格纠正目标方向。")
                         retry_prompt = indexed_prompt if variant_attempt == 0 else (
-                            f"{indexed_prompt}\n上一张候选未通过机器预审。本次必须严格纠正方向、人物身份、发型服装、自然头身比和脚底完整入画。"
+                            f"{indexed_prompt}\n上一张候选未通过机器预审。{pose_retry}同时保持人物身份、发型服装、自然头身比和脚底完整入画。"
                         )
                         with _claim_production_resource("image", job_id, timeout=IMAGE_QUEUE_TIMEOUT_SECONDS):
                             if asset_phase == "variant" and target_pose:
@@ -6641,15 +8530,12 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                         if asset_phase != "variant" or not target_pose:
                             break
                         if target_pose != "front_half":
-                            try:
-                                _normalize_character_variant_margins(_local_media_path(image.get("url")))
-                            except Exception:
-                                validation_evidence = json.dumps({"exactly_one_person":False, "normalization_failed":True}, ensure_ascii=False)
-                                _local_media_path(image.get("url")).unlink(missing_ok=True)
+                            normalized, frame_evidence = _prepare_character_full_frame_candidate(image)
+                            if not normalized:
+                                validation_evidence = json.dumps({"exactly_one_person":False, **frame_evidence}, ensure_ascii=False)
                                 if variant_attempt == variant_attempts - 1:
                                     raise RuntimeError(f"人物固定角度视觉验收失败：{validation_evidence}")
                                 continue
-                            image["normalized_variant_margins"] = True
                         valid, validation_evidence = _validate_character_variant(reference_url, image, target_pose, clothing_reference_url)
                         image["validation_evidence"] = validation_evidence
                         image["validation_passed"] = valid
@@ -6679,38 +8565,69 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                                  else _invoke_production_capability("image.generate", name=name, prompt=indexed_prompt, width=body.get("width"), height=body.get("height"), lora=selected_lora, job_id=job_id))
                     if parsed.path == "/api/characters/generate" and asset_kind == "character" and asset_phase == "baseline":
                         validation_evidence = ""
-                        for validation_attempt in range(2):
-                            _normalize_character_variant_margins(_local_media_path(image.get("url")))
-                            image["normalized_variant_margins"] = True
-                            valid, validation_evidence = _validate_character_variant(image.get("url", ""), image, "left_45_full")
-                            if valid:
-                                break
-                            _local_media_path(image.get("url")).unlink(missing_ok=True)
-                            if validation_attempt == 1:
-                                try:
-                                    verdict = json.loads(validation_evidence)
-                                    expected_false = {"visible_hands", "held_prop", "body_below_chest_visible", "is_collage", "has_text_or_annotations"}
-                                    failed_checks = [
-                                        key for key, value in verdict.items()
-                                        if (key in expected_false and value is not False) or (key not in expected_false and isinstance(value, bool) and value is not True)
-                                    ]
-                                except (json.JSONDecodeError, TypeError):
-                                    failed_checks = []
-                                labels = {"plain_background":"纯灰背景", "full_head_visible":"完整头顶", "feet_visible":"完整双脚", "exactly_one_person":"单人物", "correct_orientation":"左45度方向", "required_928x1664":"928×1664尺寸"}
-                                summary = "、".join(labels.get(key, key) for key in failed_checks) or "构图或人物规范"
-                                raise RuntimeError(f"人物左45度全身基准图未通过规范验收：{summary}")
+                        baseline_required_checks = (
+                            "correct_orientation", "required_928x1664", "deterministic_full_frame",
+                            *CHARACTER_FULL_BODY_ANATOMY_CHECKS,
+                        )
+                        def validate_baseline_candidate(candidate: dict) -> tuple[bool, str]:
+                            candidate["orientation_mirrored"] = False
+                            _, candidate_evidence = _validate_character_variant(candidate.get("url", ""), candidate, "front_full")
+                            try:
+                                verdict = json.loads(candidate_evidence)
+                                candidate_valid = all(verdict.get(key) is True for key in baseline_required_checks)
+                            except (json.JSONDecodeError, TypeError):
+                                candidate_valid = False
+                            return candidate_valid, candidate_evidence
+
+                        def generate_baseline_retry(retry_number: int, previous_evidence: str) -> dict:
+                            try:
+                                verdict = json.loads(previous_evidence)
+                                failed_checks = [key for key in baseline_required_checks if verdict.get(key) is not True]
+                            except (json.JSONDecodeError, TypeError):
+                                failed_checks = []
+                            correction = "、".join(failed_checks) or "foreground_segmentation_or_front_full_body_composition"
                             retry_prompt = (
                                 f"{indexed_prompt}\nThe previous candidate failed one or more strict checks. "
-                                "Regenerate one strict left 45-degree three-quarter full-body identity reference showing both front and side structure, from complete hair to both shoes, neutral standing A-pose and gray studio background. "
-                                "Match every stated age, gender, face, hair, garment type and garment color attribute; never crop limbs or substitute clothing."
+                                f"Failed required checks: {correction}. This is automatic retry {retry_number - 1} of 2. "
+                                "Regenerate one strict zero-degree front-facing full-body identity reference. Face, shoulders, torso, pelvis, knees and feet must be square to camera; yaw and roll must be near zero. Show complete hair to both shoes in a neutral standing A-pose on a gray studio background, with at least 8 percent clear background above the hair and at least 3 percent clear background below the shoe soles; these are minimum margins, not fixed targets. "
+                                "Match every stated age, gender, face, hair, garment type and garment color attribute; never crop limbs or substitute clothing. Every visible arm, wrist, hand, finger, leg, ankle, foot and toe must be anatomically complete and separate, with no fused, missing, extra, duplicated, broken, melted or disconnected limb or digit."
                             )
-                            image = _invoke_production_capability("image.baseline.klein9b", name=f"{name}_left45_retry_{validation_attempt + 2}", prompt=retry_prompt, width=body.get("width"), height=body.get("height"), job_id=job_id, body=body)
+                            return _invoke_production_capability(
+                                "image.baseline.klein9b", name=f"{name}_front_retry_{retry_number}", prompt=retry_prompt,
+                                width=body.get("width"), height=body.get("height"), job_id=job_id, body=body,
+                            )
+
+                        try:
+                            image, validation_evidence, validation_attempts = _run_character_full_frame_candidate_loop(
+                                image, generate_retry=generate_baseline_retry,
+                                validate_candidate=validate_baseline_candidate, max_attempts=3,
+                                on_attempt=lambda attempt: _update_image_job(
+                                    job_id, validation_attempts=attempt, heartbeat_at=_iso_now(),
+                                ),
+                            )
+                        except RuntimeError as error:
+                            detail = str(error).split(":", 1)[-1]
+                            try:
+                                failed_verdict = json.loads(detail)
+                                failed_checks = [key for key in baseline_required_checks if failed_verdict.get(key) is not True]
+                                detail = "、".join({
+                                    "correct_orientation":"0度正面方向",
+                                    "required_928x1664":"928×1664尺寸",
+                                    "deterministic_full_frame":"头顶/脚底安全区",
+                                }.get(key, key) for key in failed_checks) or "轮廓识别或安全区"
+                            except (json.JSONDecodeError, TypeError):
+                                detail = "轮廓识别或安全区"
+                            raise RuntimeError(f"人物0度正面全身基准图自动生成3次仍未通过规范验收：{detail}") from error
                         image["validation_evidence"] = validation_evidence
                         image["validation_passed"] = True
+                        image["validation_attempts"] = validation_attempts
                     if parsed.path == "/api/characters/generate" and asset_kind == "prop":
                         validation_evidence = ""
                         for validation_attempt in range(2):
-                            prop_valid, validation_evidence = _validate_prop_asset(image)
+                            prop_valid, validation_evidence = _run_image_validation(
+                                job_id, "prop_validation",
+                                lambda candidate: _validate_prop_asset(candidate, job_id=job_id), image,
+                            )
                             image["validation_evidence"] = validation_evidence
                             image["validation_passed"] = prop_valid
                             if prop_valid: break
@@ -6725,7 +8642,10 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                     if parsed.path == "/api/characters/generate" and asset_kind == "scene":
                         validation_evidence = ""
                         for validation_attempt in range(3):
-                            scene_valid, validation_evidence = _validate_scene_asset(image)
+                            scene_valid, validation_evidence = _run_image_validation(
+                                job_id, "scene_validation",
+                                lambda candidate: _validate_scene_asset(candidate, job_id=job_id), image,
+                            )
                             image["validation_evidence"] = validation_evidence
                             image["validation_passed"] = scene_valid
                             if scene_valid:
@@ -6763,16 +8683,24 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                         raise RuntimeError(str(job.get("error") or "图片任务已停止"))
                     job.update({"image":image, "status":"completed", "heartbeat_at":_iso_now(), "finished_at":_iso_now(),
                                 "pid":None, "process_group":None, "error":""})
+                    if is_character_generation and asset_kind == "character" and asset_phase == "baseline":
+                        job["validation_attempts"] = int(image.get("validation_attempts") or 0)
                     payload = dict(job) if is_character_generation else {"image":image, "job_id":job_id}
                     _save_image_jobs(jobs)
                 return self._json(HTTPStatus.OK, payload)
             except Exception as error:
                 message = f"图片生成失败：{error}"
-                _update_image_job(job_id, status="failed", error=message, finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None)
-                return self._json(HTTPStatus.BAD_GATEWAY, {"error": message})
+                terminal_updates = {"status":"failed", "error":message, "finished_at":_iso_now(),
+                                    "heartbeat_at":_iso_now(), "pid":None, "process_group":None}
+                terminal = _update_image_job(job_id, **terminal_updates)
+                error_payload = {"error": message}
+                if is_character_generation and requested_kind == "character" and requested_phase == "baseline":
+                    error_payload["validation_attempts"] = int(terminal.get("validation_attempts") or 0)
+                return self._json(HTTPStatus.BAD_GATEWAY, error_payload)
             finally:
                 with IMAGE_JOB_LOCK:
                     ACTIVE_IMAGE_JOBS.discard(job_id)
+                    ACTIVE_IMAGE_WORKERS.pop(job_id, None)
                     if ACTIVE_IMAGE_SUBJECTS.get(subject_key) == job_id: ACTIVE_IMAGE_SUBJECTS.pop(subject_key, None)
         if parsed.path == "/api/videos/generate":
             subject_key = _video_key(body)
@@ -6857,12 +8785,25 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                 return self._json(HTTPStatus.OK, _invoke_production_capability("export.package", body=body))
             except Exception as error: return self._json(HTTPStatus.BAD_GATEWAY, {"error":f"成果导出失败：{str(error)[:500]}"})
         if parsed.path in {"/api/characters/stop", "/api/images/stop"}:
-            targets = _stop_image_generation(project_id=str(body.get("project_id") or ""), requested_name=str(body.get("name") or ""), stop_all=bool(body.get("all")))
-            return self._json(HTTPStatus.OK, {"ok":True, "stopped":targets})
+            stop_stage = str(body.get("stage") or ("assets" if parsed.path == "/api/characters/stop" else "image"))
+            stage_cancelled = _cancel_scoped_production_stage(body, stop_stage)
+            targets = _stop_image_generation(project_id=str(body.get("project_id") or ""), requested_name=str(body.get("name") or ""), stop_all=bool(body.get("all")), identity=body)
+            return self._json(HTTPStatus.OK, {"ok":True, "stopped":targets, "stage_cancelled":stage_cancelled})
         if parsed.path == "/api/videos/stop":
-            subject_key = _video_key(body) if all(body.get(key) is not None for key in ("tenant_id", "user_id", "project_id", "episode", "shot_number")) else ""
-            targets = _stop_video_generation(requested_job_id=str(body.get("job_id") or ""), subject_key=subject_key)
-            return self._json(HTTPStatus.OK, {"ok":True, "stopped":targets})
+            stage_cancelled = _cancel_scoped_production_stage(body, "video")
+            subjects = []
+            for key in body.get("keys") or []:
+                parts = str(key).split(":", 1)
+                if len(parts) == 2 and all(str(body.get(name) or "").strip() for name in ("tenant_id", "user_id", "project_id")):
+                    subjects.append(":".join((str(body["tenant_id"]), str(body["user_id"]), str(body["project_id"]), parts[0], parts[1])))
+            if not subjects and all(body.get(key) is not None for key in ("tenant_id", "user_id", "project_id", "episode", "shot_number")):
+                subjects.append(_video_key(body))
+            targets = []
+            if body.get("job_id"):
+                targets.extend(_stop_video_generation(requested_job_id=str(body.get("job_id") or ""), identity=body))
+            for subject_key in dict.fromkeys(subjects):
+                targets.extend(_stop_video_generation(subject_key=subject_key, identity=body))
+            return self._json(HTTPStatus.OK, {"ok":True, "stopped":targets, "stage_cancelled":stage_cancelled})
         if parsed.path == "/api/tasks/stop":
             operation_key = str(body.get("operation_key") or ""); project_id = str(body.get("project_id") or "")
             parts = operation_key.split(":")
@@ -6870,15 +8811,26 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                 return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_operation_key"})
             stage = parts[2]
             if stage in {"outline", "script"}:
-                ok, stopped, error = _stop_text_generation(stage=stage, project_id=project_id)
-                return self._json(HTTPStatus.OK if ok else HTTPStatus.SERVICE_UNAVAILABLE, {"stopped":bool(stopped), "status":"cancelled" if stopped else "idle", "job_ids":stopped, **({"error":error} if error else {})})
+                stage_cancelled = _cancel_scoped_production_stage(body, stage)
+                ok, stopped, error = _stop_text_generation(stage=stage, project_id=project_id, identity=body)
+                return self._json(HTTPStatus.OK if ok else HTTPStatus.SERVICE_UNAVAILABLE, {"stopped":bool(stopped or stage_cancelled), "status":"cancelled" if stopped or stage_cancelled else "idle", "job_ids":stopped, "stage_cancelled":stage_cancelled, **({"error":error} if error else {})})
             if stage == "shot_videos" and len(parts) >= 5:
+                stage_cancelled = _cancel_scoped_production_stage(body, "video")
                 subject = f"{body.get('tenant_id', '')}:{body.get('user_id', '')}:{project_id}:{parts[3]}:{parts[4]}"
-                stopped = _stop_video_generation(subject_key=subject)
-                return self._json(HTTPStatus.OK, {"stopped":bool(stopped), "status":"cancelled" if stopped else "idle", "job_ids":stopped})
+                stopped = _stop_video_generation(subject_key=subject, identity=body)
+                return self._json(HTTPStatus.OK, {"stopped":bool(stopped or stage_cancelled), "status":"cancelled" if stopped or stage_cancelled else "idle", "job_ids":stopped, "stage_cancelled":stage_cancelled})
             if stage in {"shot_images", "assets"}:
-                stopped = _stop_image_generation(project_id=project_id, stop_all=True)
-                return self._json(HTTPStatus.OK, {"stopped":bool(stopped), "status":"cancelled" if stopped else "idle", "job_ids":stopped})
+                canonical = "image" if stage == "shot_images" else "assets"
+                stage_cancelled = _cancel_scoped_production_stage(body, canonical)
+                stopped = _stop_image_generation(project_id=project_id, stop_all=True, identity=body)
+                return self._json(HTTPStatus.OK, {"stopped":bool(stopped or stage_cancelled), "status":"cancelled" if stopped or stage_cancelled else "idle", "job_ids":stopped, "stage_cancelled":stage_cancelled})
+            if stage == "storyboard":
+                stage_cancelled = _cancel_scoped_production_stage(body, "storyboard")
+                return self._json(HTTPStatus.OK, {"stopped":bool(stage_cancelled), "status":"cancelled" if stage_cancelled else "idle", "job_ids":[], "stage_cancelled":stage_cancelled})
+            if stage in {"composition", "merged_episodes", "review_export", "final_audit", "export", "upscale"}:
+                canonical = "composition" if stage in {"composition", "merged_episodes"} else "review_export"
+                stage_cancelled = _cancel_scoped_production_stage(body, canonical)
+                return self._json(HTTPStatus.OK, {"stopped":bool(stage_cancelled), "status":"cancelled" if stage_cancelled else "idle", "job_ids":[], "stage_cancelled":stage_cancelled})
             return self._json(HTTPStatus.CONFLICT, {"error":"task_not_stoppable", "message":"该阶段没有正在运行的可停止进程"})
         if parsed.path == "/api/tasks/resume":
             operation_key = str(body.get("operation_key") or "")
@@ -6894,10 +8846,10 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
         if parsed.path.startswith("/api/production/"):
             try:
                 if parsed.path == "/api/production/scopes":
-                    return self._json(HTTPStatus.OK, {"record": PRODUCTION_LEDGER.upsert(body)})
+                    return self._json(HTTPStatus.OK, {"record": PRODUCTION_LEDGER.upsert_projection(body)})
                 if parsed.path == "/api/production/scopes/bulk":
                     records = body.get("records") if isinstance(body.get("records"), list) else []
-                    saved = PRODUCTION_LEDGER.upsert_many(records, replace=bool(body.get("replace_batch_scope_sets")))
+                    saved = PRODUCTION_LEDGER.upsert_many_projection(records, replace=bool(body.get("replace_batch_scope_sets")))
                     identity = next(({key:str(record.get(key) or "") for key in ("tenant_id", "user_id", "project_id")} for record in records), {})
                     if all(identity.get(key) for key in ("tenant_id", "user_id", "project_id")):
                         _reconcile_completed_production_stages(identity, PRODUCTION_LEDGER.list(identity))
@@ -6909,12 +8861,14 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                     payload = {**body, "stage": "assets", "scope_type": "asset", "lifecycle": "pending_confirmation"}
                     try: PRODUCTION_LEDGER.upsert(payload)
                     except ProductionLedgerError: pass
-                    record, workflow = _confirm_production_scope(payload)
+                    record, workflow = _confirm_asset_scope_deferred(payload)
                     return self._json(HTTPStatus.OK, {"record":record, "workflow":workflow})
                 if parsed.path == "/api/production/episode-batches/confirm":
                     records = []
                     rejected = {str(value) for value in body.get("rejected_scope_ids", [])}
                     for scope_id in body.get("scope_ids", []):
+                        if canonical_stage(body.get("stage")) == "review_export" and str(scope_id).startswith("upscale:"):
+                            raise ProductionLedgerError("upscale scopes require exact-generation confirmation")
                         payload = {**body, "scope_type": "episode", "scope_id": str(scope_id), "lifecycle": "failed" if str(scope_id) in rejected else "pending_confirmation", "error": body.get("rejection_reason", "") if str(scope_id) in rejected else ""}
                         record = PRODUCTION_LEDGER.upsert(payload)
                         records.append(record if str(scope_id) in rejected else _confirm_production_scope(payload)[0])
@@ -6940,6 +8894,8 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                 return self._json(HTTPStatus.NOT_FOUND, {"error": "production_operation_not_found"})
             except ProductionLedgerError as error:
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": "invalid_production_operation", "message": str(error)})
+            except ValueError as error:
+                return self._json(HTTPStatus.CONFLICT, {"error":"production_stage_conflict", "message":str(error)})
         if parsed.path == "/api/projects/version":
             with PROJECT_STORE_LOCK:
                 store = _load_store()
@@ -6988,6 +8944,7 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                 stage = _write_project_stage(
                     str(body.get("id", "")), str(body.get("tenant_id", "")), str(body.get("user_id", "")),
                     str(body.get("stage", "")), body.get("data", {}) if isinstance(body.get("data", {}), dict) else {},
+                    projection_only=True,
                 )
             except LookupError:
                 return self._json(HTTPStatus.NOT_FOUND, {"error":"project_not_found"})
