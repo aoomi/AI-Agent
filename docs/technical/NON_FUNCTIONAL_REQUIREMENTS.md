@@ -17,6 +17,13 @@
 - 每项长任务声明超时、并发上限、最大输入、最大输出和磁盘预算。
 - 性能门槛以基准测试结果写回，不使用未经测试的固定承诺。
 
+### 单节点V1调度回归基线（2026-08-12）
+
+- 环境：Darwin arm64、Python 3.11.15；使用正式`ResourceScheduler`，不启动模型。参数为control/cpu-media/accelerator容量4/2/1，混合请求80/24/8。
+- 实测：吞吐939.06 req/s；control P50/P95/P99为0.645/1.508/1.582ms；cpu-media P99为41.466ms；accelerator最大队列年龄102.853ms；排队取消0.050ms；峰值活动7、排队29。
+- pool、tenant、project三层背压均确定性拒绝越界请求，结束后所有活动/排队票据和benchmark线程为0。
+- CI稳定门禁只要求control P99<500ms、取消<500ms、三层背压成立及资源归零，为共享开发机保留充分裕量。上述实测值是本机回归基线，不是生产SLA；真实模型吞吐、多节点容量与正式硬件仍须另行测试。
+
 ## 安全与隔离
 
 - 每次访问校验 tenant_id、user_id、project_id、session_id 和 scope。
