@@ -105,6 +105,7 @@
 - BUG059二轮稽查整改完成待独立复测：OpenPose复用原job完整身份、`audit`资源claim和共享deadline；核销未确认统一持久`cancel_pending`与预定终态，看门狗持续对账且不释放subject所有权，确认离队后才恢复原completed或提交failed。关联`110 passed, 3 subtests passed`、完整unit`593 passed, 9 subtests passed`无失败无跳过。
 - BUG059二轮整改独立软件复测通过：冻结提交`ec12a1c`直接关联`110 passed, 3 subtests passed`、完整unit`593 passed, 9 subtests passed`，均无失败无跳过；编译、文档、diff与干净工作树门禁通过，待只读复稽查。
 - BUG059三轮只读复稽查退回：通用无owner清理会覆盖`cancel_pending`保存的预定completed语义；LLava持续核销未重新取得原job accelerator票据，可能误停随后准入的审核任务。当前整改预定终态原样恢复与有限资源claim后再停模。
+- BUG059三轮稽查整改完成待独立复测：通用清理优先无损恢复`pending_terminal_*`；LLava持续核销以原job完整身份重新取得250ms有限`audit`claim，资源忙时保持pending且不触碰后续任务。关联`112 passed, 3 subtests passed`、完整unit`595 passed, 9 subtests passed`无失败无跳过。
 - 用户将M9.198最终媒体验收范围收敛为2—3个镜头、总时长不超过15秒；仍须跑通大纲至成片的全部阶段、音画字幕/导出和生命周期门禁，不再要求完整剧集时长。
 - M9.193 / BUG038最终只读复稽查通过并关闭：0°基准及左右45°/90°/180°全身图统一强制手、脚和四肢/指趾解剖门禁，失败候选有限重试后物理清理并落明确终态；复稽查关联`117 passed, 3 subtests passed`，0失败0跳过。角度版本化硬基线保持不变。
 

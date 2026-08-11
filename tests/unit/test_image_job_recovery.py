@@ -354,6 +354,59 @@ def test_recovery_reconciles_terminal_prompt_before_restoring_terminal(monkeypat
     assert "pending_terminal_status" not in restored
 
 
+def test_generic_cleanup_preserves_pending_completed_terminal(monkeypatch, tmp_path: Path) -> None:
+    module = load_backend_for_character_http()
+    module.IMAGE_JOBS_FILE = tmp_path / "image-jobs.json"
+    module._save_image_jobs({"jobs":{"job-cleanup":{
+        "job_id":"job-cleanup", "status":"processing", "phase":"cancel_pending",
+        "pending_terminal_status":"completed", "pending_terminal_error":"",
+        "pending_terminal_finished_at":"2026-08-12T00:00:00+00:00",
+        "heartbeat_at":"2026-08-12T00:00:00+00:00",
+    }}})
+    monkeypatch.setattr(module, "_confirm_image_job_cancellation", lambda _job: True)
+
+    module._cleanup_invalid_image_tasks()
+
+    restored = module._load_image_jobs()["jobs"]["job-cleanup"]
+    assert restored["status"] == "completed"
+    assert restored["phase"] == "completed"
+    assert restored["error"] == ""
+    assert restored["finished_at"] == "2026-08-12T00:00:00+00:00"
+
+
+def test_llava_reconciliation_requires_exclusive_original_audit_claim(monkeypatch) -> None:
+    module = load_backend_for_character_http()
+    stopped: list[str] = []
+    claims: list[tuple[str, str, float]] = []
+    job = {
+        "job_id":"job-owned", "validation_cancel_requested_at":"2026-08-12T00:00:00+00:00",
+        "tenant_id":"tenant-a", "user_id":"user-a", "project_id":"project-a", "request":{},
+    }
+    monkeypatch.setattr(module, "_cancel_job_comfy_prompts", lambda _job: True)
+    monkeypatch.setattr(module, "_terminate_ollama_model", lambda model: stopped.append(model) or True)
+    monkeypatch.setattr(module, "_image_job_identity", lambda _job_id: {
+        "tenant_id":"tenant-a", "user_id":"user-a", "project_id":"project-a",
+    })
+
+    def busy_claim(*_args, **_kwargs):
+        raise TimeoutError("accelerator busy")
+
+    monkeypatch.setattr(module, "_claim_production_resource", busy_claim)
+    assert module._confirm_image_job_cancellation(job) is False
+    assert stopped == []
+
+    @module.contextmanager
+    def owned_claim(resource_class, job_id, *, timeout, identity):
+        claims.append((resource_class, job_id, timeout))
+        assert identity["project_id"] == "project-a"
+        yield object()
+
+    monkeypatch.setattr(module, "_claim_production_resource", owned_claim)
+    assert module._confirm_image_job_cancellation(job) is True
+    assert claims == [("audit", "job-owned", 0.25)]
+    assert stopped == ["llava:latest"]
+
+
 def test_character_openpose_uses_original_audit_resource_claim() -> None:
     backend = BACKEND.read_text(encoding="utf-8")
     pose = backend[backend.index("def _pose_proportion_metrics"):backend.index("def _head_body_ratio")]

@@ -2260,10 +2260,27 @@ def _cancel_image_validation_work(job_id: str) -> bool:
 def _confirm_image_job_cancellation(job: dict) -> bool:
     """Reconcile every persisted runtime owned by a cancelled image validation."""
     prompts_confirmed = _cancel_job_comfy_prompts(job)
-    model_confirmed = (
-        _terminate_ollama_model("llava:latest")
-        if job.get("validation_cancel_requested_at") else True
-    )
+    model_confirmed = True
+    if job.get("validation_cancel_requested_at"):
+        job_id = str(job.get("job_id") or "").strip()
+        if not job_id:
+            return False
+        request = job.get("request") if isinstance(job.get("request"), dict) else {}
+        identity = _production_identity({
+            key: job.get(key) or request.get(key)
+            for key in ("tenant_id", "user_id", "project_id")
+        })
+        try:
+            with _claim_production_resource(
+                "audit", job_id, timeout=0.25,
+                identity=identity or None,
+            ):
+                model_confirmed = _terminate_ollama_model("llava:latest")
+        except Exception:
+            # Another accelerator owner may have started after the original
+            # validation claim was released.  Never stop its global runner;
+            # retain cancel_pending and retry after exclusive admission.
+            model_confirmed = False
     return prompts_confirmed and model_confirmed
 
 
@@ -3786,7 +3803,13 @@ def _cleanup_invalid_image_tasks() -> None:
             running = bool(process and process.poll() is None)
             status = str(job.get("status", ""))
             active_current_request = job_id in ACTIVE_IMAGE_SUBJECTS.values() and job.get("phase") != "cancel_pending"
-            if status in {"queued", "generating", "retrying", "processing"} and not running and not active_current_request:
+            if job.get("phase") == "cancel_pending" and not running:
+                if _confirm_image_job_cancellation(job):
+                    _finish_image_cancel_pending(job)
+                else:
+                    job.update({"heartbeat_at":_iso_now()})
+                changed = True
+            elif status in {"queued", "generating", "retrying", "processing"} and not running and not active_current_request:
                 terminal_error = "新任务启动前已回收无实际进程的旧图片任务"
                 if _confirm_image_job_cancellation(job):
                     _finish_image_cancel_pending(job, error=terminal_error); changed = True
