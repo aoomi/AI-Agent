@@ -98,6 +98,9 @@ H3_TEXT_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 H3_VIDEO_VAE = "minimax_h3_video_vae_fp16.safetensors"
 H3_AUDIO_VAE = "minimax_h3_audio_vae_fp32.safetensors"
 H3_REF2VA_SUPPORTED_DEVICE_TYPES = frozenset({"cuda"})
+VIDEO_PROVIDER_WAN22 = "wan2.2-ti2v-5b"
+VIDEO_PROVIDER_H3 = "minimax-h3-ref2va"
+VIDEO_PROVIDER_IDS = frozenset({VIDEO_PROVIDER_WAN22, VIDEO_PROVIDER_H3})
 H3_CONTEXT_IR_MODEL = "qwen3-vl-h3-context-ir:latest"
 H3_CONTEXT_IR_TIMEOUT_SECONDS = int(os.environ.get("SHORT_DRAMA_H3_CONTEXT_IR_TIMEOUT_SECONDS", "900"))
 H3_CONTEXT_IR_OUTPUT_ROOT = OUTPUT_ROOT / "narrative-cache" / "h3-context-ir"
@@ -4815,6 +4818,7 @@ def _run_h3_context_then_ref2va(job_id: str, body: dict, target: Path, *, durati
 def _generate_video_job(job_id: str, body: dict) -> None:
     subject_key = _video_key(body)
     process: subprocess.Popen[str] | None = None
+    use_h3_rv2v = False
     try:
         with _claim_production_resource("video", job_id, estimated_memory=VIDEO_ESTIMATED_MEMORY, timeout=VIDEO_QUEUE_TIMEOUT_SECONDS, identity=body):
             current = _load_video_jobs().get("jobs", {}).get(job_id, {})
@@ -4822,7 +4826,16 @@ def _generate_video_job(job_id: str, body: dict) -> None:
             _require_memory(VIDEO_ESTIMATED_MEMORY)
             image = _local_media_path(body.get("image_url"))
             episode = max(1, int(body.get("episode", 1))); shot = max(1, int(body.get("shot_number", 1)))
-            use_h3_rv2v = bool(body.get("source_video_url") and body.get("identity_reference_url"))
+            requested_provider = str(body.get("video_provider_id") or "").strip()
+            if requested_provider and requested_provider not in VIDEO_PROVIDER_IDS:
+                raise ValueError(f"unsupported video provider: {requested_provider}")
+            use_h3_rv2v = requested_provider == VIDEO_PROVIDER_H3 or (
+                not requested_provider and bool(body.get("source_video_url") and body.get("identity_reference_url"))
+            )
+            if use_h3_rv2v and not body.get("source_video_url"):
+                raise ValueError("MiniMax H3 Ref2VA requires source_video_url")
+            if use_h3_rv2v and not body.get("identity_reference_url"):
+                raise ValueError("MiniMax H3 Ref2VA requires identity_reference_url")
             duration_limit = 15 if use_h3_rv2v else 5
             duration = min(duration_limit, max(1, int(round(float(body.get("business_duration", 2))))))
             target_dir = OUTPUT_ROOT / "videos"; target_dir.mkdir(parents=True, exist_ok=True)
@@ -4860,7 +4873,7 @@ import shutil,sys
 sys.path.insert(0,'/Users/aoo/AI/Projects/ShortDramaPipeline/pipeline')
 import comfy_client
 source=Path(sys.argv[1]); target=Path(sys.argv[2]); frames=int(sys.argv[3])
-result=comfy_client.wan22_img2vid(source,sys.argv[6],sys.argv[7],f'short_drama/episode_{sys.argv[4]}_shot_{sys.argv[5]}',frames=frames,fps=16,width=576,height=1024,steps=20)
+result=comfy_client.wan22_img2vid(source,sys.argv[6],sys.argv[7],f'short_drama/episode_{sys.argv[4]}_shot_{sys.argv[5]}',frames=frames,fps=16,width=704,height=1280,steps=30)
 shutil.copy2(result,target)
 """
             command = ["/Users/aoo/AI/Tools/ComfyUI/main/ComfyUI/.venv/bin/python3", "-c", script, str(image), str(target), str(duration * 16 + 1), str(episode), str(shot), positive, negative]
@@ -4881,7 +4894,8 @@ shutil.copy2(result,target)
             if process.returncode:
                 raise RuntimeError((stderr or stdout or "视频模型进程失败")[-500:])
             if not target.is_file(): raise RuntimeError("视频模型未生成输出文件")
-            _commit_video_terminal(job_id, status="completed", stage="completed", video={"url":f"/api/result-media?filename={target.name}&subfolder=videos"}, finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None)
+            _commit_video_terminal(job_id, status="completed", stage="completed", engine=VIDEO_PROVIDER_WAN22,
+                                   video={"url":f"/api/result-media?filename={target.name}&subfolder=videos"}, finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None)
     except Exception as error:
         if process and process.poll() is None: _terminate_process_tree(process)
         current = _load_video_jobs().get("jobs", {}).get(job_id, {})
@@ -4897,7 +4911,7 @@ shutil.copy2(result,target)
                 finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None,
             )
         else:
-            engine = "MiniMax H3 Ref2VA" if body.get("source_video_url") and body.get("identity_reference_url") else "Wan2.2"
+            engine = "MiniMax H3 Ref2VA" if use_h3_rv2v else "Wan2.2"
             _commit_video_terminal(job_id, status="failed", stage="failed", error=f"{engine} 分镜视频生成失败：{str(error)[:500]}", finished_at=_iso_now(), heartbeat_at=_iso_now(), pid=None, process_group=None)
     finally:
         with VIDEO_JOB_LOCK:
