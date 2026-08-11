@@ -223,7 +223,7 @@
 
 ### BUG-20260811-057：H3源视频重复生成无业务用途音轨
 
-- 状态：主线开发中
+- 状态：已关闭（最终只读稽查通过）
 - 关联任务：M9.198
 - 正式事实：用户明确MiniMax H3视频不使用音频输入；现行Ref2VA graph虽然没有传入参考音频，却仍执行`VAEDecodeAudio`并将H3自生音轨写入MP4，后续独立Qwen TTS与口型链又会覆盖音频。
 - 首个事实：`MiniMaxH3ReferenceToVideo`官方节点要求`audio_vae`参与AV latent构造，不能直接删除必填输入；冗余发生在采样完成后的音频解码与`CreateVideo.audio`封装。
@@ -240,6 +240,10 @@
 - 首个Wan错误事实：生产调用将官方Wan2.2 TI2V-5B工作流从30步、最佳1280×704面积降为20步、576×1024；任务只验证文件存在即completed，没有视觉崩坏门禁。官方工作流明确使用30步、shift 8、CFG 5、UniPC/simple及约1280×704最佳分辨率。
 - Wan官方参数复测：shot 3 job `4cbad406-94b7-4408-8c1e-834db8a38844`以30步、704×1280、49帧正式completed并精确登记`wan2.2-ti2v-5b`，但约1.5秒后仍近黑屏且主体消失；原参数偏差不是充分根因，Wan路线视觉不通过。
 - 当前整改：显式provider扩展为已安装的`ltx-video-2b-distilled`，保持Wan/H3原契约；LTX限制65帧、704×1216、24fps、8步以控制统一内存。直接探针物理输出2.71秒、65帧，首/中/尾帧主体、服装和背景连续稳定；关联`169 passed`，待正式接口串行生成2—3镜并完成独立测试与稽查。
+- 正式视频验收：隔离项目通过正式`/api/videos/generate`依次生成job `ac5e9d3a-ee60-49a0-8926-262cf2b65810`、`7ddbf258-adc3-4a48-953a-46b3a12871e1`、`85f6bf1d-208c-4894-883a-8a79060c6548`。三镜均为65帧、2.708秒、704×1216、24fps、H.264且只有video stream，总时长8.125秒；首/中/尾9帧检查无Wan路线的黑屏、拉丝或主体消失。任务全为completed且`engine=ltx-video-2b-distilled`，执行严格串行，最终Comfy running/pending均0。
+- 独立软件测试：通过。重新加载冻结代码执行本地provider、H3 Context IR/Ref2VA、生产控制及阶段作用域关联`169 passed`，Python编译通过；物理媒体以PyAV独立读取确认三镜均只有H.264视频流。完整unit为`639 passed, 2 skipped, 9 subtests passed, 8 failed`，8项均来自用户并行前端删除/改名及既有文本测试全局隔离，不在本次代码调用链，已保留现场且未越界整改。
+- 最终只读稽查：通过。显式LTX/Wan/H3 provider互不冒充；未知provider和H3双参考缺失失败关闭；LTX受单重任务资源claim、硬截止、停止、恢复、持久终态和精确engine约束。真实3镜总时长≤15秒、无音频、队列归零，满足用户本轮验收边界。
+- 关闭时间：2026-08-12（Asia/Shanghai）。下一状态：已关闭；H3 CUDA仍作为该provider的设备限制保留，但不再阻塞用户明确改用本地视频模型的本轮视频验收。
 
 ### BUG-20260811-056：3D确认混用业务名称与文件安全名
 
