@@ -34,7 +34,8 @@ def test_h3_source_video_does_not_decode_or_publish_model_audio():
 
 
 def test_video_route_selects_h3_only_when_both_references_exist():
-    assert 'use_h3_rv2v = bool(body.get("source_video_url") and body.get("identity_reference_url"))' in BACKEND
+    assert 'requested_provider == VIDEO_PROVIDER_H3' in BACKEND
+    assert 'not requested_provider and bool(body.get("source_video_url") and body.get("identity_reference_url"))' in BACKEND
     assert 'engine="minimax-h3-ref2va"' in BACKEND
     assert 'else "Wan2.2"' in BACKEND
     assert '("video.shot.h3_ref2va", "comfy-minimax-h3-ref2va", _generate_h3_rv2v_video)' in BACKEND
