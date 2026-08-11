@@ -10,7 +10,7 @@
 
 ### BUG-20260811-059：人物角度后验收脱离原图片任务生命周期
 
-- 状态：开发完成，待独立软件测试
+- 状态：软件测试通过，待只读稽查
 - 关联任务：M9.198 / BUG057正式image前序，不扩展处理BUG039—041。
 - 正式复现：人物固定角度job`93185ea7-6266-4b04-9118-cbeb1e3593b4`的Qwen产图完成后，持久job停在`processing/qwen_variant`且心跳停止；资源池却排队随机job`character-angle-audit-a116c49b-affd-4abc-8983-e26b6e66868e`。同时下一图片job`134a62ce-0124-4e2d-97dd-6ffc5dcfdaa3`在不可观测的后验收占用期内等待内存并超时失败。
 - 首个事实：`_validate_character_variant`两次LLava审核均以随机UUID申请资源，调用方又直接同步执行验收，没有经过已有`_run_image_validation`的原job心跳、180秒超时、停止取消和晚到隔离边界。
@@ -25,8 +25,10 @@
 - 首轮只读稽查：不通过（P1）。LLava三类审核已归原job，但其后`_face_pose_angles`、`_face_embedding_similarity`、`_pose_proportion_metrics`和`_head_body_ratio`仍未接收job/deadline。其中`_pose_proportion_metrics`会提交一个未写入图片job的Comfy prompt，最长自行轮询300秒；外层180秒超时只取消资源票据并终止LLava，不知道该prompt ID，验收线程仍可在原job终态后继续Comfy/子进程工作。此缺口违反同一后验收的取消、超时、晚到隔离和资源释放验收；原证据不足以关闭BUG059。
 - 稽查整改标准：确定性子步骤全部复用原job可运行性与同一deadline；OpenPose prompt ID必须持久到原job，停止/超时精确核销且确认离开Comfy running/pending后才收敛；补充超时、停止和终态晚到不启动下一子步骤的动态测试，重新经过独立软件测试。
 - 稽查整改：新增原job所有的确定性验收子进程监督器；InsightFace姿态、身份向量与头身比子进程均登记到`ACTIVE_IMAGE_PROCESSES`，每200ms复核原job可运行性和共享deadline，停止/超时终止自身进程组。OpenPose的Comfy prompt ID原子写入`validation_prompt_id`，历史轮询同样受job/deadline约束，失败时精确核销；统一停止、超时、服务恢复与关闭核销集合已纳入该prompt字段。外层后验收在收敛前同时取消原job票据、确定性子进程、所属Comfy prompt和LLava。
-- 整改动态验证：原job在确定性子进程运行时转failed，子进程在2秒内终止且活动映射清空；OpenPose在截止时间到达后精确取消已持久`prompt-timeout`，并清空job的活动prompt字段；统一取消入口只核销原job持有的`prompt-owned`。直接关联`177 passed, 3 subtests passed`，完整unit`589 passed, 9 subtests passed`，均0失败0跳过；Python编译、文档状态和diff门禁通过。
+- 整改动态验证：原job在确定性子进程运行时转failed，子进程在2秒内终止且活动映射清空；OpenPose在截止时间到达后精确取消已持久`prompt-timeout`，并清空job的活动prompt字段；统一取消入口只核销原job持有的`prompt-owned`。直接关联`178 passed, 3 subtests passed`，完整unit`589 passed, 9 subtests passed`，均0失败0跳过；Python编译、文档状态和diff门禁通过。
 - 下一状态：待独立软件测试复测。
+- 稽查整改独立软件复测：通过。在提交`9685d38`的干净工作树上，重跑人物后验收子进程终止、OpenPose prompt持久/超时精确取消、图片恢复、生产取消及H3直接关联`178 passed, 3 subtests passed`；完整unit`589 passed, 9 subtests passed`，均0失败0跳过。Python编译、文档状态、diff-check与干净工作树门禁通过；测试身份未修改代码、配置或正式数据。
+- 下一状态：待只读复稽查。
 
 ### BUG-20260811-058：人物固定角度串行批次误判为并发内存超限
 
