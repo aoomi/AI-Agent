@@ -7932,10 +7932,9 @@ def _begin_production_request(body: dict, stage: str, *, stage_generation: int =
 
 class Handler(BaseHTTPRequestHandler):
     def handle_one_request(self) -> None:
-        started, request_id, trace_id = OBSERVABILITY.begin_request(
-            self.headers.get("X-Request-ID") if hasattr(self, "headers") else None,
-            self.headers.get("X-Trace-ID") if hasattr(self, "headers") else None,
-        )
+        # Persistent connections retain the preceding ``self.headers`` until
+        # the current request has been parsed, so always start with fresh IDs.
+        started, request_id, trace_id = OBSERVABILITY.begin_request(None, None)
         self._observability_request_id = request_id
         self._observability_trace_id = trace_id
         self._observability_status = HTTPStatus.INTERNAL_SERVER_ERROR
@@ -7943,10 +7942,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             super().handle_one_request()
         finally:
-            OBSERVABILITY.finish_request(
-                started, self._observability_request_id, self._observability_trace_id,
-                getattr(self, "command", "UNKNOWN"), int(self._observability_status),
-            )
+            if self.command:
+                OBSERVABILITY.finish_request(
+                    started, self._observability_request_id, self._observability_trace_id,
+                    self.command, int(self._observability_status),
+                )
+            else:
+                OBSERVABILITY.abandon_request()
 
     def parse_request(self) -> bool:
         parsed = super().parse_request()

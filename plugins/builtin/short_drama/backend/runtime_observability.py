@@ -59,6 +59,13 @@ class RuntimeObservability:
             })
             self.metrics.export_snapshot()
 
+    def abandon_request(self) -> None:
+        """Release a provisional slot when a keep-alive connection reaches EOF."""
+        with self._lock:
+            self._active = max(0, self._active - 1)
+            self.metrics.gauge("short_drama_http_active_requests", self._active)
+            self.metrics.export_snapshot()
+
     def service_event(self, event: str) -> None:
         with self._lock:
             self.logger.emit("info", event, {})

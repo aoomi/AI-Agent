@@ -34,3 +34,12 @@ def test_runtime_observability_generates_correlation_and_lifecycle_records(tmp_p
     assert runtime.correlation_id("safe-id:1", "req") == "safe-id:1"
     assert runtime.correlation_id("token\nforged", "req").startswith("req-")
     assert runtime.correlation_id("x" * 129, "trace").startswith("trace-")
+
+
+def test_abandoned_keep_alive_read_releases_slot_without_false_request(tmp_path: Path):
+    runtime = RuntimeObservability(tmp_path, clock=lambda: 1.0)
+    runtime.begin_request(None, None)
+    runtime.abandon_request()
+    metrics = (tmp_path / "metrics.prom").read_text()
+    assert "short_drama_http_active_requests 0" in metrics
+    assert "short_drama_http_requests_total" not in metrics

@@ -18,6 +18,9 @@
 - 整改标准：正式服务生命周期实例化JSONL+Prometheus复合导出；每个HTTP请求生成或沿用request_id/trace_id，持久记录方法、状态、延时，指标只用有界method/status_class标签；服务启停导出并保证敏感字段门禁继续生效。
 - 主线实现：新增`RuntimeObservability`，正式输出到`OUTPUT_ROOT/observability/records.jsonl`及原子`metrics.prom`；兼容服务统一请求边界记录活动数、请求数、累计延时、状态类别及关联ID，启停生命周期持久导出。request/trace只进入JSONL，不作为Prometheus标签，避免高基数。
 - 开发验证：runtime/exporter定向`8 passed`，Python编译通过；动态证明25ms请求写入关联JSONL，Prometheus仅含GET/2xx有界标签且活动请求归零，自动生成关联ID和service.stopped事件可持久读取。
+- 首轮独立软件测试：冻结提交`2d2312d`关联可观测、生产控制面和文档状态`113 passed`，无失败无跳过；Python编译通过。
+- 首轮只读稽查：不通过（P1）。`handle_one_request`在解析新请求前读取`self.headers`；HTTP keep-alive第二次请求缺少关联头时会复用第一次请求头，造成两次请求错误共享request/trace关联。
+- 稽查整改：请求边界无条件先生成新关联ID，仅在当前`parse_request`成功后用通过字符集和128字符上限校验的当前请求头替换；非法或超长ID改为新ID，禁止跨请求继承。keep-alive连接EOF只释放预占活动数，不再伪造UNKNOWN/500请求，待独立复测。
 
 ### BUG-20260812-066：单节点混合负载缺少可重复容量基准
 
