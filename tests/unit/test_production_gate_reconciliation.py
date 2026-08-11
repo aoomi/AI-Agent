@@ -425,7 +425,8 @@ def test_character_baseline_separates_identity_from_conflicting_camera_language(
     assert "identity_description = re.sub(" in section
     assert "近照|半身\\s*(?:照)?|全身\\s*(?:照|视图)?" in section
     assert 'candidate["orientation_mirrored"] = False' in section
-    assert '_validate_character_variant(candidate.get("url", ""), candidate, "front_full")' in section
+    assert 'lambda current: _validate_character_variant(' in section
+    assert 'current.get("url", "")' in section
     validator = backend[backend.index("def _validate_character_variant"):backend.index("def _transcribe_media")]
     assert '_character_variant_verdict_passes(verdict, target_pose, bool(strict_clothing_reference))' in validator
     assert '"left_45_face_angle_30_to_60", *CHARACTER_FULL_BODY_ANATOMY_CHECKS' in backend

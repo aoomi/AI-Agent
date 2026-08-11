@@ -160,7 +160,8 @@ class StoryboardValidationTest(unittest.TestCase):
         self.assertNotIn("for validation_attempt in range(5)", backend)
         self.assertIn("strict zero-degree front-facing full-body view", backend)
         self.assertIn("complete head, hands and shoes visible", backend)
-        self.assertIn('_validate_character_variant(candidate.get("url", ""), candidate, "front_full")', backend)
+        self.assertIn('lambda current: _validate_character_variant(', backend)
+        self.assertIn('current.get("url", "")', backend)
 
     def test_regeneration_purges_scoped_media_jobs_and_frontend_state(self) -> None:
         backend = MODULE_PATH.read_text(encoding="utf-8")

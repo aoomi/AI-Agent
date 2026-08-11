@@ -10,12 +10,16 @@
 
 ### BUG-20260811-059：人物角度后验收脱离原图片任务生命周期
 
-- 状态：主线开发中
+- 状态：开发完成，待独立软件测试
 - 关联任务：M9.198 / BUG057正式image前序，不扩展处理BUG039—041。
 - 正式复现：人物固定角度job`93185ea7-6266-4b04-9118-cbeb1e3593b4`的Qwen产图完成后，持久job停在`processing/qwen_variant`且心跳停止；资源池却排队随机job`character-angle-audit-a116c49b-affd-4abc-8983-e26b6e66868e`。同时下一图片job`134a62ce-0124-4e2d-97dd-6ffc5dcfdaa3`在不可观测的后验收占用期内等待内存并超时失败。
 - 首个事实：`_validate_character_variant`两次LLava审核均以随机UUID申请资源，调用方又直接同步执行验收，没有经过已有`_run_image_validation`的原job心跳、180秒超时、停止取消和晚到隔离边界。
 - 风险：原图片job可在没有自身资源票据与心跳的情况下长时间占用审核模型；停止、超时或服务回收无法精确取消排队票据，终态后仍可晚到启动模型，并阻塞后续重任务。
 - 下一状态：将人物baseline/固定角度验收统一纳入原图片job的后验收监督器，两次审核共用原job资源所有权与同一有限截止，然后重跑正式前序。
+- 框架整改：人物baseline与固定角度共用`_run_image_validation`，持久阶段统一为`character_validation`；角度、服装与画幅三类审核全部使用原`job_id`票据。后验收工作线程从持久job恢复完整tenant/user/project身份，每次排队、模型调用前后均复核job可运行性，所有审核共用外层180秒deadline。停止或超时取消原job排队票据并终止LLava，禁止终态后新启审核。
+- 正式验证：服务在资源空闲后重载，同一项目林婉清左45°正式job`ef558c27-c3b3-4bef-ad8d-f662fd6a8579`完成两次Qwen产图与后验收。产图后持久phase明确转为`character_validation`，heartbeat从`15:31:23Z`持续推进至`15:39:48Z`，最终因方向、身份、脚部和比例质量门禁正常failed；Comfy队列回到0/0、资源池回到空闲，无随机audit票据、无无心跳卡死和模型残留。
+- 开发回归：绑定显式Node运行时后验收、图片恢复、生产门禁、取消及H3直接关联`175 passed, 3 subtests passed`；完整unit`586 passed, 9 subtests passed`，均0失败0跳过。Python编译、文档状态与diff门禁通过。
+- 下一状态：待独立软件测试。
 
 ### BUG-20260811-058：人物固定角度串行批次误判为并发内存超限
 

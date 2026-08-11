@@ -135,6 +135,48 @@ def test_scene_and_prop_validation_resource_tickets_are_owned_by_image_job() -> 
     assert "_validate_scene_asset(candidate, job_id=job_id)" in route
 
 
+def test_character_validation_uses_owning_image_job_and_shared_supervisor() -> None:
+    backend = BACKEND.read_text(encoding="utf-8")
+    validator = backend[
+        backend.index("def _validate_character_variant"):
+        backend.index("def _generate_visual_persona_front_full")
+    ]
+    route = backend[
+        backend.index('if parsed.path in {"/api/characters/generate", "/api/shots/generate", "/api/shots/repair", "/api/assistant/images/generate"}'):
+        backend.index('if parsed.path == "/api/videos/generate"')
+    ]
+
+    assert validator.count('"audit", job_id or f"character-') == 3
+    assert validator.count("identity=resource_identity or None") == 3
+    assert validator.count("_assert_image_job_runnable(job_id)") >= 9
+    assert "timeout=claim_timeout" in validator
+    assert "timeout=response_timeout" in validator
+    assert 'f"character-angle-audit-{uuid4()}"' in validator
+    assert 'f"character-clothing-audit-{uuid4()}"' in validator
+    assert 'f"character-frame-audit-{uuid4()}"' in validator
+    assert route.count('"character_validation"') == 2
+    assert route.count("_run_image_validation(") >= 4
+    assert route.count("job_id=job_id") >= 2
+    assert route.count("deadline=validation_deadline") == 2
+
+
+def test_image_validation_worker_recovers_explicit_job_identity(monkeypatch, tmp_path: Path) -> None:
+    module = load_backend_for_character_http()
+    module.IMAGE_JOBS_FILE = tmp_path / "image-jobs.json"
+    module._save_image_jobs({"jobs": {"job-identity": {
+        "tenant_id": "tenant-a",
+        "user_id": "user-a",
+        "project_id": "project-a",
+        "request": {"tenant_id": "forged", "user_id": "forged", "project_id": "forged"},
+    }}})
+
+    assert module._image_job_identity("job-identity") == {
+        "tenant_id": "tenant-a",
+        "user_id": "user-a",
+        "project_id": "project-a",
+    }
+
+
 def test_post_comfy_memory_wait_is_bounded_and_keeps_job_cancellable(monkeypatch) -> None:
     module = load_backend_for_character_http()
     samples = iter([(False, {"available_gb":60.0,"required_gb":42.0,"reserve_gb":35.0}), (True, {"available_gb":80.0,"required_gb":42.0,"reserve_gb":35.0})])
@@ -537,7 +579,7 @@ def test_character_variant_http_rejects_each_anatomy_gate_for_every_full_body_po
             case["generated"].append(target)
             return {"url": f"/api/result-media?filename={target.name}&subfolder=images", "filename": target.name, "subfolder": "images"}
 
-        def validate(_reference_url: str, _image: dict, target_pose: str, _clothing_url: str):
+        def validate(_reference_url: str, _image: dict, target_pose: str, _clothing_url: str, **_lifecycle):
             required = module._character_variant_required_checks(target_pose, True)
             verdict = {key: True for key in required}
             failed_check = case["failed_check"]
@@ -867,7 +909,8 @@ def test_fixed_angles_use_qwen_2511_official_multiple_angles_workflow() -> None:
     assert '"body_shape_consistent"' in backend
     assert 'for path in [reference, candidate]' in backend
     assert 'for path in [strict_clothing_reference, candidate]' in backend
-    assert '_validate_character_variant(candidate.get("url", ""), candidate, "front_full")' in backend
+    assert 'lambda current: _validate_character_variant(' in backend
+    assert 'current.get("url", "")' in backend
     assert '"gender_and_age_match"' in backend
     assert '"face_hair_match"' in backend
     assert '"clothing_match"' in backend

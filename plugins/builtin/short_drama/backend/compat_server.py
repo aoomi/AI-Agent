@@ -2226,6 +2226,19 @@ def _run_image_validation(
     return bool(result[0]), str(result[1])
 
 
+def _image_job_identity(job_id: str) -> dict[str, str]:
+    """Recover explicit scope because validation workers do not inherit request thread-local state."""
+    if not job_id:
+        return {}
+    with IMAGE_JOB_LOCK:
+        job = _load_image_jobs().get("jobs", {}).get(job_id, {})
+    request = job.get("request") if isinstance(job.get("request"), dict) else {}
+    return _production_identity({
+        key: job.get(key) or request.get(key)
+        for key in ("tenant_id", "user_id", "project_id")
+    })
+
+
 def _validate_prop_asset(image: dict, *, job_id: str = "") -> tuple[bool, str]:
     """Require a single isolated prop instead of merely checking that people are absent."""
     source = _local_media_path(image.get("url"))
@@ -2915,7 +2928,15 @@ def _character_variant_verdict_passes(verdict: dict, target_pose: str, strict_cl
     return all(verdict.get(key) is True for key in _character_variant_required_checks(target_pose, strict_clothing_reference))
 
 
-def _validate_character_variant(reference_url: str, image: dict, target_pose: str, clothing_reference_url: str = "") -> tuple[bool, str]:
+def _validate_character_variant(
+    reference_url: str,
+    image: dict,
+    target_pose: str,
+    clothing_reference_url: str = "",
+    *,
+    job_id: str = "",
+    deadline: float | None = None,
+) -> tuple[bool, str]:
     """Reject wrong direction, cropped feet, identity drift and distorted body proportions."""
     reference = _reference_path(reference_url)
     clothing_reference = _reference_path(clothing_reference_url) if clothing_reference_url else None
@@ -2954,9 +2975,21 @@ def _validate_character_variant(reference_url: str, image: dict, target_pose: st
         }).encode("utf-8"),
         headers={"Content-Type":"application/json"}, method="POST",
     )
-    with _claim_production_resource("audit", f"character-angle-audit-{uuid4()}", timeout=900):
+    if job_id:
+        _assert_image_job_runnable(job_id)
+    resource_identity = _image_job_identity(job_id)
+    claim_timeout = max(0.1, deadline - time.monotonic()) if deadline is not None else IMAGE_VALIDATION_TIMEOUT_SECONDS
+    with _claim_production_resource(
+        "audit", job_id or f"character-angle-audit-{uuid4()}", timeout=claim_timeout,
+        identity=resource_identity or None,
+    ):
+        if job_id:
+            _assert_image_job_runnable(job_id)
         _require_memory(12 * GIB)
-        with urlopen(request, timeout=600) as response: payload = json.loads(response.read())
+        response_timeout = max(0.1, deadline - time.monotonic()) if deadline is not None else IMAGE_VALIDATION_TIMEOUT_SECONDS
+        with urlopen(request, timeout=response_timeout) as response: payload = json.loads(response.read())
+    if job_id:
+        _assert_image_job_runnable(job_id)
     evidence = str(payload.get("response", "")).strip()
     match = re.search(r"\{[\s\S]*\}", evidence)
     if not match: return False, evidence[:500] or "固定角度视觉模型未返回结构化结果"
@@ -2981,10 +3014,21 @@ def _validate_character_variant(reference_url: str, image: dict, target_pose: st
             }).encode("utf-8"),
             headers={"Content-Type":"application/json"}, method="POST",
         )
-        with _claim_production_resource("audit", f"character-clothing-audit-{uuid4()}", timeout=900):
+        if job_id:
+            _assert_image_job_runnable(job_id)
+        claim_timeout = max(0.1, deadline - time.monotonic()) if deadline is not None else IMAGE_VALIDATION_TIMEOUT_SECONDS
+        with _claim_production_resource(
+            "audit", job_id or f"character-clothing-audit-{uuid4()}", timeout=claim_timeout,
+            identity=resource_identity or None,
+        ):
+            if job_id:
+                _assert_image_job_runnable(job_id)
             _require_memory(12 * GIB)
-            with urlopen(clothing_request, timeout=600) as response:
+            response_timeout = max(0.1, deadline - time.monotonic()) if deadline is not None else IMAGE_VALIDATION_TIMEOUT_SECONDS
+            with urlopen(clothing_request, timeout=response_timeout) as response:
                 clothing_payload = json.loads(response.read())
+        if job_id:
+            _assert_image_job_runnable(job_id)
         try:
             clothing_verdict = json.loads(str(clothing_payload.get("response", "")).strip())
         except json.JSONDecodeError:
@@ -3016,9 +3060,20 @@ def _validate_character_variant(reference_url: str, image: dict, target_pose: st
             }).encode("utf-8"),
             headers={"Content-Type":"application/json"}, method="POST",
         )
-        with _claim_production_resource("audit", f"character-frame-audit-{uuid4()}", timeout=900):
+        if job_id:
+            _assert_image_job_runnable(job_id)
+        claim_timeout = max(0.1, deadline - time.monotonic()) if deadline is not None else IMAGE_VALIDATION_TIMEOUT_SECONDS
+        with _claim_production_resource(
+            "audit", job_id or f"character-frame-audit-{uuid4()}", timeout=claim_timeout,
+            identity=resource_identity or None,
+        ):
+            if job_id:
+                _assert_image_job_runnable(job_id)
             _require_memory(12 * GIB)
-            with urlopen(frame_request, timeout=600) as response: frame_payload = json.loads(response.read())
+            response_timeout = max(0.1, deadline - time.monotonic()) if deadline is not None else IMAGE_VALIDATION_TIMEOUT_SECONDS
+            with urlopen(frame_request, timeout=response_timeout) as response: frame_payload = json.loads(response.read())
+        if job_id:
+            _assert_image_job_runnable(job_id)
         try:
             frame_verdict = json.loads(str(frame_payload.get("response", "")).strip())
         except json.JSONDecodeError:
@@ -8536,7 +8591,20 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                                 if variant_attempt == variant_attempts - 1:
                                     raise RuntimeError(f"人物固定角度视觉验收失败：{validation_evidence}")
                                 continue
-                        valid, validation_evidence = _validate_character_variant(reference_url, image, target_pose, clothing_reference_url)
+                        validation_deadline = time.monotonic() + IMAGE_VALIDATION_TIMEOUT_SECONDS
+                        valid, validation_evidence = _run_image_validation(
+                            job_id,
+                            "character_validation",
+                            lambda candidate: _validate_character_variant(
+                                reference_url,
+                                candidate,
+                                target_pose,
+                                clothing_reference_url,
+                                job_id=job_id,
+                                deadline=validation_deadline,
+                            ),
+                            image,
+                        )
                         image["validation_evidence"] = validation_evidence
                         image["validation_passed"] = valid
                         if valid:
@@ -8571,7 +8639,19 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                         )
                         def validate_baseline_candidate(candidate: dict) -> tuple[bool, str]:
                             candidate["orientation_mirrored"] = False
-                            _, candidate_evidence = _validate_character_variant(candidate.get("url", ""), candidate, "front_full")
+                            validation_deadline = time.monotonic() + IMAGE_VALIDATION_TIMEOUT_SECONDS
+                            _, candidate_evidence = _run_image_validation(
+                                job_id,
+                                "character_validation",
+                                lambda current: _validate_character_variant(
+                                    current.get("url", ""),
+                                    current,
+                                    "front_full",
+                                    job_id=job_id,
+                                    deadline=validation_deadline,
+                                ),
+                                candidate,
+                            )
                             try:
                                 verdict = json.loads(candidate_evidence)
                                 candidate_valid = all(verdict.get(key) is True for key in baseline_required_checks)
