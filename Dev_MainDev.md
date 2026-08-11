@@ -33,6 +33,7 @@
 - BUG061最终闭环：嵌套3D媒体URL在受控根内安全解析，穿越/绝对路径失败关闭；正式H3已越过原文件不存在点并进入真实`h3_rv2v`。直接关联31项、完整599项及9个子测试无失败无跳过。
 - 后续正式推理登记BUG062：当前H3 INT8 ConvRot在Darwin/MPS静默落入`_int_mm_cpu`，70分钟仍为0/20；任务已按取消协议收敛且Comfy队列归零，当前整改提供方设备/量化算子兼容门禁与`model_blocked`状态。
 - BUG062主线实现：固定制品只准入声明的CUDA设备，MPS/CPU/未知设备在Context IR前持久`model_blocked`并投影LangGraph paused，禁止自动改模。正式job约2秒阻断且两个prompt ID均空；关联159项通过，完整unit当前仅受用户并行前端改动4项失败影响。
+- BUG062独立测试与最终稽查通过并关闭：冻结提交关联159项无失败无跳过；兼容白名单、未知设备失败关闭、无重模型副作用、paused投影和显式重放边界一致。BUG057保持真实阻塞，需CUDA兼容H3提供方后才能继续静音源视频与后续成片链。
 
 - BUG060最终闭环：正式Ref2VA已实际调用精确注册的`h3-prompt-writing`并完成Context IR持久输出；关联`33 passed`、完整unit`595 passed, 9 subtests passed`无失败无跳过，供应链与应用态双SHA门禁通过。
 - 后续正式H3登记BUG061：`_local_media_path`把多级3D资产`subfolder`截断为末级目录，导致存在且可播放的Blender源视频在H3输入解析时误报不存在；当前只整改受控根内嵌套媒体路径解析。
