@@ -29,6 +29,24 @@ from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from plugins.builtin.short_drama.workflows.production_ledger import CANONICAL_STAGES, ProductionLedger, ProductionLedgerError, canonical_stage
+
+
+def _load_stage_registrations() -> tuple[dict, ...]:
+    path = Path(__file__).resolve().parents[1] / "workflows" / "stage.registrations.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    rows = payload.get("stages") if isinstance(payload, dict) else None
+    if not isinstance(rows, list) or tuple(row.get("stage") for row in rows if isinstance(row, dict)) != CANONICAL_STAGES:
+        raise RuntimeError("stage registrations must exactly match CANONICAL_STAGES")
+    required = ("startup_recovery", "langgraph_stage", "project_storage", "frontend_continue")
+    if any(not all(isinstance(row.get(key), str) and row[key].strip() for key in required) for row in rows):
+        raise RuntimeError("every production stage requires complete recovery, graph, storage, and frontend registration")
+    if any(row["langgraph_stage"] != row["stage"] for row in rows):
+        raise RuntimeError("LangGraph stage registrations must use canonical stage names")
+    return tuple(dict(row) for row in rows)
+
+
+PRODUCTION_STAGE_REGISTRATIONS = _load_stage_registrations()
+PROJECT_STAGE_STORAGE = {row["stage"]:row["project_storage"] for row in PRODUCTION_STAGE_REGISTRATIONS}
 from plugins.builtin.short_drama.workflows.production_orchestrator import ProductionOrchestrator
 from plugins.builtin.short_drama.workflows.story_bible import StoryBible, StoryBibleError
 from ai_agent_core import ResourceScheduler, WorkerRegistry, WorkerSnapshot, WorkloadRouter, atomic_write_json
@@ -7828,10 +7846,6 @@ def _reconcile_completed_production_stages(identity: dict, records: list[dict]) 
 def _recover_production_workflows() -> None:
     """Fail synchronous stage executions that cannot survive a service restart."""
     brain = _production_orchestrator()
-    stage_storage = {
-        "outline":"outline", "script":"script", "storyboard":"storyboard", "assets":"assets",
-        "image":"shot_images", "video":"shot_videos", "composition":"merged_episodes", "review_export":"final_audit",
-    }
     for project in _load_store().get("projects", []):
         identity = {key:str(project.get(key) or "") for key in ("tenant_id", "user_id")}
         identity["project_id"] = str(project.get("id") or "")
@@ -7868,7 +7882,7 @@ def _recover_production_workflows() -> None:
                 )
                 continue
         if current_stage and state.get("stages", {}).get(current_stage) == "running":
-            storage_stage = stage_storage.get(current_stage, "")
+            storage_stage = PROJECT_STAGE_STORAGE[current_stage]
             stored = project.get("stage_state", {}).get(storage_stage) if storage_stage else None
             if isinstance(stored, dict) and isinstance(stored.get("data"), dict):
                 recovered = dict(stored["data"])

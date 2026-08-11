@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "stages": [
+    {"stage":"requirements","startup_recovery":"project_stage_state","langgraph_stage":"requirements","project_storage":"requirements","frontend_continue":"saveProject"},
+    {"stage":"outline","startup_recovery":"project_stage_state","langgraph_stage":"outline","project_storage":"outline","frontend_continue":"generateOutline"},
+    {"stage":"script","startup_recovery":"project_stage_state","langgraph_stage":"script","project_storage":"script","frontend_continue":"runScriptPrimaryAction"},
+    {"stage":"storyboard","startup_recovery":"project_stage_state","langgraph_stage":"storyboard","project_storage":"storyboard","frontend_continue":"runStoryboardPrimaryAction"},
+    {"stage":"assets","startup_recovery":"project_stage_state","langgraph_stage":"assets","project_storage":"assets","frontend_continue":"runProductionAssetExtraction"},
+    {"stage":"image","startup_recovery":"project_stage_state","langgraph_stage":"image","project_storage":"shot_images","frontend_continue":"enterShotImageGeneration"},
+    {"stage":"video","startup_recovery":"project_stage_state","langgraph_stage":"video","project_storage":"shot_videos","frontend_continue":"enterShotVideoGeneration"},
+    {"stage":"audio","startup_recovery":"project_stage_state","langgraph_stage":"audio","project_storage":"audio","frontend_continue":"mergeEpisodes"},
+    {"stage":"subtitle","startup_recovery":"project_stage_state","langgraph_stage":"subtitle","project_storage":"subtitle","frontend_continue":"mergeEpisodes"},
+    {"stage":"composition","startup_recovery":"project_stage_state","langgraph_stage":"composition","project_storage":"merged_episodes","frontend_continue":"generateFinalVideo"},
+    {"stage":"review_export","startup_recovery":"project_stage_state","langgraph_stage":"review_export","project_storage":"final_audit","frontend_continue":"auditFinalEpisodes"}
+  ]
+}
