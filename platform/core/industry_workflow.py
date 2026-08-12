@@ -8,7 +8,9 @@ class IndustryWorkflowError(ValueError):pass
 class IndustryWorkflow:
  workflow_id:str;industry_id:str;created_by_identity_id:str;robot_ids:tuple[str,...];edges:tuple[tuple[str,str],...];mode:str;version:int=1
 class IndustryWorkflowService:
- def __init__(self,orchestrator):self.orchestrator=orchestrator;self.workflows={};self.executors={};self._lock=RLock();self._active_workflows:set[str]=set();self._active_robots:set[str]=set()
+ def __init__(self,orchestrator):
+  if not all(callable(getattr(orchestrator,name,None)) for name in ("compile","invoke")):raise IndustryWorkflowError("workflow orchestrator contract is invalid")
+  self.orchestrator=orchestrator;self.workflows={};self.executors={};self._lock=RLock();self._active_workflows:set[str]=set();self._active_robots:set[str]=set()
  def bind_executor(self,robot_id:str,executor:Callable):
   robot_id=str(robot_id).strip()
   if not robot_id or not callable(executor):raise IndustryWorkflowError("workflow robot and executor are required")
@@ -16,6 +18,7 @@ class IndustryWorkflowService:
    if robot_id in self._active_robots:raise IndustryWorkflowError("workflow executor is active")
    self.executors[robot_id]=executor
  def execute(self,configuration,changes:Mapping[str,Any],confirmed_by_identity_id:str)->Mapping[str,Any]:
+  if not isinstance(changes,Mapping):raise IndustryWorkflowError("workflow changes must be a mapping")
   operation=changes.get("operation");workflow_id=str(changes.get("workflow_id",""))
   identity_id=str(confirmed_by_identity_id or "").strip()
   if not identity_id:raise IndustryWorkflowError("workflow identity is required")
@@ -38,13 +41,17 @@ class IndustryWorkflowService:
     item=replace(item,edges=item.edges+((source,target),),version=item.version+1)
     with self._lock:self.workflows[workflow_id]=item
    elif operation=="run":
+    thread_id=str(changes.get("thread_id",workflow_id)).strip();inputs=changes.get("inputs",{})
+    if not thread_id or not isinstance(inputs,Mapping):raise IndustryWorkflowError("workflow run contract is invalid")
     with self._lock:
      missing=set(item.robot_ids)-self.executors.keys();executors={r:self.executors[r] for r in item.robot_ids if r in self.executors}
     if missing:raise IndustryWorkflowError("workflow robot executors are not bound")
     if item.mode=="branching":raise IndustryWorkflowError("branching workflow requires explicit route configuration")
     with self._lock:self._active_workflows.add(workflow_id);self._active_robots.update(item.robot_ids)
     try:
-     self.orchestrator.compile(workflow_id,executors,mode=item.mode);result=self.orchestrator.invoke(workflow_id,str(changes.get("thread_id",workflow_id)),changes.get("inputs",{}));return {"workflow_id":workflow_id,"version":item.version,"result":dict(result)}
+     self.orchestrator.compile(workflow_id,executors,mode=item.mode);result=self.orchestrator.invoke(workflow_id,thread_id,inputs)
+     if not isinstance(result,Mapping):raise IndustryWorkflowError("workflow result must be a mapping")
+     return {"workflow_id":workflow_id,"version":item.version,"result":dict(result)}
     finally:
      with self._lock:self._active_workflows.discard(workflow_id);self._active_robots.difference_update(item.robot_ids)
    elif operation=="modify":

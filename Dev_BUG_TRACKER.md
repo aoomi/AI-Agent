@@ -3308,3 +3308,5 @@
 - 第一百四十五项自动测试与稽查：列表values/task_states及字符串references动态拒绝；上下文与scope隔离关联`10 passed`（另`8 subtests passed`），Python编译与diff门禁通过。
 - 第一百四十六项稽查首败与整改：AgentConfigurationStore不验证models协议，create/update settings依赖Mapping假设，可选model空字符串被静默回退，Skill能力/权限允许空元素。现构造、版本写入和Skill解析均在历史变更前失败关闭。
 - 第一百四十六项自动测试与稽查：坏registry与列表settings动态拒绝；配置和会话关联`23 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
+- 第一百四十七项稽查首败与整改：IndustryWorkflowService不验证orchestrator协议，execute changes/inputs及invoke result依赖Mapping假设，空thread可进入Graph。现构造和run入口在活动状态及真实编排副作用前完整失败关闭。
+- 第一百四十七项自动测试与稽查：坏orchestrator动态拒绝，合法工作流行为保持；行业工作流关联`5 passed`（另`4 subtests passed`），Python编译与diff门禁通过。
