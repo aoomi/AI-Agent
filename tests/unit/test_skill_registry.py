@@ -43,6 +43,14 @@ class SkillRegistryTest(unittest.TestCase):
         with self.assertRaisesRegex(SkillRegistryError, "entry_point"):
             SkillRegistry(self.root).scan()
 
+    def test_anonymous_lookup_and_sensitive_metadata_are_rejected(self) -> None:
+        registry=SkillRegistry(self.root)
+        with self.assertRaisesRegex(SkillRegistryError,"required"):registry.get("")
+        self.write_skill("plugin_a","writer","writer")
+        manifest=self.root/"plugin_a/skills/writer/manifest.yaml"
+        manifest.write_text(manifest.read_text(encoding="utf-8")+"transport:\n  headers:\n    Authorization: Bearer plaintext\n",encoding="utf-8")
+        with self.assertRaisesRegex(SkillRegistryError,"sensitive fields"):registry.scan()
+
 
 if __name__ == "__main__":
     unittest.main()

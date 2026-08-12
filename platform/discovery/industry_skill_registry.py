@@ -24,6 +24,8 @@ class IndustrySkillRegistry:
     found[item.skill_id]=item
   with self._lock:self._skills=found;return tuple(found[key] for key in sorted(found))
  def get(self,skill_id:str)->IndustrySkillDefinition:
+  skill_id=skill_id.strip()
+  if not skill_id:raise IndustrySkillRegistryError("industry skill_id is required")
   with self._lock:
    try:return self._skills[skill_id]
    except KeyError as error:raise IndustrySkillRegistryError("industry skill is not registered") from error

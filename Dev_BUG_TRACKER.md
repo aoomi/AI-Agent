@@ -3224,3 +3224,5 @@
 - 第一百零三项自动测试与稽查：空agent、skill、scoped tenant、status目标及注册Skill五类动态拒绝；Agent注册、调度流水线和行业机器人关联`15 passed`，Python编译与diff门禁通过。
 - 第一百零四项稽查首败与整改：ModelRegistry.get接受空ID并伪装unknown，set_enabled接受整数等非布尔值写入定义，select允许空能力集合和空preferred ID，导致不受约束选择或模糊错误。现四类边界在共享模型快照访问前失败关闭。
 - 第一百零四项自动测试与稽查：空model、整数enabled、空能力及空preferred四类动态拒绝；模型注册、Agent配置与会话关联`31 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
+- 第一百零五项稽查首败与整改：SkillRegistry会把manifest除核心字段外的任意metadata发布给Agent配置和系统提示，原入口可携带Authorization/client_secret；基础与行业get也接受空ID并伪装未知。现基础manifest递归过滤六类敏感键，两类读取统一失败关闭匿名ID。
+- 第一百零五项自动测试与稽查：嵌套Authorization manifest和基础/行业空ID均动态拒绝；基础Skill、系统Agent和行业机器人关联`7 passed`，Python编译与diff门禁通过。

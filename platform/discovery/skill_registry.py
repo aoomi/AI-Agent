@@ -44,6 +44,8 @@ class SkillRegistry:
             return tuple(discovered.values())
 
     def get(self, skill_id: str) -> SkillDefinition:
+        skill_id=skill_id.strip()
+        if not skill_id:raise SkillRegistryError("skill_id is required")
         with self._lock:
             try: return self._skills[skill_id]
             except KeyError as error: raise SkillRegistryError(f"unknown skill_id: {skill_id}") from error
@@ -72,9 +74,17 @@ class SkillRegistry:
             raise SkillRegistryError("entry_point must reference a file inside the Skill directory")
         plugin_id = resolved.parents[2].name
         metadata = {key: value for key, value in raw.items() if key not in values}
+        if self._contains_sensitive_key(metadata):raise SkillRegistryError("Skill metadata contain sensitive fields")
         return SkillDefinition(
             **values,
             plugin_id=plugin_id,
             manifest_path=resolved,
             metadata=MappingProxyType(metadata),
         )
+
+    @staticmethod
+    def _contains_sensitive_key(value: Any) -> bool:
+        forbidden=("secret","token","password","api_key","authorization","credential")
+        if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or SkillRegistry._contains_sensitive_key(item) for key,item in value.items())
+        if isinstance(value,(list,tuple,set,frozenset)):return any(SkillRegistry._contains_sensitive_key(item) for item in value)
+        return False
