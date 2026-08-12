@@ -20,6 +20,14 @@ EVENT_TYPES = frozenset(
         "ASSET_STATUS_CHANGED",
     }
 )
+_SENSITIVE_KEY_PARTS = ("secret", "token", "password", "api_key", "authorization", "credential")
+
+
+def _contains_sensitive_key(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return any(any(word in str(key).lower() for word in _SENSITIVE_KEY_PARTS) or _contains_sensitive_key(item) for key, item in value.items())
+    if isinstance(value, (list, tuple, set, frozenset)): return any(_contains_sensitive_key(item) for item in value)
+    return False
 
 
 class EventBusError(ValueError):
@@ -43,6 +51,8 @@ class PublishedEvent:
             raise EventBusError("project_id must not be empty")
         if not self.payload:
             raise EventBusError("payload must not be empty")
+        if _contains_sensitive_key(self.payload):
+            raise EventBusError("event payload contains sensitive fields")
         object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
 
 

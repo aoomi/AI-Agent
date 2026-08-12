@@ -1096,3 +1096,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第九十三项：WorkloadRouter控制边界已拒绝空resource/worker、负estimated_memory及非法remove generation，坏路由或删除请求不再伪装无容量/未删除。路由关联`4 passed`，Python编译与只读diff稽查通过。
 - BUG072第九十四项：SQLite WorkerRegistry的list/reap heartbeat_timeout、remove身份代际及reservation释放ID已统一失败关闭非法控制参数，跨实例发现不再把坏请求伪装空列表或零删除。发现与预留关联`10 passed`，Python编译与只读diff稽查通过。
 - BUG072第九十五项：ProviderAuditLedger已强制非空provider/capability，审计查询同步要求完整tenant/user/project；匿名记录与部分scope读取不再进入共享审计域或伪装空结果。审计与生产集成`7 passed`，Python编译与只读diff稽查通过。
+- BUG072第九十六项：通用PublishedEvent payload已在事件发布模型边界递归拒绝六类敏感组合键，凭据不能进入订阅回调、任务投影或其他事件消费者。事件、投影与任务关联`16 passed`、`3 subtests passed`，Python编译与只读diff稽查通过。

@@ -47,6 +47,15 @@ class EventBusTest(unittest.TestCase):
         with self.assertRaisesRegex(EventBusError, "payload"):
             PublishedEvent("event-1", "PROJECT_CREATED", "project-1", identity_context(), {})
 
+    def test_sensitive_event_payload_is_rejected_recursively(self) -> None:
+        for payload in (
+            {"access_token":"plaintext"},
+            {"transport":{"headers":{"Authorization":"Bearer plaintext"}}},
+            {"profiles":[{"client_secret":"plaintext"}]},
+        ):
+            with self.subTest(payload=payload), self.assertRaisesRegex(EventBusError, "sensitive fields"):
+                PublishedEvent("event-1", "PROJECT_CREATED", "project-1", identity_context(), payload)
+
 
 if __name__ == "__main__":
     unittest.main()

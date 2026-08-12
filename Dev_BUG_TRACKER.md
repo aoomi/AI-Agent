@@ -3206,3 +3206,5 @@
 - 第九十四项自动测试与稽查：零超时、负超时、空worker、零代际及空reservation五类动态拒绝；发现、heartbeat与共享预留关联`10 passed`，Python编译与diff门禁通过。
 - 第九十五项稽查首败与整改：ProviderAudit record仅强制owner，仍可保存空provider_id/capability；list也接受部分或全空owner并返回空结果，导致不可归因记录和调用契约错误无法审计。现记录与查询边界均在共享列表访问前失败关闭必填身份。
 - 第九十五项自动测试与稽查：空provider、空capability及三类部分owner查询全部动态拒绝；provider审计与生产集成`7 passed`，Python编译与diff门禁通过。
+- 第九十六项稽查首败与整改：PublishedEvent payload会广播给任意进程内订阅者并进入任务投影，但原模型只检查非空，可携带access_token、嵌套Authorization或client_secret扩散到观测/状态消费者。现事件构造边界递归拒绝六类敏感组合键。
+- 第九十六项自动测试与稽查：顶层、对象嵌套和数组嵌套三类敏感事件均在publish前拒绝；事件总线、任务投影与TaskService关联`16 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
