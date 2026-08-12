@@ -200,6 +200,7 @@ def _normalise_labels(labels: Iterable[tuple[str, Any]]) -> tuple[tuple[str, str
         if any(not isinstance(item, (list, tuple)) or len(item) != 2 for item in pairs):
             raise ObservabilityError("metric labels must be key-value pairs")
         if any(not isinstance(item[0],str) or not item[0] for item in pairs):raise ObservabilityError("metric labels must contain string keys")
+        if any(isinstance(item[1],bool) or not isinstance(item[1],(str,int,float)) or isinstance(item[1],float) and not math.isfinite(item[1]) for item in pairs):raise ObservabilityError("metric label values must be finite scalars")
         normalised = tuple(sorted((item[0], str(item[1])) for item in pairs))
     except TypeError as error:
         raise ObservabilityError("metric labels must be key-value pairs") from error

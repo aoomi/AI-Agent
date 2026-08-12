@@ -3512,3 +3512,5 @@
 - 第二百四十七项自动测试与稽查：11阶段LangGraph/project storage登记唯一性与全部frontend continue入口存在性门禁；Stage登记、前端类型检查、Python编译与diff门禁通过。
 - 第二百四十八项稽查首败与整改：TraceRecorder先append内存spans再调用exporter，持久失败后进程内仍显示成功记录，违反可观测性持久导出一致性。现只在export成功后append。
 - 第二百四十八项自动测试与稽查：注入失败exporter后异常透传且spans保持空；可观测性关联回归、Python编译与diff门禁通过。
+- 第二百四十九项稽查首败与整改：指标label值对任意运行时对象使用`str(...)`，对象地址、NaN或布尔可形成不稳定/含混时序标签。现只允许有限字符串或数值标量。
+- 第二百四十九项自动测试与稽查：NaN、布尔及任意对象label动态拒绝；可观测性关联回归、Python编译与diff门禁通过。

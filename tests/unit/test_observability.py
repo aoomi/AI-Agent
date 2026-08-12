@@ -76,6 +76,8 @@ class ObservabilityTest(unittest.TestCase):
    with self.assertRaises(ObservabilityError):metrics.increment("requests_total",invalid)
    with self.assertRaises(ObservabilityError):metrics.gauge("queue_depth",invalid)
   with self.assertRaises(ObservabilityError):metrics.gauge("queue_depth",1,labels=(("bad-key","x"),))
+  for label in (float("nan"),True,object()):
+   with self.subTest(label=label),self.assertRaisesRegex(ObservabilityError,"finite scalars"):metrics.gauge("queue_depth",1,labels=(("pool",label),))
  def test_sensitive_metric_labels_cannot_reach_any_persistent_exporter(self):
   with tempfile.TemporaryDirectory() as directory:
    events=Path(directory)/"events.jsonl";prometheus=Path(directory)/"metrics.prom"
