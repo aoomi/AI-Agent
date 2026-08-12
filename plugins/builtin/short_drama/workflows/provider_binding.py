@@ -22,7 +22,10 @@ class ShortDramaProviderBindings:
             return {key:cls._provider_inputs(item) for key,item in value.items()}
         if isinstance(value,(list,tuple)):return [cls._provider_inputs(item) for item in value]
         return value
-    def _invoke(self,capability:str,inputs:Mapping[str,Any])->Any:return self.registry.invoke(self.routes[capability],capability,self._provider_inputs(inputs)).output
+    def _invoke(self,capability:str,inputs:Mapping[str,Any])->Any:
+        if not isinstance(capability,str) or capability not in self.REQUIRED or capability not in self.routes:raise ShortDramaProviderBindingError("provider capability is not registered")
+        if not isinstance(inputs,Mapping):raise ShortDramaProviderBindingError("provider inputs must be an object")
+        return self.registry.invoke(self.routes[capability],capability,self._provider_inputs(inputs)).output
     def generate(self,capability:str,inputs:Mapping[str,Any]):
         output=self._invoke(capability,inputs)
         if capability in {"short_drama.outline","short_drama.script","short_drama.storyboard","short_drama.asset_catalog"}:
