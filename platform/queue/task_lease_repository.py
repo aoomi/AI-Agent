@@ -16,6 +16,8 @@ class TaskLeaseError(RuntimeError):
 
 class TaskLeaseRepository:
     def __init__(self, database: Path) -> None:
+        if not isinstance(database,Path):
+            raise TaskLeaseError("task lease database must be a Path")
         self.database = database.resolve(); self.database.parent.mkdir(parents=True, exist_ok=True); self._lock = RLock()
         with self._connection() as connection:
             connection.execute("""CREATE TABLE IF NOT EXISTS task_leases (

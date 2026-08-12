@@ -9,6 +9,10 @@ from ai_agent_queue import TaskLeaseError, TaskLeaseRepository
 
 
 class TaskLeaseNumericContractTest(unittest.TestCase):
+    def test_repository_requires_path_database(self) -> None:
+        with self.assertRaisesRegex(TaskLeaseError,"database must be a Path"):
+            TaskLeaseRepository("leases.db")  # type: ignore[arg-type]
+
     def test_ttl_rejects_boolean_and_non_numeric_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             leases=TaskLeaseRepository(Path(directory)/"leases.db")
