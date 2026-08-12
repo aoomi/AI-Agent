@@ -1166,3 +1166,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百六十三项：会话memory及session/proposal所有权查找已强制字符串身份，数字scope/ID不会泄漏strip异常或进入共享对话域。会话关联回归通过。
 - BUG072第一百六十四项：PlatformConfig直接构造已强制host/environment字符串类型，数字伪值不会泄漏strip异常。平台启动关联回归通过。
 - BUG072第一百六十五项：AgentConfiguration读取、更新及审计身份已强制字符串ID，数字伪值不会泄漏strip异常或进入版本表。配置关联回归通过。
+- BUG072第一百六十六项：LangGraph串并行/分支编译及线程调用已验证字符串身份、Mapping分支和tuple终态集合，畸形Graph定义不会泄漏底层迭代或strip异常。专项关联回归通过。

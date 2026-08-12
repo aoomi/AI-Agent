@@ -18,7 +18,7 @@ class LangGraphOrchestrator:
   if not callable(getattr(selected,"get_tuple",None)) or not callable(getattr(selected,"put",None)):raise LangGraphOrchestratorError("checkpointer contract is invalid")
   self.checkpointer=selected;self._graphs={};self._lock=RLock();self._active:set[tuple[str,str]]=set()
  def compile(self,name:str,executors:Mapping[str,GraphExecutor],*,mode:str="serial",max_attempts:int=3,require_approval:bool=False):
-  if (not name.strip() or not isinstance(executors,Mapping) or not executors or mode not in {"serial","parallel"}
+  if (not isinstance(name,str) or not isinstance(mode,str) or not name.strip() or not isinstance(executors,Mapping) or not executors or mode not in {"serial","parallel"}
       or isinstance(max_attempts,bool) or not isinstance(max_attempts,int) or not 1<=max_attempts<=10
       or not isinstance(require_approval,bool) or any(not str(node).strip() or not callable(executor) for node,executor in executors.items())):raise LangGraphOrchestratorError("invalid graph definition")
   builder=StateGraph(GraphState);nodes=list(executors)
@@ -41,6 +41,10 @@ class LangGraphOrchestrator:
   if not isinstance(inputs,Mapping):raise LangGraphOrchestratorError("graph inputs must be a mapping")
   return self._invoke(name,thread_id,{"inputs":dict(inputs),"outputs":{}})
  def compile_branching(self,name:str,executors:Mapping[str,GraphExecutor],*,entry_node:str,branches:Mapping[str,Mapping[str,str]],terminal_nodes:tuple[str,...],max_attempts:int=3):
+  if (not isinstance(name,str) or not isinstance(entry_node,str) or not isinstance(executors,Mapping) or not isinstance(branches,Mapping)
+      or not isinstance(terminal_nodes,tuple) or any(not isinstance(node,str) or not node.strip() for node in terminal_nodes)
+      or any(not isinstance(source,str) or not isinstance(paths,Mapping) or any(not isinstance(choice,str) or not choice.strip() or not isinstance(target,str) or not target.strip() for choice,target in paths.items()) for source,paths in branches.items())):
+   raise LangGraphOrchestratorError("invalid branching graph")
   nodes=set(executors)
   branch_targets={target for paths in branches.values() for target in paths.values()}
   if (not name.strip() or entry_node not in executors or not terminal_nodes
@@ -60,7 +64,7 @@ class LangGraphOrchestrator:
   if not isinstance(approved,bool):raise LangGraphOrchestratorError("graph approval must be boolean")
   return self._invoke(name,thread_id,Command(resume=approved))
  def _invoke(self,name:str,thread_id:str,value:Any)->Mapping[str,Any]:
-  if not name.strip() or not thread_id.strip():raise LangGraphOrchestratorError("graph name and thread_id are required")
+  if not isinstance(name,str) or not isinstance(thread_id,str) or not name.strip() or not thread_id.strip():raise LangGraphOrchestratorError("graph name and thread_id are required")
   key=(name,thread_id)
   with self._lock:
    if key in self._active:raise LangGraphOrchestratorError("graph thread is already active")

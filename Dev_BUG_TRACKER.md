@@ -3346,3 +3346,5 @@
 - 第一百六十四项自动测试与稽查：数字host/environment动态失败关闭；平台启动关联回归、Python编译与diff门禁通过。
 - 第一百六十五项稽查首败与整改：AgentConfiguration的agent/model/updater身份仍直接strip运行时值，数字输入泄漏AttributeError。现版本读写与审计身份边界统一验证字符串。
 - 第一百六十五项自动测试与稽查：数字agent动态失败关闭；配置关联回归、Python编译与diff门禁通过。
+- 第一百六十六项稽查首败与整改：LangGraph compile/_invoke对name/thread直接strip，compile_branching又在验证Mapping/tuple前迭代分支，数字ID或列表结构会泄漏底层异常。现两类编译和线程执行入口完整验证运行时结构。
+- 第一百六十六项自动测试与稽查：数字graph/thread、列表branches/terminal等畸形控制动态失败关闭；专项关联回归、Python编译与diff门禁通过。
