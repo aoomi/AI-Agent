@@ -116,6 +116,7 @@ class ResourceScheduler:
                 self._condition.notify_all()
 
     def cancel_job(self, job_id: str, *, tenant_id: str = "", user_id: str = "", project_id: str = "") -> int:
+        if not str(job_id).strip():raise ResourceSchedulerError("invalid resource cancellation")
         scope = tuple(str(value or "").strip() for value in (tenant_id, user_id, project_id))
         if any(scope) and not all(scope):raise ResourceSchedulerError("tenant_id, user_id and project_id must be supplied together")
         with self._condition:

@@ -1427,6 +1427,8 @@ class ProductionControlTests(unittest.TestCase):
             threading.Event().wait(.005)
         self.assertEqual(scheduler.cancel_job("cancel-me"), 1); release.set(); holder.join(); thread.join()
         self.assertEqual(result, ["resource request cancelled"])
+        with self.assertRaisesRegex(ResourceSchedulerError, "invalid resource cancellation"):
+            scheduler.cancel_job(" ")
 
     def test_resource_scheduler_pools_allow_safe_parallelism_and_keep_gpu_serial(self):
         scheduler = ResourceScheduler(

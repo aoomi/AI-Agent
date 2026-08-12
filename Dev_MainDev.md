@@ -1071,3 +1071,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第六十八项：SQLite worker发现入口已与内存路由统一校验身份、能力、容量及generation，畸形heartbeat不能成为跨实例权威事实。
 - BUG072第六十九项：私有部署state/object/queue适配器已拒绝空tenant，state同时拒绝空namespace/key，消除匿名共享持久域。
 - BUG072第七十项：worker快照现统一要求`0 <= active <= capacity`且generation为正，超容量或非法代际不会进入路由/发现视图。
+- BUG072第七十一项：资源取消入口已拒绝空job_id，与领取身份契约一致，缺目标请求不再伪装零取消成功。
