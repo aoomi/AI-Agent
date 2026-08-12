@@ -100,6 +100,15 @@ class WorkerNumericContractTest(unittest.TestCase):
             with self.assertRaisesRegex(WorkloadRoutingError,"new generation"):registry.heartbeat(self._worker(endpoint="new",heartbeat_at=2.0))
             self.assertEqual(registry.heartbeat(self._worker(endpoint="new",heartbeat_at=2.0,generation=2)).generation,2)
 
+    def test_registry_rejects_stale_generation_and_returns_authoritative_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            registry=WorkerRegistry(Path(directory)/"workers.db")
+            current=self._worker(endpoint="new",heartbeat_at=3.0,generation=2)
+            registry.heartbeat(current)
+            with self.assertRaisesRegex(WorkloadRoutingError,"stale worker generation"):
+                registry.heartbeat(self._worker(heartbeat_at=4.0,generation=1))
+            self.assertEqual(registry.heartbeat(self._worker(endpoint="old",heartbeat_at=2.0,generation=2)),current)
+
 
 if __name__ == "__main__":
     unittest.main()

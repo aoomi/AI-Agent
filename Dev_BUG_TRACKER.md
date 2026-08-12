@@ -3460,3 +3460,5 @@
 - 第二百二十一项自动测试与稽查：数字键、Infinity及任意对象输出动态拒绝；安全关联`3 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
 - 第二百二十二项稽查首败与整改：ResourceScheduler仅按ticket管理队列，同tenant/user/project/job可重复claim甚至跨资源池并发，违反同项目同阶段single-flight权威执行约束。现同scope job在queued/active集合中保持唯一。
 - 第二百二十二项自动测试与稽查：真实并发active期间重复scoped job动态拒绝；资源调度关联`4 passed`（另`20 subtests passed`），Python编译与diff门禁通过。
+- 第二百二十三项稽查首败与整改：SQLite WorkerRegistry依赖UPSERT的WHERE静默忽略旧generation，却向调用方返回未写入的伪快照；同代旧心跳也有同样返回值偏差。现旧代失败关闭，同代晚到返回台账中的当前权威快照。
+- 第二百二十三项自动测试与稽查：旧generation动态拒绝、同代晚到快照权威返回；worker发现与生产控制关联回归、Python编译与diff门禁通过。

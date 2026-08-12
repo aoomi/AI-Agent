@@ -1223,3 +1223,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百二十项：插件签名验证器返回值已强制真实布尔，整数1等真值不能冒充密码学验签成功。安全关联`5 passed`、`9 subtests passed`。
 - BUG072第二百二十一项：Skill工具输出脱敏已强制非空字符串键、有限数值和受支持JSON类型，数字键/Infinity/任意对象不能经redact后进入日志或调用方。安全关联`3 passed`、`9 subtests passed`。
 - BUG072第二百二十二项：ResourceScheduler已对同owner scope的job实施跨pool single-flight，重复排队或执行请求在资源队列副作用前失败关闭。资源关联`4 passed`、`20 subtests passed`。
+- BUG072第二百二十三项：SQLite WorkerRegistry已显式拒绝旧generation心跳，并对同代晚到心跳返回当前权威快照；持久发现语义与内存路由器的代际/晚到围栏保持一致。
