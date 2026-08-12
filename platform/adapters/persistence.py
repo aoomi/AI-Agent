@@ -10,6 +10,12 @@ class SQLiteStateStore:
  def __init__(self,path:Path):self.path=path;path.parent.mkdir(parents=True,exist_ok=True);self.db=sqlite3.connect(path,check_same_thread=False);self._lock=RLock();self.db.execute("CREATE TABLE IF NOT EXISTS state(tenant TEXT,namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(tenant,namespace,key))");self.db.commit()
  def put(self,tenant,namespace,key,value):
   if not all(str(item).strip() for item in (tenant,namespace,key)):raise PersistenceError("state owner and key are required")
+  forbidden=("secret","token","password","api_key","authorization","credential")
+  def contains_sensitive(item):
+   if isinstance(item,dict):return any(any(word in str(field).lower() for word in forbidden) or contains_sensitive(child) for field,child in item.items())
+   if isinstance(item,(list,tuple,set,frozenset)):return any(contains_sensitive(child) for child in item)
+   return False
+  if contains_sensitive(value):raise PersistenceError("state value contains sensitive fields")
   with self._lock:self.db.execute("INSERT OR REPLACE INTO state VALUES(?,?,?,?)",(tenant,namespace,key,json.dumps(value,sort_keys=True)));self.db.commit()
  def get(self,tenant,namespace,key):
   if not all(str(item).strip() for item in (tenant,namespace,key)):raise PersistenceError("state owner and key are required")
