@@ -3422,3 +3422,5 @@
 - 第二百零二项自动测试与稽查：字符串root、数字industry/field/query动态失败关闭，11个行业机器人注册集成保持通过；行业与注册关联`9 passed`（另`12 subtests passed`），Python编译与diff门禁通过。
 - 第二百零三项稽查首败与整改：ModelDefinition身份/settings、ModelRequirements容器及Registry模型/布尔/选择入口仍依赖静态注解，数字身份、列表settings或任意模型会泄漏异常或污染注册表。现全链运行时契约在共享状态前失败关闭。
 - 第二百零三项自动测试与稽查：九类坏定义/需求/注册/读取/列表/选择控制动态拒绝；模型、配置与会话关联`30 passed`（另`21 subtests passed`），Python编译与diff门禁通过。
+- 第二百零四项稽查首败与整改：LangGraph compile/compile_branching以`str(node)`接受数字executor键，内部_graph也未验证运行时name，畸形节点可能延迟到StateGraph并产生含混身份。现所有节点及Graph读取身份严格要求字符串。
+- 第二百零四项自动测试与稽查：数字串行/分支节点及内部graph name动态失败关闭；Graph单元与集成关联`6 passed`（另`11 subtests passed`），Python编译与diff门禁通过。

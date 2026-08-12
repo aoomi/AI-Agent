@@ -20,7 +20,7 @@ class LangGraphOrchestrator:
  def compile(self,name:str,executors:Mapping[str,GraphExecutor],*,mode:str="serial",max_attempts:int=3,require_approval:bool=False):
   if (not isinstance(name,str) or not isinstance(mode,str) or not name.strip() or not isinstance(executors,Mapping) or not executors or mode not in {"serial","parallel"}
       or isinstance(max_attempts,bool) or not isinstance(max_attempts,int) or not 1<=max_attempts<=10
-      or not isinstance(require_approval,bool) or any(not str(node).strip() or not callable(executor) for node,executor in executors.items())):raise LangGraphOrchestratorError("invalid graph definition")
+      or not isinstance(require_approval,bool) or any(not isinstance(node,str) or not node.strip() or not callable(executor) for node,executor in executors.items())):raise LangGraphOrchestratorError("invalid graph definition")
   builder=StateGraph(GraphState);nodes=list(executors)
   if require_approval:
    def approval(state):return {"approved":bool(interrupt({"action":"manual_takeover","graph":name}))}
@@ -49,7 +49,7 @@ class LangGraphOrchestrator:
   branch_targets={target for paths in branches.values() for target in paths.values()}
   if (not name.strip() or entry_node not in executors or not terminal_nodes
       or isinstance(max_attempts,bool) or not isinstance(max_attempts,int) or not 1<=max_attempts<=10
-      or any(not str(node).strip() or not callable(executor) for node,executor in executors.items()) or not set(branches)<=nodes or not branch_targets<=nodes or not set(terminal_nodes)<=nodes):raise LangGraphOrchestratorError("invalid branching graph")
+      or any(not isinstance(node,str) or not node.strip() or not callable(executor) for node,executor in executors.items()) or not set(branches)<=nodes or not branch_targets<=nodes or not set(terminal_nodes)<=nodes):raise LangGraphOrchestratorError("invalid branching graph")
   builder=StateGraph(GraphState)
   for node,executor in executors.items():
    def run(state,fn=executor,key=node):return {"outputs":{key:fn(state.get("inputs",{}),state.get("outputs",{}))}}
@@ -73,6 +73,7 @@ class LangGraphOrchestrator:
   finally:
    with self._lock:self._active.discard(key)
  def _graph(self,name):
+  if not isinstance(name,str) or not name.strip():raise LangGraphOrchestratorError("graph name is required")
   with self._lock:
    try:return self._graphs[name]
    except KeyError as error:raise LangGraphOrchestratorError("graph is not compiled") from error
