@@ -3101,4 +3101,4 @@
 - 第三十项稽查首败与整改：行业机器人工作流全局按workflow_id存储，创建可静默覆盖同ID，connect/modify/run不验证确认者；异身份可覆盖拓扑或执行已知工作流。现工作流持久记录创建identity，重复创建失败关闭，所有后续操作在编译或执行副作用前精确验权。
 - 第三十项自动测试与稽查：新增重复创建及异身份connect/modify/run拒绝矩阵，行业工作流集成`2 passed`；Python编译与diff门禁通过。
 - 第三十一项稽查首败与整改：通用内存任务队列的operation_key幂等索引只含tenant，不含identity；同租户用户可用相同operation_key命中他人任务，若请求内容相同会直接领取其task对象，否则可制造冲突拒绝服务。现幂等键提升为tenant+identity+operation，和读取/生命周期双重隔离一致。
-- 第三十一项自动测试与稽查：新增同tenant异identity相同operation_key均独立入队动态测试，队列与TaskService关联`13 passed`；Python编译与diff门禁通过。
+- 第三十一项自动测试与稽查：新增同tenant异identity相同operation_key均独立入队动态测试，队列与TaskService关联`11 passed`；Python编译与diff门禁通过。
