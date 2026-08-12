@@ -6,6 +6,7 @@ from collections import defaultdict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
+from threading import RLock
 from typing import Any
 
 from ai_agent_tenant import IdentityContext
@@ -51,21 +52,22 @@ EventHandler = Callable[[PublishedEvent], None]
 class EventBus:
     def __init__(self) -> None:
         self._subscribers: dict[str, list[EventHandler]] = defaultdict(list)
+        self._lock = RLock()
 
     def subscribe(self, event_type: str, handler: EventHandler) -> Callable[[], None]:
         if event_type not in EVENT_TYPES:
             raise EventBusError("event_type is not supported")
-        self._subscribers[event_type].append(handler)
+        with self._lock: self._subscribers[event_type].append(handler)
 
         def unsubscribe() -> None:
-            handlers = self._subscribers[event_type]
-            if handler in handlers:
-                handlers.remove(handler)
+            with self._lock:
+                handlers = self._subscribers[event_type]
+                if handler in handlers: handlers.remove(handler)
 
         return unsubscribe
 
     def publish(self, event: PublishedEvent) -> int:
-        handlers = tuple(self._subscribers.get(event.event_type, ()))
+        with self._lock: handlers = tuple(self._subscribers.get(event.event_type, ()))
         for handler in handlers:
             handler(event)
         return len(handlers)

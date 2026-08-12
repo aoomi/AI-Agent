@@ -3126,3 +3126,5 @@
 - 第四十二项自动测试与稽查：provider注册及短剧绑定关联`4 passed`；Python编译与diff门禁通过。只读确认计数不泄漏且未引入锁内外部调用。
 - 第四十三项稽查首败与整改：ProviderService配置和健康状态双表无锁，重复注册可竞态覆盖，慢健康探针晚到还可覆盖更新的失败计数。现注册/读取/列表原子化；探针锁外执行并以读取的health对象作CAS，状态并发变化时拒绝晚到覆盖。
 - 第四十三项自动测试与稽查：平台启动、管理API及provider契约关联`10 passed`；Python编译与diff门禁通过。只读确认checker网络调用不持锁。
+- 第四十四项稽查首败与整改：同步EventBus订阅表及TaskProgress投影被HTTP/worker线程并发读写但无锁；订阅/取消可丢更新，projection list遍历期间事件写入可失败或暴露不一致快照。现EventBus在锁内复制handler快照后锁外调用，投影写入及get/list快照统一RLock。
+- 第四十四项自动测试与稽查：EventBus、任务投影、TaskService及HTTP任务追踪关联`15 passed`；Python编译与diff门禁通过。
