@@ -3372,3 +3372,5 @@
 - 第一百七十七项自动测试与稽查：坏Agent/Skill及数字model动态失败关闭；配置关联回归、Python编译与diff门禁通过。
 - 第一百七十八项稽查首败与整改：ProviderAdapterRegistry虽记录inflight，却没有受保护的replace/unregister生命周期，无法落实架构v2.2“执行中提供方不得卸载/替换”。现两类热插拔控制均在同一锁内检查权威占用计数。
 - 第一百七十八项自动测试与稽查：真实并发调用期间替换/卸载均失败关闭，自然终态后可卸载；Provider关联回归、Python编译与diff门禁通过。
+- 第一百七十九项稽查首败与整改：ProviderService配置层只能注册且没有inflight生命周期，真实健康检查期间无法安全更新/卸载配置。现探活single-flight、replace及unregister共享同一锁和占用围栏。
+- 第一百七十九项自动测试与稽查：真实并发探活期间替换/卸载均失败关闭，自然终态后可卸载；Provider配置关联回归、Python编译与diff门禁通过。

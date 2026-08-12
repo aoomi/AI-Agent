@@ -1179,3 +1179,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百七十六项：Agent会话绑定与创建已验证Agent/Skill模型和字符串agent/owner身份，畸形对话入口不会泄漏属性异常或查询共享配置。会话关联回归通过。
 - BUG072第一百七十七项：AgentConfiguration create/update已验证AgentInstance、SkillDefinition及字符串model身份，畸形配置对象不会在版本锁内泄漏属性异常。配置关联回归通过。
 - BUG072第一百七十八项：ProviderAdapterRegistry已补齐replace/unregister热插拔生命周期，并以inflight计数围栏阻止执行中提供方被替换或卸载。Provider关联回归通过。
+- BUG072第一百七十九项：ProviderService配置层已补齐replace/unregister与健康检查single-flight围栏，探活中的提供方配置不得被替换或卸载。Provider配置关联回归通过。
