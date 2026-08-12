@@ -3374,3 +3374,5 @@
 - 第一百七十八项自动测试与稽查：真实并发调用期间替换/卸载均失败关闭，自然终态后可卸载；Provider关联回归、Python编译与diff门禁通过。
 - 第一百七十九项稽查首败与整改：ProviderService配置层只能注册且没有inflight生命周期，真实健康检查期间无法安全更新/卸载配置。现探活single-flight、replace及unregister共享同一锁和占用围栏。
 - 第一百七十九项自动测试与稽查：真实并发探活期间替换/卸载均失败关闭，自然终态后可卸载；Provider配置关联回归、Python编译与diff门禁通过。
+- 第一百八十项稽查首败与整改：ProductionLedger使用`str/int`宽松转换身份和CAS控制，布尔generation/expected_revision或数字scope可进入权威事务边界。现身份、阶段、scope及代际/修订均按声明类型失败关闭。
+- 第一百八十项自动测试与稽查：数字身份/stage/scope及三类伪generation、布尔revision动态拒绝；专项回归、Python编译与diff门禁通过。

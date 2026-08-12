@@ -40,7 +40,9 @@ class ProductionLedgerError(ValueError):
 
 
 def canonical_stage(value: object) -> str:
-    stage = str(value or "").strip()
+    if not isinstance(value, str):
+        raise ProductionLedgerError("production stage must be a string")
+    stage = value.strip()
     stage = STAGE_ALIASES.get(stage, stage)
     if stage not in CANONICAL_STAGES:
         raise ProductionLedgerError(f"unknown production stage: {stage}")
@@ -191,7 +193,9 @@ class ProductionLedger:
 
     @staticmethod
     def _identity(payload: Mapping[str, Any]) -> tuple[str, str, str]:
-        values = tuple(str(payload.get(key, "")).strip() for key in ("tenant_id", "user_id", "project_id"))
+        raw = tuple(payload.get(key, "") for key in ("tenant_id", "user_id", "project_id"))
+        if any(not isinstance(value,str) for value in raw):raise ProductionLedgerError("tenant_id, user_id and project_id are required")
+        values = tuple(value.strip() for value in raw)
         if not all(values):
             raise ProductionLedgerError("tenant_id, user_id and project_id are required")
         return values  # type: ignore[return-value]
@@ -199,8 +203,9 @@ class ProductionLedger:
     @staticmethod
     def _key(payload: Mapping[str, Any]) -> tuple[str, str, str]:
         stage = canonical_stage(payload.get("stage"))
-        scope_type = str(payload.get("scope_type", "")).strip()
-        scope_id = str(payload.get("scope_id", "")).strip()
+        scope_type,scope_id=payload.get("scope_type", ""),payload.get("scope_id", "")
+        if not isinstance(scope_type,str) or not isinstance(scope_id,str):raise ProductionLedgerError("valid scope_type and scope_id are required")
+        scope_type,scope_id=scope_type.strip(),scope_id.strip()
         if scope_type not in SCOPE_TYPES or not scope_id:
             raise ProductionLedgerError("valid scope_type and scope_id are required")
         return stage, scope_type, scope_id
@@ -252,12 +257,13 @@ class ProductionLedger:
         stage, scope_type, scope_id = self._key(payload)
         if not _is_upscale_scope(stage, scope_type, scope_id):
             raise ProductionLedgerError("authoritative upscale commit requires an upscale episode scope")
-        try:
-            generation = int(payload.get("generation") or 0)
-        except (TypeError, ValueError):
-            generation = 0
-        fingerprint = str(payload.get("content_fingerprint") or "").strip()
-        audit_batch_id = str(payload.get("audit_batch_id") or "").strip()
+        generation = payload.get("generation")
+        fingerprint = payload.get("content_fingerprint")
+        audit_batch_id = payload.get("audit_batch_id")
+        if (isinstance(generation,bool) or not isinstance(generation,int) or not isinstance(fingerprint,str)
+                or not isinstance(audit_batch_id,str)):
+            raise ProductionLedgerError("authoritative upscale generation, fingerprint and audit batch are required")
+        fingerprint,audit_batch_id=fingerprint.strip(),audit_batch_id.strip()
         if generation < 1 or not fingerprint or not audit_batch_id:
             raise ProductionLedgerError("authoritative upscale generation, fingerprint and audit batch are required")
         production_json = _nonempty_evidence(payload.get("production_evidence"), "production_evidence")
@@ -319,10 +325,7 @@ class ProductionLedger:
             current_revision = int(current["revision"] or 0) if current else 0
             expected_revision = payload.get("expected_revision")
             if expected_revision is not None:
-                try:
-                    expected_revision = int(expected_revision)
-                except (TypeError, ValueError):
-                    raise ProductionLedgerError("expected_revision must be an integer") from None
+                if isinstance(expected_revision,bool) or not isinstance(expected_revision,int):raise ProductionLedgerError("expected_revision must be an integer")
                 if expected_revision != current_revision:
                     raise ProductionLedgerError("production scope CAS conflict")
             progress = json.loads(current["progress_json"]) if current else {"completed": 0, "total": 1}
