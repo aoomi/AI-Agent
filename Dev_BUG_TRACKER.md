@@ -3400,3 +3400,5 @@
 - 第一百九十一项自动测试与稽查：坏allowlist、request、Path、manifest、permissions及最低版本动态失败关闭；安全关联`4 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
 - 第一百九十二项稽查首败与整改：PublishedEvent对event/project直接strip，subscribe又依赖集合比较接受任意类型，数字字段会泄漏属性异常或被含混判为未知事件。现事件信封与订阅边界共享严格字符串契约。
 - 第一百九十二项自动测试与稽查：数字event/project/type及订阅type动态失败关闭；事件、投影与任务集成关联`14 passed`（另`8 subtests passed`），Python编译与diff门禁通过。
+- 第一百九十三项稽查首败与整改：Provider韧性层对身份直接strip并信任tuple回退链，clock/recovery允许NaN/Infinity进入60秒窗口或熔断恢复计算。现身份、容器与所有时钟结果在状态写入前严格失败关闭。
+- 第一百九十三项自动测试与稽查：数字provider、列表回退链、非有限恢复窗/限流时钟/熔断时钟动态拒绝；韧性关联`7 passed`（另`13 subtests passed`），Python编译与diff门禁通过。

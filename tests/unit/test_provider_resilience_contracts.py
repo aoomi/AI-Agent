@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import math
 
 from ai_agent_circuit_breaker import CircuitBreaker, ResilientProviderInvoker, SlidingWindowRateLimiter
 
@@ -10,6 +11,7 @@ class ProviderResilienceContractTest(unittest.TestCase):
         for build in (
             lambda: SlidingWindowRateLimiter(True), lambda: SlidingWindowRateLimiter(1, clock=None),
             lambda: CircuitBreaker(True), lambda: CircuitBreaker(recovery_seconds=True),
+            lambda: CircuitBreaker(recovery_seconds=math.inf),
             lambda: ResilientProviderInvoker(None), lambda: ResilientProviderInvoker(lambda *_: None, max_retries=True),
             lambda: ResilientProviderInvoker(lambda *_: None, rate_limit=True),
         ):
@@ -22,6 +24,11 @@ class ProviderResilienceContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"inputs must be a mapping"):
             invoker.call("provider","video",[])  # type: ignore[arg-type]
         self.assertEqual(calls,[])
+
+    def test_runtime_identities_and_non_finite_clocks_are_rejected(self) -> None:
+        invoker=ResilientProviderInvoker(lambda *_: None)
+        for call in (lambda:invoker.call(1,"video",{}),lambda:invoker.call("p","video",{},fallback_provider_ids=["q"]),lambda:CircuitBreaker(clock=lambda:math.nan).before_call("p"),lambda:SlidingWindowRateLimiter(1,clock=lambda:math.inf).acquire("p"),lambda:CircuitBreaker().status(1)):
+            with self.subTest(call=call),self.assertRaises(ValueError):call()
 
 
 if __name__ == "__main__":
