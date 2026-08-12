@@ -19,6 +19,8 @@ def test_durable_tasks_require_full_owner_scope_and_immutable_task_class():
         repository.upsert("job", "text", owned())
         with pytest.raises(ValueError, match="another task class"):
             repository.upsert("job", "video", owned("completed"))
+        with pytest.raises(ValueError, match="owner scope is immutable"):
+            repository.upsert("job", "text", {**owned("completed"), "user_id": "other"})
         assert repository.get("job", tenant_id="tenant", user_id="user", project_id="project")["task_class"] == "text"
         assert repository.get("job", tenant_id="tenant", user_id="other", project_id="project") is None
 

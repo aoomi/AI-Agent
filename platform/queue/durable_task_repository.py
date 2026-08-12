@@ -81,9 +81,16 @@ class DurableTaskRepository:
         applied: list[str] = []
         with self._lock, self._connection() as connection:
             for job_id, values in prepared:
-                current = connection.execute("SELECT payload_json,task_class FROM durable_tasks WHERE job_id=?", (job_id,)).fetchone()
+                current = connection.execute(
+                    "SELECT payload_json,task_class,tenant_id,user_id,project_id FROM durable_tasks WHERE job_id=?",
+                    (job_id,),
+                ).fetchone()
                 if current and current["task_class"] != str(task_class):
                     raise ValueError("durable task job_id belongs to another task class")
+                if current and tuple(current[key] for key in ("tenant_id", "user_id", "project_id")) != tuple(
+                    values[key] for key in ("tenant_id", "user_id", "project_id")
+                ):
+                    raise ValueError("durable task owner scope is immutable")
                 if current and current["task_class"] == str(task_class) and current["payload_json"] == values["payload_json"]:
                     continue
                 self._execute_upsert(connection, values)

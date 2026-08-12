@@ -3194,3 +3194,5 @@
 - 第八十八项自动测试与稽查：数组嵌套client_secret动态证明memory为空且会话仍仅系统首条；配置、会话与管理API关联`26 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
 - 第八十九项稽查首败与整改：QueuedTask.payload作为通用队列长期快照会被详情、列表和幂等比较读取，原模型只复制Mapping，可把access_token、Authorization或client_secret带入共享任务状态。现任务构造前递归拒绝六类敏感组合键，所有enqueue入口统一受约束。
 - 第八十九项自动测试与稽查：顶层、对象嵌套和数组嵌套三类敏感payload均构造失败；队列、服务、集成及E2E关联`19 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
+- 第九十项稽查首败与整改：DurableTaskRepository仅阻止同job_id跨task_class覆盖，却允许相同task_class用另一tenant/user/project更新同一全局主键，原所有者记录会被直接迁移且旧scope消失。现写事务读取当前owner并要求三字段不可变，检查严格早于upsert和outbox写入。
+- 第九十项自动测试与稽查：同job同task_class异user动态拒绝，旧owner读取仍命中且状态未变；持久任务、outbox和投影关联`13 passed`，Python编译与diff门禁通过。
