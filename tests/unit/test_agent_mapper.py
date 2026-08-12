@@ -29,6 +29,15 @@ class AgentMapperTest(unittest.TestCase):
         with self.assertRaises(AgentMappingError):
             mapper.bind(skill("director", "Director"), AgentInstance("agent-1", "director", "Director"))
 
+    def test_anonymous_mapping_controls_are_rejected(self) -> None:
+        mapper=AgentMapper()
+        for operation in (
+            lambda:mapper.agent_for(""), lambda:mapper.skill_for(""),
+            lambda:mapper.bind(skill("", "Writer"),AgentInstance("agent","","Writer")),
+            lambda:mapper.bind(skill(),AgentInstance("","writer","Writer")),
+        ):
+            with self.assertRaisesRegex(AgentMappingError,"required"):operation()
+
 
 if __name__ == "__main__":
     unittest.main()

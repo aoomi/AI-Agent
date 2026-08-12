@@ -3226,3 +3226,5 @@
 - 第一百零四项自动测试与稽查：空model、整数enabled、空能力及空preferred四类动态拒绝；模型注册、Agent配置与会话关联`31 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
 - 第一百零五项稽查首败与整改：SkillRegistry会把manifest除核心字段外的任意metadata发布给Agent配置和系统提示，原入口可携带Authorization/client_secret；基础与行业get也接受空ID并伪装未知。现基础manifest递归过滤六类敏感键，两类读取统一失败关闭匿名ID。
 - 第一百零五项自动测试与稽查：嵌套Authorization manifest和基础/行业空ID均动态拒绝；基础Skill、系统Agent和行业机器人关联`7 passed`，Python编译与diff门禁通过。
+- 第一百零六项稽查首败与整改：AgentMapper.bind只比较Skill与Agent字段相等，可让双方空skill/name的畸形对象通过并写入双向表；agent_for/skill_for也把空ID伪装未映射。现绑定和两类读取均在索引访问前强制可追溯身份。
+- 第一百零六项自动测试与稽查：空skill、空agent及两类空读取动态拒绝；Agent映射、注册与API关联`9 passed`，Python编译与diff门禁通过。

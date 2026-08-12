@@ -18,6 +18,8 @@ class AgentMapper:
         self._lock = RLock()
 
     def bind(self, skill: SkillDefinition, agent: AgentInstance) -> None:
+        if not skill.skill_id.strip() or not skill.name.strip() or not agent.agent_id.strip():
+            raise AgentMappingError("Skill and agent identities are required")
         if agent.skill_id != skill.skill_id or agent.name != skill.name:
             raise AgentMappingError("agent must preserve Skill identity and name")
         with self._lock:
@@ -26,11 +28,15 @@ class AgentMapper:
             self._skill_to_agent[skill.skill_id] = agent; self._agent_to_skill[agent.agent_id] = skill
 
     def agent_for(self, skill_id: str) -> AgentInstance:
+        skill_id=skill_id.strip()
+        if not skill_id:raise AgentMappingError("skill_id is required")
         with self._lock:
             try: return self._skill_to_agent[skill_id]
             except KeyError as error: raise AgentMappingError(f"unmapped skill_id: {skill_id}") from error
 
     def skill_for(self, agent_id: str) -> SkillDefinition:
+        agent_id=agent_id.strip()
+        if not agent_id:raise AgentMappingError("agent_id is required")
         with self._lock:
             try: return self._agent_to_skill[agent_id]
             except KeyError as error: raise AgentMappingError(f"unmapped agent_id: {agent_id}") from error
