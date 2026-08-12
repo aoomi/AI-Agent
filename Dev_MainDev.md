@@ -1250,3 +1250,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百四十七项：阶段登记门禁已同时在后端启动与前端模块加载阶段强制LangGraph与项目存储投影一对一唯一；继续入口保留audio/subtitle合法共享合片入口并仍逐阶段验证存在。
 - BUG072第二百四十八项：TraceRecorder已改为持久export成功后再发布内存span，exporter失败时不再留下伪成功的进程内记录。
 - BUG072第二百四十九项：Prometheus/指标label value已限定为有限字符串或数值标量，布尔、NaN/Infinity和任意对象不会被`str(...)`含混转换后进入时序标签。
+- BUG072第二百五十项：TaskProgressProjection已只接受队列法定状态并规范化task_id，未知生命周期不会进入实时投影或形成无法查询的空白键。

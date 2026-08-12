@@ -25,6 +25,7 @@ class TaskProgress:
 
 
 class TaskProgressProjection:
+    STATUSES = frozenset({"queued","running","waiting_human","paused","completed","failed","cancelled"})
     def __init__(self, events: EventBus) -> None:
         if not callable(getattr(events,"subscribe",None)):raise TaskProjectionError("event bus contract is invalid")
         self._items: dict[tuple[str, str, str], TaskProgress] = {}
@@ -37,11 +38,11 @@ class TaskProgressProjection:
         if not isinstance(event,PublishedEvent):raise TaskProjectionError("task event is invalid")
         payload: dict[str, Any] = dict(event.payload)
         task_id, status, progress = payload.get("task_id"), payload.get("current_status"), payload.get("progress_percent")
-        if not isinstance(task_id, str) or not task_id.strip() or not isinstance(status, str) or not status.strip():
+        if not isinstance(task_id, str) or not task_id.strip() or not isinstance(status, str) or status not in self.STATUSES:
             raise TaskProjectionError("task event payload is incomplete")
         if isinstance(progress, bool) or not isinstance(progress, int) or not 0 <= progress <= 100:
             raise TaskProjectionError("progress_percent must be between 0 and 100")
-        key = (event.context.tenant_id, event.context.identity_id, event.project_id, task_id)
+        task_id=task_id.strip();key = (event.context.tenant_id, event.context.identity_id, event.project_id, task_id)
         with self._lock:self._items[key] = TaskProgress(task_id, event.context.tenant_id, event.context.identity_id, event.project_id, status, progress)
 
     def get(self, context: IdentityContext, project_id: str, task_id: str) -> TaskProgress:
