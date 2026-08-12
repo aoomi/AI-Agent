@@ -33,6 +33,7 @@ class AgentContextStore:
 
     def update(self, tenant_id: str, project_id: str, agent_id: str, values: Mapping[str, Any]) -> AgentContext:
         key = self._key(tenant_id, project_id, agent_id)
+        if not isinstance(values,Mapping):raise AgentContextError("agent context values must be a mapping")
         if any(not str(name).strip() for name in values):raise AgentContextError("agent context keys must not be empty")
         if self._contains_sensitive_key(values):raise AgentContextError("agent context contains sensitive fields")
         with self._lock:
@@ -92,6 +93,9 @@ class CollaborationContextStore:
 
     def update(self, tenant_id: str, project_id: str, session_id: str, *, agent_id: str, task_states: Mapping[str, str] | None = None, evidence_references: tuple[str, ...] = (), file_references: tuple[str, ...] = ()) -> CollaborationContext:
         key = self._key(tenant_id, project_id, session_id)
+        agent_id=self._required(agent_id)[0]
+        if task_states is not None and not isinstance(task_states,Mapping):raise AgentContextError("collaboration task states must be a mapping")
+        if isinstance(evidence_references,(str,bytes)) or not isinstance(evidence_references,tuple) or isinstance(file_references,(str,bytes)) or not isinstance(file_references,tuple):raise AgentContextError("collaboration references must be tuples")
         with self._lock:
             context = self._raw(key)
             if agent_id != context["developer_agent_id"]: raise AgentContextError("only the developer agent may mutate collaboration context")
@@ -105,6 +109,7 @@ class CollaborationContextStore:
 
     def get(self, tenant_id: str, project_id: str, session_id: str, *, agent_id: str) -> CollaborationContext:
         key = self._key(tenant_id, project_id, session_id)
+        agent_id=self._required(agent_id)[0]
         with self._lock:
             context = self._raw(key)
             if agent_id not in {context["developer_agent_id"], context["inspector_agent_id"]}: raise AgentContextError("agent cannot access this collaboration context")

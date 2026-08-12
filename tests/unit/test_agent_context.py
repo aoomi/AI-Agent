@@ -6,6 +6,9 @@ from ai_agent_core import AgentContextError, AgentContextStore
 
 
 class AgentContextStoreTest(unittest.TestCase):
+    def test_update_rejects_non_mapping_values(self) -> None:
+        store=AgentContextStore();store.create("tenant","project","agent")
+        with self.assertRaisesRegex(AgentContextError,"must be a mapping"):store.update("tenant","project","agent",[])
     def test_context_is_scoped_to_tenant_project_and_agent(self) -> None:
         store = AgentContextStore()
         store.create("tenant-a", "project-a", "agent-a")

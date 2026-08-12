@@ -6,6 +6,9 @@ from ai_agent_core import AgentContextError, CollaborationContextStore
 
 
 class CollaborationContextStoreTest(unittest.TestCase):
+    def test_runtime_update_shapes_are_rejected(self) -> None:
+        for operation in (lambda:self.store.update("tenant-1","project-1","session-1",agent_id="developer-1",task_states=[]),lambda:self.store.update("tenant-1","project-1","session-1",agent_id="developer-1",evidence_references="proof")):
+            with self.subTest(operation=operation),self.assertRaises(AgentContextError):operation()
     def setUp(self) -> None:
         self.store = CollaborationContextStore()
         self.store.create(tenant_id="tenant-1", project_id="project-1", session_id="session-1", developer_agent_id="developer-1", inspector_agent_id="inspector-1")
