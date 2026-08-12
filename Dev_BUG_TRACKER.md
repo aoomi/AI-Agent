@@ -3038,3 +3038,6 @@
 - 当前事实：M9.198的三镜、8.1秒、仅视频全链已闭环，但尚未对全仓逐项复核ProductionLedger原子边界、晚到响应隔离、waiting_memory状态机、RecordExporter四层脱敏、provider inflight热插拔保护及Stage四处登记门禁是否仍存在实现漂移。
 - 风险：局部真实全链通过不能替代架构横向一致性证明；其他入口或恢复路径仍可能绕过已经建立的生产契约。
 - 下一状态：建立规范到代码/测试的可追溯矩阵，先做只读差距分析；发现事实违例后逐项登记、修复、回归和稽查。
+- 第一项稽查首败：生产能力注册表已有`inflight`围栏，但基础设施`ProductionExtensionRegistry.create()`在工厂执行前即释放注册锁，期间可卸载、禁用、替换或切走当前provider，直接违背v2.2热插拔保护；带候选探针的卸载还存在探针结束到最终删除之间的二次竞态。
+- 第一项整改：基础设施注册表按extension point/provider原子登记活动创建；全量替换、单provider替换、卸载、禁用与活动provider切换在活动计数非零时统一失败关闭，工厂成功、异常和契约失败均在`finally`释放；卸载在候选探针后再次复核活动计数。
+- 第一项自动测试与稽查：并发慢工厂动态证明五种变更均被`in-flight`拒绝，自然终态后可卸载；provider能力、extension、ProductionLedger、waiting_memory、RecordExporter、Stage登记及静音全链关联`145 passed`，Python编译和diff门禁通过。只读检查确认变更不持锁执行用户工厂，不引入死锁，异常路径计数守恒。
