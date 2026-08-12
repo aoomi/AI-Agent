@@ -73,7 +73,9 @@ class DurableTaskRepository:
 
     def upsert(self, job_id: str, task_class: str, job: Mapping[str, Any]) -> dict[str, Any]:
         self.upsert_many(task_class, {str(job_id):job})
-        return self.get(str(job_id)) or {}
+        values = self._values(str(job_id), str(task_class), job)
+        self.upsert_many(task_class, {str(job_id):job})
+        return self.get(str(job_id), tenant_id=values["tenant_id"], user_id=values["user_id"], project_id=values["project_id"]) or {}
 
     def upsert_many(self, task_class: str, jobs: Mapping[str, Mapping[str, Any]], *, enqueue_projection: bool = False) -> list[dict[str, Any]]:
         prepared = [(str(job_id), self._values(str(job_id), str(task_class), job)) for job_id, job in jobs.items()]
@@ -93,7 +95,10 @@ class DurableTaskRepository:
                         ON CONFLICT(job_id) DO UPDATE SET task_class=excluded.task_class,payload_json=excluded.payload_json,
                         updated_at=excluded.updated_at,event_revision=excluded.event_revision""",
                         (job_id, str(task_class), values["payload_json"], values["updated_at"], event_revision))
-        return [record for job_id in applied if (record := self.get(job_id)) is not None]
+        applied_set=set(applied)
+        with self._lock, self._connection() as connection:
+            rows=connection.execute(f"SELECT * FROM durable_tasks WHERE job_id IN ({','.join('?' for _ in applied_set)})", tuple(applied_set)).fetchall() if applied_set else []
+        return [self._record(row) for row in rows]
 
     @staticmethod
     def _values(job_id: str, task_class: str, job: Mapping[str, Any]) -> dict[str, Any]:
@@ -194,12 +199,16 @@ class DurableTaskRepository:
                 # down the worker heartbeat or projection drain.
                 pass
 
-    def get(self, job_id: str) -> dict[str, Any] | None:
+    def get(self, job_id: str, *, tenant_id: str, user_id: str, project_id: str) -> dict[str, Any] | None:
+        scope=tuple(str(value).strip() for value in (tenant_id,user_id,project_id))
+        if not all(scope):raise ValueError("durable task owner scope is required")
         with self._lock, self._connection() as connection:
-            row = connection.execute("SELECT * FROM durable_tasks WHERE job_id=?", (job_id,)).fetchone()
+            row = connection.execute("SELECT * FROM durable_tasks WHERE job_id=? AND tenant_id=? AND user_id=? AND project_id=?", (job_id,*scope)).fetchone()
         return self._record(row) if row else None
 
     def list(self, *, tenant_id: str = "", user_id: str = "", project_id: str = "", task_class: str = "", nonterminal_only: bool = False) -> list[dict[str, Any]]:
+        scope=tuple(str(value).strip() for value in (tenant_id,user_id,project_id))
+        if any(scope) and not all(scope):raise ValueError("tenant_id, user_id and project_id must be supplied together")
         clauses: list[str] = []; values: list[Any] = []
         for column, value in (("tenant_id",tenant_id),("user_id",user_id),("project_id",project_id)):
             if value: clauses.append(f"{column}=?"); values.append(value)

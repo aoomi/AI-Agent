@@ -1053,3 +1053,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第五十一项：行业工作流运行与robot executor热替换已建立inflight/single-flight围栏，拓扑和执行器快照原子化。关联`6 passed`，只读稽查通过。
 - BUG072第五十二项：资源等待取消已支持tenant/user/project精确所有者匹配，阻断同job_id跨项目撤销。专项`7 passed`，只读稽查通过。
 - BUG072第五十三项：持久任务写入已强制完整owner scope，并拒绝同job_id跨task_class覆盖。新动态契约及投影关联`4 passed`；旧无身份fixture不再代表合法生产任务，只读稽查通过。
+- BUG072第五十四项：持久任务单条读取已强制完整owner精确匹配，列表拒绝部分scope，内部upsert返回不再依赖全局裸读。动态契约`1 passed`，只读稽查通过。

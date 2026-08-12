@@ -3146,3 +3146,5 @@
 - 第五十二项自动测试与稽查：资源优先级、取消、池并行、容量及分层背压专项`7 passed`；Python编译与diff门禁通过。只读确认作用域过滤在取消标记写入前完成。
 - 第五十三项稽查首败与整改：DurableTaskRepository在缺owner时静默填`local-default/aoo/空project`，且全局job_id冲突可被另一task_class覆盖，违背完整所有者门禁和任务类型不可变。现upsert强制tenant/user/project完整非空，并在同事务拒绝job_id跨task_class改写；不迁移或删除旧运行数据。
 - 第五十三项自动测试与稽查：新增完整owner缺失及跨task_class覆盖拒绝动态契约，连同投影租约/重放关联`4 passed`；Python编译与diff门禁通过。两项旧测试使用无身份伪任务而首败，属于被新失败关闭契约淘汰的fixture，未降低门禁。
+- 第五十四项稽查首败与整改：DurableTaskRepository写入已强制owner，但`get(job_id)`仍全局裸读，`list`还允许部分owner过滤；内部upsert返回也依赖裸读。现get强制tenant/user/project完整精确匹配，list拒绝部分scope；upsert在已验证输入后用精确scope返回，批量返回在同仓储内部直接读取提交集。
+- 第五十四项自动测试与稽查：新增同job异user读取为空及完整scope读取命中动态契约`1 passed`；Python编译与diff门禁通过。生产HTTP runtime list既有完整三字段调用保持兼容。
