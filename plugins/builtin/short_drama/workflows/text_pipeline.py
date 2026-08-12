@@ -28,8 +28,14 @@ class TextArtifact:
 def _artifact(node_type: str, content: Mapping[str, Any]) -> TextArtifact:
     if not content:
         raise TextPipelineError(f"{node_type} output must not be empty")
-    normalized = json.loads(json.dumps(dict(content), ensure_ascii=False))
-    encoded = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    try:
+        canonical = json.dumps(
+            dict(content), ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        )
+        normalized = json.loads(canonical)
+    except (TypeError, ValueError) as error:
+        raise TextPipelineError(f"{node_type} output must be standard JSON") from error
+    encoded = canonical.encode("utf-8")
     return TextArtifact(node_type, MappingProxyType(normalized), sha256(encoded).hexdigest())
 
 

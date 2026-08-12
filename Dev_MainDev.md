@@ -1254,3 +1254,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百五十一项：通用内存任务队列与实时投影已纳入持久`waiting_memory`生命周期，支持queued↔waiting_memory重新准入及取消，不再与短剧资源等待状态机分叉。
 - BUG072第二百五十二项：跨worker生产派发请求身份已移除`default=str`宽松转换并强制标准JSON，坏请求不会占用reservation或生成不稳定single-flight标识。
 - BUG072第二百五十三项：StoryBible完整输入已在SQLite事务前强制标准JSON，非标准事实或实体不会造成部分权威故事状态。
+- BUG072第二百五十四项：短剧TextArtifact已强制标准JSON规范化和指纹，非标准提供方输出不会进入需求至资产目录流水线。

@@ -25,6 +25,11 @@ class Provider:
 
 
 class TextPipelineTest(unittest.TestCase):
+    def test_artifact_rejects_non_standard_json(self):
+        for invalid in (float("nan"), object()):
+            with self.assertRaisesRegex(MODULE.TextPipelineError, "standard JSON"):
+                MODULE._artifact("outline", {"episodes": [{"value": invalid}]})
+
     def test_four_text_nodes_produce_hashed_structured_artifacts(self) -> None:
         pipeline = MODULE.TextPipeline(Provider())
         requirements = pipeline.requirements({"title": "项目", "premise": "冲突", "episode_count": 1})
