@@ -9,6 +9,8 @@ class ObservabilityTest(unittest.TestCase):
   with self.assertRaises(ObservabilityError):StructuredLogger(io.StringIO()).emit("","event",{})
   with self.assertRaises(ObservabilityError):
    with TraceRecorder().span("trace","span","",attributes=[]):pass
+  for operation in (lambda:CompositeExporter(1),lambda:JsonLinesExporter("/tmp/unused").export(1,{}),lambda:StructuredLogger(io.StringIO()).emit(1,"event",{}),lambda:MetricsRegistry().increment(1),lambda:TraceRecorder().span(1,"span","name").__enter__(),lambda:AlertEvaluator((object(),)),lambda:AlertEvaluator(()).evaluate([])):
+   with self.subTest(operation=operation),self.assertRaises(ObservabilityError):operation()
  def test_logs_metrics_and_traces(self):
   sink=io.StringIO();self.assertEqual(StructuredLogger(sink).emit("info","task.completed",{"task_id":"x"})["event"],"task.completed");metrics=MetricsRegistry();metrics.increment("tasks",labels=(("status","completed"),));self.assertEqual(next(iter(metrics.snapshot()["counters"].values())),1);traces=TraceRecorder()
   with traces.span("trace","span","task"):pass

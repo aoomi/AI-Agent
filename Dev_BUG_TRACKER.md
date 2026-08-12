@@ -3378,3 +3378,5 @@
 - 第一百八十项自动测试与稽查：数字身份/stage/scope及三类伪generation、布尔revision动态拒绝；专项回归、Python编译与diff门禁通过。
 - 第一百八十一项稽查首败与整改：ProductionLedger的通用upsert、projection和stage authority仍用`int/str`宽松转换generation/revision/lifecycle，批量replace也接受整数。现所有权威和投影事务共享严格类型门禁。
 - 第一百八十一项自动测试与稽查：伪generation/revision/lifecycle/replace及数字证据ID动态失败关闭；专项回归、Python编译与diff门禁通过。
+- 第一百八十二项稽查首败与整改：Observability多个入口用`str(...)`接收数字事件/trace/metric，Composite/Alert又未经协议检查迭代任意对象，畸形记录可能泄漏底层异常或形成含混持久字段。现RecordExporter全链入口严格验证运行时结构。
+- 第一百八十二项自动测试与稽查：七类坏export/log/metric/trace/alert输入动态失败关闭；可观测性回归、Python编译与diff门禁通过。

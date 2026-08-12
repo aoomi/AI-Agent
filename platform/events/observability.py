@@ -77,10 +77,14 @@ class NullExporter:
 
 class CompositeExporter:
     def __init__(self, exporters: Iterable[RecordExporter]):
-        self.exporters = tuple(exporters)
+        if isinstance(exporters,(str,bytes,Mapping)):
+            raise ObservabilityError("exporters must be an iterable of RecordExporter")
+        try:self.exporters = tuple(exporters)
+        except TypeError as error:raise ObservabilityError("exporters must be an iterable of RecordExporter") from error
         if any(not callable(getattr(exporter,"export",None)) for exporter in self.exporters):raise ObservabilityError("exporter contract is invalid")
 
     def export(self, kind: str, record: Mapping[str, Any]) -> None:
+        if not isinstance(kind,str) or not kind.strip() or not isinstance(record,Mapping):raise ObservabilityError("export record contract is invalid")
         for exporter in self.exporters:
             exporter.export(kind, record)
 
@@ -93,6 +97,7 @@ class JsonLinesExporter:
         self._lock = RLock()
 
     def export(self, kind: str, record: Mapping[str, Any]) -> None:
+        if not isinstance(kind,str) or not kind.strip() or not isinstance(record,Mapping):raise ObservabilityError("export record contract is invalid")
         payload = {"kind": kind, **dict(record)}
         if _contains_secret(payload):
             raise ObservabilityError("export record contains secrets")
@@ -123,6 +128,7 @@ class PrometheusSnapshotExporter:
         return "{" + ",".join(values) + "}" if values else ""
 
     def export(self, kind: str, record: Mapping[str, Any]) -> None:
+        if not isinstance(kind,str) or not isinstance(record,Mapping):raise ObservabilityError("export record contract is invalid")
         if kind != "metrics_snapshot":
             return
         if _contains_secret(record):
@@ -161,7 +167,7 @@ class StructuredLogger:
         self._lock = RLock()
 
     def emit(self, level: str, event: str, fields: Mapping[str, Any]):
-        if not str(level).strip() or not str(event).strip() or not isinstance(fields,Mapping):raise ObservabilityError("log record contract is invalid")
+        if not isinstance(level,str) or not isinstance(event,str) or not level.strip() or not event.strip() or not isinstance(fields,Mapping):raise ObservabilityError("log record contract is invalid")
         if _contains_secret(fields):
             raise ObservabilityError("log fields contain secrets")
         record = {
@@ -217,7 +223,7 @@ class MetricsRegistry:
         self._lock = RLock()
 
     def _key(self, name: str, labels: Iterable[tuple[str, Any]]):
-        if not _METRIC_NAME.fullmatch(name):
+        if not isinstance(name,str) or not _METRIC_NAME.fullmatch(name):
             raise ObservabilityError(f"invalid metric name: {name}")
         return name, _normalise_labels(labels)
 
@@ -286,7 +292,7 @@ class TraceRecorder:
 
     @contextmanager
     def span(self, trace_id: str, span_id: str, name: str, *, request_id: str | None = None, attributes=None):
-        if not str(trace_id).strip() or not str(span_id).strip() or not str(name).strip():
+        if any(not isinstance(value,str) for value in (trace_id,span_id,name)) or not trace_id.strip() or not span_id.strip() or not name.strip():
             raise ObservabilityError("trace_id, span_id and name are required")
         if attributes is not None and not isinstance(attributes,Mapping):raise ObservabilityError("span attributes must be a mapping")
         attributes = dict(attributes or {})
@@ -319,13 +325,16 @@ class AlertEvaluator:
     """Deterministic rule evaluator; delivery remains a replaceable exporter."""
 
     def __init__(self, rules: Iterable[AlertRule], exporter: RecordExporter | None = None):
-        self.rules = tuple(rules)
-        if any(not rule.name.strip() or not _METRIC_NAME.fullmatch(rule.metric) or rule.comparison not in {"gte","gt","lte","lt"} for rule in self.rules):raise ObservabilityError("alert rule contract is invalid")
+        try:self.rules = tuple(rules)
+        except TypeError as error:raise ObservabilityError("alert rule contract is invalid") from error
+        if any(not isinstance(rule,AlertRule) or not isinstance(rule.name,str) or not isinstance(rule.metric,str) or not rule.name.strip() or not _METRIC_NAME.fullmatch(rule.metric) or rule.comparison not in {"gte","gt","lte","lt"} for rule in self.rules):raise ObservabilityError("alert rule contract is invalid")
         for rule in self.rules:_validate_metric_value(rule.threshold);_normalise_labels(rule.labels)
         if exporter is not None and not callable(getattr(exporter,"export",None)):raise ObservabilityError("exporter contract is invalid")
         self.exporter = exporter or NullExporter()
 
     def evaluate(self, snapshot: Mapping[str, Any], *, request_id: str | None = None, trace_id: str | None = None):
+        if not isinstance(snapshot,Mapping):raise ObservabilityError("metrics snapshot must be a mapping")
+        _validate_metrics_snapshot(snapshot)
         values = {
             (item["name"], tuple(tuple(label) for label in item.get("labels", []))): item["value"]
             for group in ("counters", "gauges")

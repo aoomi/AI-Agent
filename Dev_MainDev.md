@@ -1182,3 +1182,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百七十九项：ProviderService配置层已补齐replace/unregister与健康检查single-flight围栏，探活中的提供方配置不得被替换或卸载。Provider配置关联回归通过。
 - BUG072第一百八十项：ProductionLedger身份、stage/scope及upscale generation/revision CAS已强制字符串与真实整数类型，布尔/浮点/数字伪值不能进入SQLite权威台账。专项回归通过。
 - BUG072第一百八十一项：ProductionLedger通用/批量投影与非upscale权威提交已统一严格generation/revision/lifecycle/replace及证据边界，布尔伪CAS不能绕过原子台账事务。专项回归通过。
+- BUG072第一百八十二项：RecordExporter链、日志、指标、Trace和Alert运行时身份/结构已完整失败关闭，数字事件或非Mapping快照不能进入JSONL/Prometheus持久导出。可观测性回归通过。
