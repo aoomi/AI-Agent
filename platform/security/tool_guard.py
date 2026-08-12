@@ -22,8 +22,9 @@ class SkillToolGuard:
    return value
   if isinstance(value,Mapping):
    if len(value)>1000:raise ToolGuardError("tool input object is too large")
-   if any(str(key) in {"__proto__","constructor","prototype"} for key in value):raise ToolGuardError("tool input contains forbidden keys")
-   return {str(k):self.sanitize(v,depth=depth+1) for k,v in value.items()}
+   if any(not isinstance(key,str) or not key for key in value):raise ToolGuardError("tool input keys must be non-empty strings")
+   if any(key in {"__proto__","constructor","prototype"} for key in value):raise ToolGuardError("tool input contains forbidden keys")
+   return {k:self.sanitize(v,depth=depth+1) for k,v in value.items()}
   if isinstance(value,(list,tuple)):
    if len(value)>10000:raise ToolGuardError("tool input array is too large")
    return [self.sanitize(v,depth=depth+1) for v in value]

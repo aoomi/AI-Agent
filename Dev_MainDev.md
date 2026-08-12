@@ -1211,3 +1211,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百零八项：AgentConfiguration已严格验证字符串system_prompt_version并保留行业ProcessRobot/IndustrySkill显式模型支持，数字版本不会被字符串化写入版本配置。配置关联`9 passed`、`5 subtests passed`。
 - BUG072第二百零九项：会话服务已验证Model/Config/Client/Executor/Memory依赖、Path持久化、字符串context/memory键及project scope，移除提案类型宽松转换；畸形对象不能进入会话状态。会话API关联`19 passed`、`17 subtests passed`。
 - BUG072第二百一十项：AgentScheduler已严格验证tuple问题ID、字符串agent/mode及ExecutionResult模型/status/Mapping values；坏执行器结果不能进入生命周期或上下文。调度关联`14 passed`、`13 subtests passed`。
+- BUG072第二百一十一项：Skill工具输入消毒已强制Mapping键为非空字符串并移除`str(key)`宽松转换，数字/空键不能被改写后传入工具。安全关联`3 passed`、`6 subtests passed`。

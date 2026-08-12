@@ -14,5 +14,7 @@ class SkillToolGuardTest(unittest.TestCase):
   self.assertEqual(self.guard.sanitize({"prompt":"safe"}),{"prompt":"safe"})
   for value in ({"path":"../../secret"},{"__proto__":{}},{"x":"a\x00b"}):
    with self.assertRaises(ToolGuardError):self.guard.sanitize(value)
+  for value in ({1:"value"},{"":"value"}):
+   with self.assertRaisesRegex(ToolGuardError,"keys"):self.guard.sanitize(value)
   output=self.guard.redact({"api_key":"secret","nested":{"access_token":"hidden"},"message":"Bearer abcdefghijklmnop"});self.assertEqual(output["api_key"],"[REDACTED]");self.assertEqual(output["nested"]["access_token"],"[REDACTED]");self.assertNotIn("Bearer",output["message"])
 if __name__=="__main__":unittest.main()

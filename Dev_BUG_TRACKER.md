@@ -3436,3 +3436,5 @@
 - 第二百零九项自动测试与稽查：坏Path/依赖、数字context/memory键及project动态拒绝；会话与管理API关联`19 passed`（另`17 subtests passed`），Python编译与diff门禁通过。
 - 第二百一十项稽查首败与整改：AgentScheduler以`str(...)`接受数字issue ID，add_executor/mode依赖下游异常，_execute信任任意执行器结果并立即访问status/values。现调度输入输出均在共享生命周期副作用前完整验证。
 - 第二百一十项自动测试与稽查：数字issue/agent/mode及任意executor结果动态失败关闭；调度、整改与流水线关联`14 passed`（另`13 subtests passed`），Python编译与diff门禁通过。
+- 第二百一十一项稽查首败与整改：SkillToolGuard.sanitize以`str(key)`接受数字或空Mapping键，改变调用方结构后仍传入真实工具。现输入对象键在递归消毒前严格要求非空字符串。
+- 第二百一十一项自动测试与稽查：数字/空工具输入键动态失败关闭；安全关联`3 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
