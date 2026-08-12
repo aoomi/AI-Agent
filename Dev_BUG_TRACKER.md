@@ -3428,3 +3428,5 @@
 - 第二百零五项自动测试与稽查：三类字符串伪path动态失败关闭，重启恢复、敏感字段、租户围栏及非JSON回归保持通过；持久化关联`9 passed`（另`21 subtests passed`），Python编译与diff门禁通过。
 - 第二百零六项稽查首败与整改：AgentContext values及Collaboration task_states以`str(key)`接受数字键，状态值只做集合比较，导致伪任务身份或不可哈希状态泄漏异常。现两类共享上下文的键值契约均严格失败关闭。
 - 第二百零六项自动测试与稽查：数字上下文键、数字任务键及列表状态动态拒绝；上下文与scope隔离关联`7 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
+- 第二百零七项稽查首败与整改：AgentCollaboration解析稽查报告时用`str(...)`接受数字issue/evidence/reference/severity，畸形检查器输出可被伪装成合法整改身份。现报告、问题和证据均保持原始类型并严格验证。
+- 第二百零七项自动测试与稽查：五类数字issue/severity/file/evidence/reference动态失败关闭；协作单元与集成关联`12 passed`（另`20 subtests passed`），Python编译与diff门禁通过。

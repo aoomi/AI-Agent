@@ -64,6 +64,19 @@ class AgentCollaborationServiceTest(unittest.TestCase):
                 handoff = service.submit_for_inspection(session.session_id, task_id="task-1", context_reference="contexts/task.json")
                 with self.assertRaises(AgentCollaborationError): service.run_inspection(handoff.handoff_id)
 
+    def test_inspection_report_runtime_identity_types_are_rejected(self) -> None:
+        invalid_issues=(
+            {"issue_id":1,"code":"X","title":"X","description":"X","severity":"high","evidence_ids":[]},
+            {"issue_id":"i","code":"X","title":"X","description":"X","severity":1,"evidence_ids":[]},
+            {"issue_id":"i","code":"X","title":"X","description":"X","severity":"high","file_reference":1,"evidence_ids":[]},
+        )
+        results=[{"read_only":True,"verdict":"changes_required","issues":[issue],"evidence":[]} for issue in invalid_issues]
+        results.append({"read_only":True,"verdict":"passed","issues":[],"evidence":[{"evidence_id":1,"kind":"test","reference":"result.xml"}]})
+        results.append({"read_only":True,"verdict":"passed","issues":[],"evidence":[{"evidence_id":"e","kind":"test","reference":1}]})
+        for result in results:
+            service,session=self.open(InspectionExecutor(result));handoff=service.submit_for_inspection(session.session_id,task_id="task",context_reference="context.json")
+            with self.subTest(result=result),self.assertRaises(AgentCollaborationError):service.run_inspection(handoff.handoff_id)
+
     def test_inspection_evidence_rejects_nested_sensitive_metadata(self) -> None:
         for metadata in (
             {"access_token": "plaintext"},

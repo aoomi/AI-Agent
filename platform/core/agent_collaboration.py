@@ -273,23 +273,23 @@ class AgentCollaborationService:
             raise AgentCollaborationError("passed inspection cannot contain issues")
         if verdict != "passed" and not issues:
             raise AgentCollaborationError("non-passing inspection requires issues")
-        return InspectionReport(f"report-{uuid4().hex}", handoff.session_id, handoff.handoff_id, handoff.target_agent_id, True, str(verdict), issues, evidence, self._now())
+        return InspectionReport(f"report-{uuid4().hex}", handoff.session_id, handoff.handoff_id, handoff.target_agent_id, True, verdict, issues, evidence, self._now())
 
     def _issue(self, raw: Any, evidence_ids: set[str]) -> InspectionIssue:
         if not isinstance(raw, Mapping): raise AgentCollaborationError("inspection issue is invalid")
-        issue_id, code, title, description = self._required(str(raw.get("issue_id", "")), str(raw.get("code", "")), str(raw.get("title", "")), str(raw.get("description", "")))
+        issue_id, code, title, description = self._required(raw.get("issue_id", ""), raw.get("code", ""), raw.get("title", ""), raw.get("description", ""))
         severity = raw.get("severity")
-        if severity not in self.SEVERITIES: raise AgentCollaborationError("inspection issue severity is invalid")
+        if not isinstance(severity,str) or severity not in self.SEVERITIES: raise AgentCollaborationError("inspection issue severity is invalid")
         raw_ids = raw.get("evidence_ids", [])
         if not isinstance(raw_ids, (list, tuple)) or not all(isinstance(item, str) and item for item in raw_ids): raise AgentCollaborationError("inspection issue evidence_ids are invalid")
         if not set(raw_ids).issubset(evidence_ids): raise AgentCollaborationError("inspection issue references unknown evidence")
         file_reference = raw.get("file_reference")
-        if file_reference is not None: file_reference = self._safe_reference(str(file_reference))
-        return InspectionIssue(issue_id, code, title, description, str(severity), tuple(raw_ids), file_reference)
+        if file_reference is not None: file_reference = self._safe_reference(file_reference)
+        return InspectionIssue(issue_id, code, title, description, severity, tuple(raw_ids), file_reference)
 
     def _evidence(self, raw: Any) -> CollaborationEvidence:
         if not isinstance(raw, Mapping): raise AgentCollaborationError("collaboration evidence is invalid")
-        evidence_id, kind = self._required(str(raw.get("evidence_id", "")), str(raw.get("kind", "")))
+        evidence_id, kind = self._required(raw.get("evidence_id", ""), raw.get("kind", ""))
         if kind not in self.EVIDENCE_KINDS: raise AgentCollaborationError("collaboration evidence kind is invalid")
         metadata = raw.get("metadata", {})
         if not isinstance(metadata, Mapping): raise AgentCollaborationError("collaboration evidence metadata is invalid")
@@ -298,7 +298,7 @@ class AgentCollaborationService:
         sha256 = raw.get("sha256")
         if sha256 is not None and (not isinstance(sha256, str) or len(sha256) != 64 or any(character not in "0123456789abcdef" for character in sha256)):
             raise AgentCollaborationError("collaboration evidence sha256 is invalid")
-        return CollaborationEvidence(evidence_id, kind, self._safe_reference(str(raw.get("reference", ""))), MappingProxyType(dict(metadata)), sha256)
+        return CollaborationEvidence(evidence_id, kind, self._safe_reference(raw.get("reference", "")), MappingProxyType(dict(metadata)), sha256)
 
     @staticmethod
     def _contains_sensitive_key(value: Any) -> bool:
