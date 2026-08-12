@@ -18,6 +18,13 @@ class AtomicJsonContractsTest(unittest.TestCase):
                 atomic_write_json(target, {"value": math.nan})
             self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"old": True})
 
+    def test_rejects_non_standard_json_before_creating_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory) / "not-created"
+            with self.assertRaisesRegex(ValueError, "standard JSON"):
+                atomic_write_json(parent / "state.json", {"value": object()})
+            self.assertFalse(parent.exists())
+
     def test_target_and_prefix_contracts_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "state.json"
