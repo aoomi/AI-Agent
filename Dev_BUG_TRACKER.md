@@ -3288,3 +3288,5 @@
 - 第一百三十五项自动测试与稽查：userinfo URL、布尔timeout、坏transport、字符串messages及非Mapping schema动态拒绝；模型客户端关联`5 passed`（另`5 subtests passed`），Python编译与diff门禁通过。
 - 第一百三十六项稽查首败与整改：ProviderService会把字符串capabilities拆成字符并将数字元素字符串化，endpoint只查前缀而允许userinfo，timeout接受布尔，settings非Mapping延迟失败。现注册入口完整验证集合、URL、数值与配置结构。
 - 第一百三十六项自动测试与稽查：字符串/重复能力、userinfo URL、布尔timeout及列表settings动态失败关闭；专项`1 passed`（另`5 subtests passed`），Python编译与diff门禁通过。
+- 第一百三十七项稽查首败与整改：ProviderAdapterDefinition未逐项验证capability，timeout/enabled/settings接受伪类型，invoke非Mapping输入会在secret解析后才失败。现定义与调用契约均在注册或外部副作用前失败关闭。
+- 第一百三十七项自动测试与稽查：空能力、布尔timeout、整数enabled、列表settings和列表inputs动态拒绝；Provider与短剧绑定关联`12 passed`（另`9 subtests passed`），Python编译与diff门禁通过。

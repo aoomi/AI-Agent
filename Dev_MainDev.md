@@ -1137,3 +1137,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百三十四项：Skill工具授权已验证role/tool及声明/显式权限逐项非空，sanitize depth强制非负真实整数；畸形安全上下文不会进入授权或递归处理。安全关联`3 passed`、`3 subtests passed`。
 - BUG072第一百三十五项：OpenAI兼容客户端已验证HTTPS origin无userinfo/fragment、timeout真实正数、transport/cancellation协议及messages/schema结构；畸形请求不会触达模型提供方。关联`5 passed`、`5 subtests passed`。
 - BUG072第一百三十六项：ProviderService注册已拒绝字符串伪能力集合、重复能力、HTTPS userinfo、布尔timeout和非Mapping settings；畸形提供方不会进入配置/健康双表。动态`1 passed`、`5 subtests passed`。
+- BUG072第一百三十七项：ProviderAdapterDefinition已验证能力元素、timeout、enabled及settings运行时类型，invoke同步强制Mapping输入；坏适配器请求不会解析secret或执行提供方。关联`12 passed`、`9 subtests passed`。

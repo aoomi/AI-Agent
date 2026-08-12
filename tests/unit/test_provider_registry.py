@@ -9,6 +9,12 @@ class Executor:
     def execute(self,capability,inputs,*,secret,timeout_seconds):self.calls.append((capability,dict(inputs),secret,timeout_seconds));return {"id":"real-output"}
 
 class ProviderAdapterRegistryTest(unittest.TestCase):
+    def test_definition_and_invoke_runtime_contracts_are_rejected(self):
+        for kwargs in ({"capabilities":frozenset({" "})},{"timeout_seconds":True},{"enabled":1},{"settings":[]}):
+            values=dict(provider_id="p",kind="image",capabilities=frozenset({"generate.image"}),secret_reference="vault://text",timeout_seconds=30);values.update(kwargs)
+            with self.subTest(kwargs=kwargs),self.assertRaises(ProviderAdapterError):ProviderAdapterDefinition(**values)
+        registry=ProviderAdapterRegistry(Secrets());registry.register(ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30),Executor())
+        with self.assertRaisesRegex(ProviderAdapterError,"mapping inputs"):registry.invoke("p","generate.image",[])
     def test_registers_and_invokes_each_real_provider_kind(self):
         registry=ProviderAdapterRegistry(Secrets())
         for kind in ("text","image","video","audio"):

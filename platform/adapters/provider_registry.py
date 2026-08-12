@@ -24,9 +24,11 @@ class ProviderAdapterDefinition:
     settings:Mapping[str,Any]=None  # type: ignore[assignment]
     def __post_init__(self)->None:
         if self.kind not in {"model","text","image","video","audio"}: raise ProviderAdapterError("provider kind is invalid")
-        if not self.provider_id.strip() or not self.capabilities: raise ProviderAdapterError("provider id and capabilities are required")
+        if not self.provider_id.strip() or not self.capabilities or any(not isinstance(value,str) or not value.strip() for value in self.capabilities): raise ProviderAdapterError("provider id and capabilities are required")
         if not self.secret_reference.startswith(("env://","vault://","secret://")): raise ProviderAdapterError("provider requires an external secret reference")
-        if self.timeout_seconds<1: raise ProviderAdapterError("provider timeout must be positive")
+        if isinstance(self.timeout_seconds,bool) or not isinstance(self.timeout_seconds,int) or self.timeout_seconds<1: raise ProviderAdapterError("provider timeout must be positive")
+        if not isinstance(self.enabled,bool):raise ProviderAdapterError("provider enabled must be boolean")
+        if self.settings is not None and not isinstance(self.settings,Mapping):raise ProviderAdapterError("provider settings must be a mapping")
         forbidden=("secret","token","password","api_key","authorization","credential")
         def contains_secret(value:Any)->bool:
             if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
@@ -65,7 +67,7 @@ class ProviderAdapterRegistry:
         with self._lock:return tuple(sorted((d for d,_ in self._providers.values() if kind is None or d.kind==kind),key=lambda d:d.provider_id))
     def invoke(self,provider_id:str,capability:str,inputs:Mapping[str,Any])->ProviderInvocation:
         provider_id,capability=provider_id.strip(),capability.strip()
-        if not provider_id or not capability:raise ProviderAdapterError("provider and capability are required")
+        if not provider_id or not capability or not isinstance(inputs,Mapping):raise ProviderAdapterError("provider, capability and mapping inputs are required")
         with self._lock:
             try:definition,executor=self._providers[provider_id]
             except KeyError as error:raise ProviderAdapterError(f"unknown provider: {provider_id}") from error
