@@ -89,6 +89,8 @@ class ProductionLedger:
     """Single source of truth for scope state, dependencies and immutable versions."""
 
     def __init__(self, database: Path) -> None:
+        if not isinstance(database, Path):
+            raise ProductionLedgerError("production ledger database must be a Path")
         self.database = database.resolve()
         self.database.parent.mkdir(parents=True, exist_ok=True)
         self._lock = RLock()

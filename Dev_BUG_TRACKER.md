@@ -3526,3 +3526,5 @@
 - 第二百五十四项自动测试与稽查：NaN与任意对象文本产物动态拒绝；完整文本流水线关联回归、Python编译与diff门禁通过。
 - 第二百五十五项稽查首败与整改：StoryBible构造器仍直接调用运行时`database.resolve()`，与ProductionLedger等SQLite权威仓储的Path契约分叉。现任何目录或SQLite副作用前以领域错误失败关闭。
 - 第二百五十五项自动测试与稽查：字符串伪数据库路径动态拒绝且目标文件不存在；故事圣经关联回归、Python编译与diff门禁通过。
+- 第二百五十六项稽查首败与整改：ProductionLedger与ProductionOrchestrator两个核心SQLite权威构造器仍直接调用运行时`database.resolve()`，反而落后于任务、worker与故事仓储Path契约。现均在任何文件系统副作用前显式失败关闭。
+- 第二百五十六项自动测试与稽查：两个字符串伪数据库路径动态拒绝且目标文件不存在；生产台账与图编排关联回归、Python编译与diff门禁通过。

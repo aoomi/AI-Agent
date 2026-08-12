@@ -82,6 +82,8 @@ class ProductionOrchestrator:
     """Authoritative state transition planner backed by LangGraph checkpoints."""
 
     def __init__(self, database: Path, director: Director | None = None) -> None:
+        if not isinstance(database, Path):
+            raise ValueError("production orchestrator database must be a Path")
         self.database = database.resolve()
         self.database.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(self.database, check_same_thread=False)
