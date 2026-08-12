@@ -77,7 +77,7 @@ class AgentConfigurationStore:
         if isinstance(expected_version, bool) or not isinstance(expected_version, int) or expected_version <= 0:
             raise AgentConfigurationError("expected_version must be a positive integer")
         if settings is not None and not isinstance(settings,Mapping):raise AgentConfigurationError("agent settings must be a mapping")
-        if model_id is not None and not model_id.strip():raise AgentConfigurationError("model_id is required when supplied")
+        if model_id is not None and (not isinstance(model_id,str) or not model_id.strip()):raise AgentConfigurationError("model_id is required when supplied")
         with self._lock:
             current = self.get(agent_id)
             if current.configuration_version != expected_version:
@@ -113,6 +113,7 @@ class AgentConfigurationStore:
 
     @staticmethod
     def _required_id(field_name: str, value: str) -> str:
+        if not isinstance(value,str):raise AgentConfigurationError(f"{field_name} is required")
         normalized = value.strip()
         if not normalized:
             raise AgentConfigurationError(f"{field_name} is required")
@@ -165,6 +166,7 @@ class AgentConfigurationStore:
         updated_by_identity_id: str,
         settings: Mapping[str, Any],
     ) -> AgentConfiguration:
+        if not isinstance(updated_by_identity_id,str):raise AgentConfigurationError("updated_by_identity_id is required")
         identity_id = updated_by_identity_id.strip()
         if not identity_id:
             raise AgentConfigurationError("updated_by_identity_id is required")

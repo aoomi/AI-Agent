@@ -3344,3 +3344,5 @@
 - 第一百六十三项自动测试与稽查：五类数字memory/session/proposal身份动态失败关闭；会话关联回归、Python编译与diff门禁通过。
 - 第一百六十四项稽查首败与整改：PlatformConfig虽校验空host/environment，但直接对运行时值strip，数字输入泄漏AttributeError。现数据模型边界先验证字符串类型。
 - 第一百六十四项自动测试与稽查：数字host/environment动态失败关闭；平台启动关联回归、Python编译与diff门禁通过。
+- 第一百六十五项稽查首败与整改：AgentConfiguration的agent/model/updater身份仍直接strip运行时值，数字输入泄漏AttributeError。现版本读写与审计身份边界统一验证字符串。
+- 第一百六十五项自动测试与稽查：数字agent动态失败关闭；配置关联回归、Python编译与diff门禁通过。

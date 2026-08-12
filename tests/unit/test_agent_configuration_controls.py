@@ -13,6 +13,8 @@ class AgentConfigurationControlTest(unittest.TestCase):
             store.get(" ")
         with self.assertRaisesRegex(AgentConfigurationError, "agent_id is required"):
             store.history(" ")
+        with self.assertRaisesRegex(AgentConfigurationError, "agent_id is required"):
+            store.get(1)  # type: ignore[arg-type]
         for version in (0, -1, True):
             with self.subTest(version=version), self.assertRaisesRegex(AgentConfigurationError, "positive integer"):
                 store.get("agent-1", version)  # type: ignore[arg-type]
