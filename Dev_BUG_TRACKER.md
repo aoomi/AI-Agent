@@ -3252,3 +3252,5 @@
 - 第一百一十七项自动测试与稽查：布尔、浮点及不足30天三类值动态失败关闭；安全审计关联测试、Python编译与diff门禁通过。
 - 第一百一十八项稽查首败与整改：WorkloadRouter与WorkerRegistry多项容量/超时参数只做大小比较，布尔值可作为memory、heartbeat、queue或TTL进入路由和跨实例预留。现路由构造/选择及SQLite list/reap/reserve统一强制真实整数或数值类型，并拒绝布尔伪值。
 - 第一百一十八项自动测试与稽查：路由心跳/深度/内存及发现心跳/内存/TTL畸形值动态失败关闭；生产控制关联`100 passed`（另`12 subtests passed`），Python编译与diff门禁通过。
+- 第一百一十九项稽查首败与整改：两类worker heartbeat虽有范围门禁，但布尔capacity/generation和浮点active可绕过并成为权威发现快照。现五类计数强制整数，heartbeat_at强制非布尔数值，内存及SQLite入口一致。
+- 第一百一十九项自动测试与稽查：布尔容量、浮点活动数和布尔时间戳在两类入口均动态拒绝；生产控制关联回归、Python编译与diff门禁通过。

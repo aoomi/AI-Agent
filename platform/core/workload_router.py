@@ -41,7 +41,10 @@ class WorkloadRouter:
     def heartbeat(self, worker: WorkerSnapshot) -> WorkerSnapshot:
         if not worker.worker_id.strip() or not worker.service_scope.strip() or not worker.resource_classes:
             raise WorkloadRoutingError("invalid worker identity")
-        if worker.capacity <= 0 or worker.active < 0 or worker.active > worker.capacity or worker.queue_depth < 0 or worker.available_memory < 0 or worker.generation < 1:
+        integer_fields=(worker.capacity,worker.active,worker.queue_depth,worker.available_memory,worker.generation)
+        if (any(isinstance(value,bool) or not isinstance(value,int) for value in integer_fields)
+                or worker.capacity <= 0 or worker.active < 0 or worker.active > worker.capacity or worker.queue_depth < 0 or worker.available_memory < 0 or worker.generation < 1
+                or isinstance(worker.heartbeat_at,bool) or not isinstance(worker.heartbeat_at,(int,float))):
             raise WorkloadRoutingError("invalid worker capacity")
         with self._lock:
             previous = self._workers.get(worker.worker_id)
