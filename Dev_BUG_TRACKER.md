@@ -3600,3 +3600,4 @@
 - BUG072 / M9.198 / 架构横向稽查第二百九十七项（已关闭，2026-08-12）：ProductionLedger公共记录与版本读取宽松解析SQLite JSON列，NaN progress或数组snapshot可进入权威API并触发非领域异常。现核心record/version路径共享严格标准JSON与对象/数组schema门禁；两类持久故障注入均以ProductionLedgerError失败关闭。关联`20 passed`，Python编译、文档状态及diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第二百九十八项（已关闭，2026-08-12）：StoryBible实体读取宽松解析attributes_json，NaN或非对象坏记录可进入故事事实API。现持久属性严格拒绝非标准JSON并强制对象schema，故障注入以StoryBibleError失败关闭。关联`9 passed`，Python编译、文档状态及diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第二百九十九项（已关闭，2026-08-12）：ProductionLedger写路径仍在合并当前progress、confirmation、scope和evidence时宽松解析SQLite JSON，坏权威行可在事务中产生非领域错误或污染后续提交。现全部current-row读取复用严格JSON/schema门禁；NaN progress故障注入证明projection在任何generation/revision变化前回滚。关联`21 passed`，Python编译、文档状态及diff门禁通过。
+- BUG072 / M9.198 / 架构横向稽查第三百项（已关闭，2026-08-12）：MediaPipeline仅依赖真值与属性访问接受provider outputs，字符串、任意对象或bool时间戳会泄漏异常或进入媒体事实。现强制Sequence边界、ProviderOutput精确类型、bytes/string字段及非bool整数时间线；三类伪输出动态失败关闭。关联`12 passed, 3 subtests passed`，Python编译、文档状态及diff门禁通过。

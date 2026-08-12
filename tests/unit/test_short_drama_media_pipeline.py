@@ -46,5 +46,12 @@ class MediaPipelineTest(unittest.TestCase):
         one=MODULE.MediaItem("a",b"a","audio/wav","a"*64,"voice",1,0,100);two=MODULE.MediaItem("b",b"b","audio/wav","b"*64,"effect",1,100,200);MODULE.MediaPipeline.validate_timeline(MODULE.MediaArtifact("audio",(one,two)))
         with self.assertRaisesRegex(MODULE.MediaPipelineError,"overlap"):MODULE.MediaPipeline.validate_timeline(MODULE.MediaArtifact("audio",(one,MODULE.MediaItem("b",b"b","audio/wav","b"*64,"effect",1,50,200))))
 
+    def test_provider_runtime_contract_rejects_pseudo_outputs(self) -> None:
+        class Invalid:
+            def __init__(self,value):self.value=value
+            def generate(self,*_):return self.value
+        for value in ("video",[object()],[MODULE.ProviderOutput(b"v","video/mp4","shot",start_ms=True,end_ms=2)]):
+            with self.subTest(value=value),self.assertRaises(MODULE.MediaPipelineError):MODULE.MediaPipeline(Invalid(value)).assets({"shots":[1]})
+
 
 if __name__ == "__main__": unittest.main()

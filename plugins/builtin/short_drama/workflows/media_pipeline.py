@@ -92,12 +92,14 @@ class MediaPipeline:
 
     def _generate(self, node: str, capability: str, inputs: Mapping[str, Any]) -> MediaArtifact:
         outputs = self.provider.generate(capability, inputs)
-        if not outputs:
+        if isinstance(outputs,(str,bytes,bytearray)) or not isinstance(outputs,Sequence) or not outputs:
             raise MediaPipelineError(f"{node} provider returned no output")
         items = []
         for output in outputs:
-            if not output.content or not output.media_type.strip() or not output.source_id.strip():
+            if not isinstance(output,ProviderOutput) or not isinstance(output.content,bytes) or not isinstance(output.media_type,str) or not isinstance(output.source_id,str) or not isinstance(output.asset_kind,str):
                 raise MediaPipelineError(f"{node} provider returned invalid output")
-            if output.start_ms < 0 or output.end_ms <= output.start_ms: raise MediaPipelineError(f"{node} provider returned invalid timeline")
+            if not output.content or not output.media_type.strip() or not output.source_id.strip() or not output.asset_kind.strip():
+                raise MediaPipelineError(f"{node} provider returned invalid output")
+            if any(isinstance(value,bool) or not isinstance(value,int) for value in (output.start_ms,output.end_ms)) or output.start_ms < 0 or output.end_ms <= output.start_ms: raise MediaPipelineError(f"{node} provider returned invalid timeline")
             items.append(MediaItem(output.source_id, output.content, output.media_type, sha256(output.content).hexdigest(), output.asset_kind, 1, output.start_ms, output.end_ms))
         return MediaArtifact(node, tuple(items))
