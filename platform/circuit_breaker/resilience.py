@@ -4,6 +4,7 @@ from collections import deque
 from dataclasses import dataclass
 import time
 import math
+import json
 from threading import RLock
 from typing import Any,Callable,Mapping
 
@@ -74,6 +75,8 @@ class ResilientProviderInvoker:
                 or not provider_id.strip() or not capability.strip() or any(not isinstance(target,str) or not target.strip() for target in targets)):raise ValueError("provider and capability are required")
         if len(set(targets))!=len(targets):raise ValueError("provider fallback chain must be unique")
         if not isinstance(inputs,Mapping):raise ValueError("provider inputs must be a mapping")
+        try:json.dumps(dict(inputs),allow_nan=False)
+        except (TypeError,ValueError) as error:raise ValueError("provider inputs must be standard JSON") from error
         last=None
         for target in targets:
             with self._lock:limiter=self.limiters.setdefault(target,SlidingWindowRateLimiter(self.rate_limit,self.clock))

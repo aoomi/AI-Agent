@@ -1243,3 +1243,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百四十项：OpenAI兼容客户端request schema/body与structured result已强制标准JSON，NaN和任意对象不会进入网络请求或上层会话。
 - BUG072第二百四十一项：通用LangGraphOrchestrator inputs/result已强制标准JSON，不可持久值不会进入checkpointer或从Graph返回调度层。
 - BUG072第二百四十二项：ProviderAdapterRegistry invoke inputs已强制标准JSON，非标准值不会进入真实提供方executor。
+- BUG072第二百四十三项：Provider韧性调用层inputs已强制标准JSON，非标准值不会进入限流、熔断、重试或回退调用链。

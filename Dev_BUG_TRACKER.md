@@ -3500,3 +3500,5 @@
 - 第二百四十一项自动测试与稽查：NaN/任意对象inputs与NaN executor结果动态拒绝；Graph单元与集成关联回归、Python编译与diff门禁通过。
 - 第二百四十二项稽查首败与整改：ProviderAdapterRegistry将任意Mapping inputs直接传入真实executor，NaN或任意对象可在提供方边界才失败。现在解析密钥和调用executor前强制标准JSON。
 - 第二百四十二项自动测试与稽查：NaN/任意对象inputs动态拒绝；Provider适配与生产集成关联回归、Python编译与diff门禁通过。
+- 第二百四十三项稽查首败与整改：ResilientProviderInvoker只验证inputs Mapping，NaN或任意对象会先消耗限流/熔断状态再在下游失败。现在任何韧性状态副作用前强制标准JSON。
+- 第二百四十三项自动测试与稽查：NaN/任意对象inputs动态拒绝且提供方未被调用；韧性层关联回归、Python编译与diff门禁通过。

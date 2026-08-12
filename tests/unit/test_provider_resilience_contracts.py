@@ -24,6 +24,9 @@ class ProviderResilienceContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"inputs must be a mapping"):
             invoker.call("provider","video",[])  # type: ignore[arg-type]
         self.assertEqual(calls,[])
+        for inputs in ({"value":math.nan},{"value":object()}):
+            with self.subTest(inputs=inputs),self.assertRaisesRegex(ValueError,"standard JSON"):invoker.call("provider","video",inputs)
+        self.assertEqual(calls,[])
 
     def test_runtime_identities_and_non_finite_clocks_are_rejected(self) -> None:
         invoker=ResilientProviderInvoker(lambda *_: None)
