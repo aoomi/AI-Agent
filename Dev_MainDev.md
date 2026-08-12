@@ -1213,3 +1213,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百一十项：AgentScheduler已严格验证tuple问题ID、字符串agent/mode及ExecutionResult模型/status/Mapping values；坏执行器结果不能进入生命周期或上下文。调度关联`14 passed`、`13 subtests passed`。
 - BUG072第二百一十一项：Skill工具输入消毒已强制Mapping键为非空字符串并移除`str(key)`宽松转换，数字/空键不能被改写后传入工具。安全关联`3 passed`、`6 subtests passed`。
 - BUG072第二百一十二项：可观测性导出已验证路径模型、字符串关联ID/指标标签键/指标名及有限单调Trace时钟；数字scope、NaN或倒退时钟不会进入JSONL/Prometheus记录。关联`8 passed`、`18 subtests passed`。
+- BUG072第二百一十三项：DurableTaskRepository已验证Path库、字符串生命周期字段、正整数进程ID、标准JSON payload及严格投影ack/task_class；任意对象与数字事件不能写入SQLite权威任务。专项`3 passed`、`18 subtests passed`。

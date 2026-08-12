@@ -42,6 +42,7 @@ class ProjectionLease:
 
 class DurableTaskRepository:
     def __init__(self, database: Path) -> None:
+        if not isinstance(database,Path):raise ValueError("durable task database must be a Path")
         self.database = database.resolve(); self.database.parent.mkdir(parents=True, exist_ok=True); self._lock = RLock()
         with self._connection() as connection:
             connection.executescript("""
@@ -111,6 +112,7 @@ class DurableTaskRepository:
 
     @staticmethod
     def _values(job_id: str, task_class: str, job: Mapping[str, Any]) -> dict[str, Any]:
+        if not isinstance(job_id,str) or not isinstance(task_class,str):raise ValueError("durable task identity must be strings")
         if not isinstance(job, Mapping):raise ValueError("durable task payload must be a mapping")
         request = job.get("request") if isinstance(job.get("request"), Mapping) else {}
         now = datetime.now(UTC).isoformat()
@@ -118,13 +120,18 @@ class DurableTaskRepository:
         if any(not isinstance(value,str) for value in raw_scope):raise ValueError("durable task owner scope is required")
         tenant_id,user_id,project_id=(value.strip() for value in raw_scope)
         if not job_id.strip() or not task_class.strip() or not all((tenant_id,user_id,project_id)):raise ValueError("durable task owner scope is required")
+        string_fields={"stage":job.get("stage") or job.get("phase") or task_class,"subject_key":job.get("subject_key") or "","status":job.get("status") or "queued","heartbeat_at":job.get("heartbeat_at") or "","started_at":job.get("started_at") or job.get("queued_at") or "","finished_at":job.get("finished_at") or ""}
+        if any(not isinstance(value,str) for value in string_fields.values()):raise ValueError("durable task lifecycle fields must be strings")
+        for field in ("pid","process_group"):
+            value=job.get(field)
+            if value is not None and (isinstance(value,bool) or not isinstance(value,int) or value<=0):raise ValueError("durable task process identity is invalid")
+        try:payload_json=json.dumps(dict(job),ensure_ascii=False,sort_keys=True,allow_nan=False)
+        except (TypeError,ValueError) as error:raise ValueError("durable task payload must be standard JSON") from error
         return {
-            "job_id":str(job_id), "task_class":str(task_class),
+            "job_id":job_id.strip(), "task_class":task_class.strip(),
             "tenant_id":tenant_id, "user_id":user_id, "project_id":project_id,
-            "stage":str(job.get("stage") or job.get("phase") or task_class), "subject_key":str(job.get("subject_key") or ""),
-            "status":str(job.get("status") or "queued"), "pid":job.get("pid"), "process_group":job.get("process_group"),
-            "heartbeat_at":str(job.get("heartbeat_at") or ""), "started_at":str(job.get("started_at") or job.get("queued_at") or ""),
-            "finished_at":str(job.get("finished_at") or ""), "payload_json":json.dumps(dict(job), ensure_ascii=False, sort_keys=True, default=str), "updated_at":now,
+            **string_fields, "pid":job.get("pid"), "process_group":job.get("process_group"),
+            "payload_json":payload_json, "updated_at":now,
         }
 
     @staticmethod
@@ -138,6 +145,7 @@ class DurableTaskRepository:
             """, values)
 
     def pending_projections(self, *, task_class: str = "") -> list[dict[str, Any]]:
+        if not isinstance(task_class,str):raise ValueError("projection task_class must be a string")
         query = "SELECT * FROM task_projection_outbox" + (" WHERE task_class=?" if task_class else "") + " ORDER BY updated_at,job_id"
         with self._lock, self._connection() as connection:
             rows = connection.execute(query, (task_class,) if task_class else ()).fetchall()
@@ -145,9 +153,9 @@ class DurableTaskRepository:
 
     def acknowledge_projections(self, events: list[str | tuple[str, int]]) -> int:
         if not isinstance(events,list):raise ValueError("projection acknowledgements must be a list")
-        if any(isinstance(item,tuple) and (len(item)!=2 or not str(item[0]).strip() or isinstance(item[1],bool) or not isinstance(item[1],int) or item[1]<=0) for item in events):raise ValueError("projection acknowledgement is invalid")
-        unversioned = sorted({str(item) for item in events if not isinstance(item, tuple) and str(item)})
-        versioned = sorted({(str(item[0]), int(item[1])) for item in events if isinstance(item, tuple) and str(item[0])})
+        if any((isinstance(item,tuple) and (len(item)!=2 or not isinstance(item[0],str) or not item[0].strip() or isinstance(item[1],bool) or not isinstance(item[1],int) or item[1]<=0)) or (not isinstance(item,tuple) and (not isinstance(item,str) or not item.strip())) for item in events):raise ValueError("projection acknowledgement is invalid")
+        unversioned = sorted({item.strip() for item in events if isinstance(item,str)})
+        versioned = sorted({(item[0].strip(), item[1]) for item in events if isinstance(item,tuple)})
         if not unversioned and not versioned: return 0
         with self._lock, self._connection() as connection:
             deleted = 0
