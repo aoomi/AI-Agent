@@ -1187,3 +1187,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百八十四项：TaskLease所有权、generation、TTL及now已拒绝数字伪身份、浮点代际和NaN/Infinity，非有限时钟不能绕过跨实例租约取消/提交围栏。租约专项回归通过。
 - BUG072第一百八十五项：DurableTaskRepository任务/owner/query身份及projection lock TTL已强制字符串和有限数值，数字伪scope与NaN/Infinity锁不会进入SQLite权威任务投影。专项回归通过。
 - BUG072第一百八十六项：内存任务模型与队列入口已验证字符串身份、IdentityContext、Mapping payload、合法状态及QueuedTask实例，畸形运行时对象不会泄漏属性异常或污染幂等索引。队列与任务服务关联`20 passed`、`19 subtests passed`。
+- BUG072第一百八十七项：Provider审计已严格验证字符串scope/provider/status/error、tuple产物及逐项字符串校验和，并规范化持久身份；数字伪scope或列表产物不能进入审计台账。审计与生产集成关联`11 passed`、`14 subtests passed`。

@@ -16,4 +16,9 @@ class ProviderAuditLedgerTest(unittest.TestCase):
             with self.assertRaisesRegex(ProviderAuditError,"provider and capability"):ledger.record(**(values|override))
         for scope in (("","u","p"),("t","","p"),("t","u","")):
             with self.assertRaisesRegex(ProviderAuditError,"owner scope"):ledger.list(*scope)
+    def test_runtime_identity_and_artifact_types_are_rejected(self):
+        ledger=ProviderAuditLedger();values=dict(tenant_id="t",user_id="u",project_id="p",provider_id="provider",capability="chat",request={},input_tokens=0,output_tokens=0,duration_ms=0,cost_microunits=0)
+        for override in ({"tenant_id":1},{"provider_id":1},{"status":[]},{"artifact_ids":["a"]},{"artifact_ids":(1,),"artifact_checksums":("f",)},{"error_code":1}):
+            with self.subTest(override=override),self.assertRaises(ProviderAuditError):ledger.record(**(values|override))
+        with self.assertRaisesRegex(ProviderAuditError,"owner scope"):ledger.list(1,"u","p")
 if __name__=="__main__":unittest.main()
