@@ -1199,3 +1199,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百九十六项：AgentMapper绑定已验证SkillDefinition/AgentInstance模型及全部字符串身份，双向读取同步拒绝数字ID；畸形映射不会泄漏属性异常或污染一对一索引。映射与注册关联`9 passed`、`4 subtests passed`。
 - BUG072第一百九十七项：IdentityContext构造与tenant围栏已统一验证字符串scope/kind，数字request/kind/tenant不会泄漏strip异常或进入事件、队列作用域。身份关联`27 passed`、`27 subtests passed`。
 - BUG072第一百九十八项：SkillRegistry构造已要求Path插件根，get同步拒绝数字skill ID；畸形发现根或查询不会泄漏resolve/strip异常。Skill与映射关联`10 passed`、`4 subtests passed`。
+- BUG072第一百九十九项：任务进度投影已验证PublishedEvent、IdentityContext及字符串project/task查询，数字scope或坏事件不会泄漏属性异常或读取跨域投影。事件关联`14 passed`、`13 subtests passed`。

@@ -40,6 +40,8 @@ class TaskProgressProjectionTest(unittest.TestCase):
         projection=TaskProgressProjection(EventBus())
         for operation in (lambda:projection.get(context(),"","task"),lambda:projection.get(context(),"project",""),lambda:projection.list(context(),"")):
             with self.assertRaisesRegex(TaskProjectionError,"required"):operation()
+        for operation in (lambda:projection.get(object(),"project","task"),lambda:projection.get(context(),1,"task"),lambda:projection.list(object()),lambda:projection.list(context(),1),lambda:projection._apply(object())):
+            with self.subTest(operation=operation),self.assertRaises(TaskProjectionError):operation()
 
 
 if __name__ == "__main__": unittest.main()

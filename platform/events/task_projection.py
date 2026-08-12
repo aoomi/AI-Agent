@@ -34,6 +34,7 @@ class TaskProgressProjection:
     def close(self) -> None: self._unsubscribe()
 
     def _apply(self, event: PublishedEvent) -> None:
+        if not isinstance(event,PublishedEvent):raise TaskProjectionError("task event is invalid")
         payload: dict[str, Any] = dict(event.payload)
         task_id, status, progress = payload.get("task_id"), payload.get("current_status"), payload.get("progress_percent")
         if not isinstance(task_id, str) or not task_id.strip() or not isinstance(status, str) or not status.strip():
@@ -44,6 +45,7 @@ class TaskProgressProjection:
         with self._lock:self._items[key] = TaskProgress(task_id, event.context.tenant_id, event.context.identity_id, event.project_id, status, progress)
 
     def get(self, context: IdentityContext, project_id: str, task_id: str) -> TaskProgress:
+        if not isinstance(context,IdentityContext) or not isinstance(project_id,str) or not isinstance(task_id,str):raise TaskProjectionError("project_id and task_id are required")
         project_id,task_id=project_id.strip(),task_id.strip()
         if not project_id or not task_id:raise TaskProjectionError("project_id and task_id are required")
         with self._lock:
@@ -51,7 +53,9 @@ class TaskProgressProjection:
             except KeyError as error: raise TaskProjectionError("task progress does not exist in this scope") from error
 
     def list(self, context: IdentityContext, project_id: str | None = None) -> tuple[TaskProgress, ...]:
+        if not isinstance(context,IdentityContext):raise TaskProjectionError("identity context is required")
         if project_id is not None:
+            if not isinstance(project_id,str):raise TaskProjectionError("project_id is required")
             project_id=project_id.strip()
             if not project_id:raise TaskProjectionError("project_id is required")
         with self._lock:return tuple(item for item in self._items.values() if item.tenant_id == context.tenant_id
