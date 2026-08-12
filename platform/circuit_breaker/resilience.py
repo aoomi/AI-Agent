@@ -27,7 +27,9 @@ class SlidingWindowRateLimiter:
 @dataclass(slots=True)
 class CircuitState: failures:int=0;opened_at:float|None=None
 class CircuitBreaker:
-    def __init__(self,threshold:int=3,recovery_seconds:float=30,clock:Callable[[],float]=time.monotonic):self.threshold=threshold;self.recovery_seconds=recovery_seconds;self.clock=clock;self.states:dict[str,CircuitState]={};self._lock=RLock()
+    def __init__(self,threshold:int=3,recovery_seconds:float=30,clock:Callable[[],float]=time.monotonic):
+        if threshold<1 or recovery_seconds<=0:raise ValueError("circuit threshold and recovery must be positive")
+        self.threshold=threshold;self.recovery_seconds=recovery_seconds;self.clock=clock;self.states:dict[str,CircuitState]={};self._lock=RLock()
     def before_call(self,p:str)->None:
         with self._lock:
             s=self.states.setdefault(p,CircuitState())
@@ -46,8 +48,11 @@ class ResilientProviderInvoker:
         if not 0<=max_retries<=10:raise ValueError("invalid retry limit")
         self.invoke=invoke;self.max_retries=max_retries;self.rate_limit=rate_limit;self.sleeper=sleeper;self.clock=clock;self.breaker=CircuitBreaker(circuit_threshold,recovery_seconds,clock);self.limiters:dict[str,SlidingWindowRateLimiter]={};self._lock=RLock()
     def call(self,provider_id:str,capability:str,inputs:Mapping[str,Any],*,fallback_provider_ids:tuple[str,...]=())->Any:
+        targets=(provider_id,*fallback_provider_ids)
+        if not provider_id.strip() or not capability.strip() or any(not target.strip() for target in targets):raise ValueError("provider and capability are required")
+        if len(set(targets))!=len(targets):raise ValueError("provider fallback chain must be unique")
         last=None
-        for target in (provider_id,*fallback_provider_ids):
+        for target in targets:
             with self._lock:limiter=self.limiters.setdefault(target,SlidingWindowRateLimiter(self.rate_limit,self.clock))
             for attempt in range(self.max_retries+1):
                 try:self.breaker.before_call(target);limiter.acquire(target);result=self.invoke(target,capability,inputs);self.breaker.success(target);return result

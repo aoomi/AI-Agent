@@ -17,4 +17,8 @@ class ProviderResilienceTest(unittest.TestCase):
     def test_rate_limit_is_explicit(self):
         limiter=SlidingWindowRateLimiter(1,lambda:0);limiter.acquire("p")
         with self.assertRaisesRegex(ProviderCallError,"rate limit"):limiter.acquire("p")
+    def test_invalid_resilience_configuration_and_duplicate_fallback_are_rejected(self):
+        with self.assertRaisesRegex(ValueError,"positive"):ResilientProviderInvoker(lambda *_:None,circuit_threshold=0)
+        service=ResilientProviderInvoker(lambda *_:"ok")
+        with self.assertRaisesRegex(ValueError,"unique"):service.call("p","c",{},fallback_provider_ids=("p",))
 if __name__=="__main__":unittest.main()
