@@ -79,13 +79,14 @@ class MediaPipeline:
 
     @staticmethod
     def validate_timeline(artifact: MediaArtifact) -> None:
-        if artifact.node_type not in {"audio","subtitle"}: raise MediaPipelineError("timeline validation requires audio or subtitle artifact")
+        if not isinstance(artifact,MediaArtifact) or artifact.node_type not in {"audio","subtitle"}: raise MediaPipelineError("timeline validation requires audio or subtitle artifact")
+        if any(not isinstance(item,MediaItem) for item in artifact.items): raise MediaPipelineError("timeline item is invalid")
+        if any(any(isinstance(value,bool) or not isinstance(value,int) for value in (item.start_ms,item.end_ms)) or item.start_ms<0 or item.end_ms<=item.start_ms for item in artifact.items): raise MediaPipelineError("timeline item range is invalid")
         ordered=sorted(artifact.items,key=lambda item:item.start_ms)
-        if any(item.start_ms<0 or item.end_ms<=item.start_ms for item in ordered): raise MediaPipelineError("timeline item range is invalid")
         if any(left.end_ms>right.start_ms for left,right in zip(ordered,ordered[1:])): raise MediaPipelineError("timeline items overlap")
 
     def _from_artifact(self, node: str, capability: str, upstream: MediaArtifact, expected: str) -> MediaArtifact:
-        if upstream.node_type != expected or not upstream.items:
+        if not isinstance(upstream,MediaArtifact) or upstream.node_type != expected or not upstream.items or any(not isinstance(item,MediaItem) for item in upstream.items):
             raise MediaPipelineError(f"{node} requires non-empty {expected} artifact")
         inputs = {"items": [{"source_id": item.source_id, "media_type": item.media_type, "checksum_sha256": item.checksum_sha256} for item in upstream.items]}
         return self._generate(node, capability, inputs)

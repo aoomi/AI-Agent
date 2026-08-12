@@ -53,5 +53,13 @@ class MediaPipelineTest(unittest.TestCase):
         for value in ("video",[object()],[MODULE.ProviderOutput(b"v","video/mp4","shot",start_ms=True,end_ms=2)]):
             with self.subTest(value=value),self.assertRaises(MODULE.MediaPipelineError):MODULE.MediaPipeline(Invalid(value)).assets({"shots":[1]})
 
+    def test_upstream_and_timeline_require_domain_objects(self) -> None:
+        pipeline=MODULE.MediaPipeline(Provider())
+        for upstream in (object(),MODULE.MediaArtifact("assets",(object(),))):
+            with self.subTest(upstream=upstream),self.assertRaises(MODULE.MediaPipelineError):pipeline.images(upstream)
+        with self.assertRaises(MODULE.MediaPipelineError):MODULE.MediaPipeline.validate_timeline(object())
+        invalid=MODULE.MediaItem("a",b"a","audio/wav","a"*64,"voice",1,True,2)
+        with self.assertRaisesRegex(MODULE.MediaPipelineError,"range"):MODULE.MediaPipeline.validate_timeline(MODULE.MediaArtifact("audio",(invalid,)))
+
 
 if __name__ == "__main__": unittest.main()
