@@ -195,6 +195,9 @@ class ProductionControlTests(unittest.TestCase):
             with self.assertRaisesRegex(WorkloadRoutingError, "invalid worker"):
                 registry.heartbeat(invalid)
             self.assertEqual(registry.list(now=100), [])
+        router = WorkloadRouter()
+        with self.assertRaisesRegex(WorkloadRoutingError, "invalid worker capacity"):
+            router.heartbeat(WorkerSnapshot("node", "scope", ("video",), 1, 2, 0, 100, 100))
 
     def test_worker_dispatch_reservations_are_atomic_across_registry_instances(self):
         with TemporaryDirectory() as temporary:
