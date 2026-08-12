@@ -43,17 +43,19 @@ class PublishedEvent:
     payload: Mapping[str, Any]
 
     def __post_init__(self) -> None:
-        if not self.event_id.strip():
+        if not isinstance(self.event_id,str) or not self.event_id.strip():
             raise EventBusError("event_id must not be empty")
-        if self.event_type not in EVENT_TYPES:
+        if not isinstance(self.event_type,str) or self.event_type not in EVENT_TYPES:
             raise EventBusError("event_type is not supported")
-        if not self.project_id.strip():
+        if not isinstance(self.project_id,str) or not self.project_id.strip():
             raise EventBusError("project_id must not be empty")
         if not isinstance(self.context,IdentityContext):raise EventBusError("event context is invalid")
         if not isinstance(self.payload,Mapping) or not self.payload:
             raise EventBusError("payload must not be empty")
         if _contains_sensitive_key(self.payload):
             raise EventBusError("event payload contains sensitive fields")
+        object.__setattr__(self,"event_id",self.event_id.strip())
+        object.__setattr__(self,"project_id",self.project_id.strip())
         object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
 
 
@@ -66,7 +68,7 @@ class EventBus:
         self._lock = RLock()
 
     def subscribe(self, event_type: str, handler: EventHandler) -> Callable[[], None]:
-        if event_type not in EVENT_TYPES:
+        if not isinstance(event_type,str) or event_type not in EVENT_TYPES:
             raise EventBusError("event_type is not supported")
         if not callable(handler):
             raise EventBusError("event handler must be callable")

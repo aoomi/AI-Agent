@@ -3398,3 +3398,5 @@
 - 第一百九十项自动测试与稽查：坏policy/身份/root/allowlist/write/path/URL动态失败关闭；安全关联`3 passed`（另`11 subtests passed`），Python编译与diff门禁通过。
 - 第一百九十一项稽查首败与整改：PluginInstallVerifier的许可容器与verify request结构依赖静态注解，任意request、字符串Path、字符串manifest或列表权限会泄漏属性/哈希/集合异常。现安装门禁在任何I/O和签名副作用前完整验证。
 - 第一百九十一项自动测试与稽查：坏allowlist、request、Path、manifest、permissions及最低版本动态失败关闭；安全关联`4 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
+- 第一百九十二项稽查首败与整改：PublishedEvent对event/project直接strip，subscribe又依赖集合比较接受任意类型，数字字段会泄漏属性异常或被含混判为未知事件。现事件信封与订阅边界共享严格字符串契约。
+- 第一百九十二项自动测试与稽查：数字event/project/type及订阅type动态失败关闭；事件、投影与任务集成关联`14 passed`（另`8 subtests passed`），Python编译与diff门禁通过。
