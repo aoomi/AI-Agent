@@ -448,6 +448,36 @@ class ProductionControlTests(unittest.TestCase):
         self.assertTrue(registry.unregister("storage.task_repository", "sqlite"))
         self.assertEqual(registry.create("storage.task_repository")["provider"], "postgres")
 
+    def test_extension_provider_cannot_change_during_inflight_creation(self):
+        registry = ProductionExtensionRegistry()
+        entered = threading.Event()
+        release = threading.Event()
+
+        def slow_factory(**_):
+            entered.set()
+            release.wait(timeout=2)
+            return {"provider":"sqlite"}
+
+        registry.register("storage.task_repository", "sqlite", slow_factory)
+        registry.register("storage.task_repository", "postgres", lambda **_: {"provider":"postgres"})
+        result = []
+        worker = threading.Thread(target=lambda:result.append(registry.create("storage.task_repository")))
+        worker.start()
+        self.assertTrue(entered.wait(timeout=2))
+        for mutation in (
+            lambda: registry.unregister("storage.task_repository", "sqlite"),
+            lambda: registry.enable("storage.task_repository", False, "sqlite"),
+            lambda: registry.activate("storage.task_repository", "postgres"),
+            lambda: registry.register("storage.task_repository", "sqlite", lambda **_: {}, replace_provider=True),
+            lambda: registry.register("storage.task_repository", "replacement", lambda **_: {}, replace=True),
+        ):
+            with self.assertRaisesRegex(ProductionExtensionError, "in-flight"):
+                mutation()
+        release.set()
+        worker.join(timeout=2)
+        self.assertEqual(result, [{"provider":"sqlite"}])
+        self.assertTrue(registry.unregister("storage.task_repository", "sqlite"))
+
     def test_builtin_extension_refresh_preserves_plugin_and_active_binding(self):
         registry = ProductionExtensionRegistry()
         registry.register("routing.workload", "builtin", lambda **_: {"version":1}, metadata={"builtin":True})

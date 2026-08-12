@@ -41,6 +41,7 @@ class ProductionExtensionRegistry:
         self._active: dict[str, str] = {}
         self._contracts: dict[tuple[str, str], _ProviderContract] = {}
         self._point_required_methods: dict[str, tuple[str, ...]] = {}
+        self._inflight: dict[tuple[str, str], int] = {}
         # Trust is granted by the application composition root, never by
         # provider-controlled metadata. A plugin cannot obtain the builtin
         # probe exemption by setting metadata["builtin"] itself.
@@ -125,6 +126,10 @@ class ProductionExtensionRegistry:
             # infrastructure binding.
             if should_activate and not enabled:
                 raise ProductionExtensionError("disabled extension provider cannot be activated")
+            if replace and any(count for item_key, count in self._inflight.items() if item_key[0] == point):
+                raise ProductionExtensionError(f"extension point has in-flight creations: {point}")
+            if replace_provider and self._inflight.get(key, 0):
+                raise ProductionExtensionError(f"extension provider has in-flight creations: {point}/{provider}")
             if replace:
                 self._extensions = {item_key:item for item_key, item in self._extensions.items() if item_key[0] != point}
                 self._contracts = {item_key:item for item_key, item in self._contracts.items() if item_key[0] != point}
@@ -149,6 +154,11 @@ class ProductionExtensionRegistry:
         candidate_snapshot: tuple[str, ProductionExtension, ExtensionFactory, _ProviderContract | None] | None = None
         with self._lock:
             targets = [key for key in self._extensions if key[0] == extension_point and (provider_id is None or key[1] == provider_id)]
+            active_creations = [key for key in targets if self._inflight.get(key, 0)]
+            if active_creations:
+                raise ProductionExtensionError(
+                    f"extension provider has in-flight creations: {active_creations[0][0]}/{active_creations[0][1]}"
+                )
             was_active = self._active.get(extension_point) in {key[1] for key in targets}
             if was_active:
                 candidates = sorted(
@@ -164,6 +174,11 @@ class ProductionExtensionRegistry:
                 self._probe_factory(extension_point, candidate_provider, candidate_factory, candidate_contract)
         with self._lock:
             targets = [key for key in self._extensions if key[0] == extension_point and (provider_id is None or key[1] == provider_id)]
+            active_creations = [key for key in targets if self._inflight.get(key, 0)]
+            if active_creations:
+                raise ProductionExtensionError(
+                    f"extension provider has in-flight creations: {active_creations[0][0]}/{active_creations[0][1]}"
+                )
             was_active = self._active.get(extension_point) in {key[1] for key in targets}
             if candidate_snapshot is not None:
                 candidate_provider, candidate_definition, candidate_factory, candidate_contract = candidate_snapshot
@@ -183,6 +198,12 @@ class ProductionExtensionRegistry:
         with self._lock:
             targets = [key for key in self._extensions if key[0] == extension_point and (provider_id is None or key[1] == provider_id)]
             if not targets: raise ProductionExtensionError(f"extension is not installed: {extension_point}")
+            if not enabled:
+                active_creations = [key for key in targets if self._inflight.get(key, 0)]
+                if active_creations:
+                    raise ProductionExtensionError(
+                        f"extension provider has in-flight creations: {active_creations[0][0]}/{active_creations[0][1]}"
+                    )
             updated_items = []
             for key in targets:
                 definition, factory = self._extensions[key]
@@ -202,6 +223,11 @@ class ProductionExtensionRegistry:
 
     def activate(self, extension_point: str, provider_id: str) -> ProductionExtension:
         with self._lock:
+            active_provider = self._active.get(extension_point)
+            if active_provider and active_provider != provider_id and self._inflight.get((extension_point, active_provider), 0):
+                raise ProductionExtensionError(
+                    f"extension provider has in-flight creations: {extension_point}/{active_provider}"
+                )
             definition, factory = self._entry(extension_point, provider_id)
             if not definition.enabled: raise ProductionExtensionError(f"extension provider is disabled: {extension_point}/{provider_id}")
             contract = self._contracts.get((extension_point, provider_id))
@@ -222,14 +248,24 @@ class ProductionExtensionRegistry:
         with self._lock:
             definition, factory = self._entry(extension_point, provider_id)
             contract = self._contracts.get((extension_point, definition.provider_id))
-        if not definition.enabled:
-            raise ProductionExtensionError(f"extension is disabled: {extension_point}")
-        instance = factory(**configuration)
-        if instance is None:
-            raise ProductionExtensionError(f"extension returned no instance: {extension_point}")
-        if contract is not None:
-            self._validate_instance(extension_point, definition.provider_id, instance, contract)
-        return instance
+            if not definition.enabled:
+                raise ProductionExtensionError(f"extension is disabled: {extension_point}")
+            key = (extension_point, definition.provider_id)
+            self._inflight[key] = self._inflight.get(key, 0) + 1
+        try:
+            instance = factory(**configuration)
+            if instance is None:
+                raise ProductionExtensionError(f"extension returned no instance: {extension_point}")
+            if contract is not None:
+                self._validate_instance(extension_point, definition.provider_id, instance, contract)
+            return instance
+        finally:
+            with self._lock:
+                remaining = self._inflight.get(key, 1) - 1
+                if remaining:
+                    self._inflight[key] = remaining
+                else:
+                    self._inflight.pop(key, None)
 
     def list(self) -> tuple[ProductionExtension, ...]:
         with self._lock:
