@@ -3270,3 +3270,5 @@
 - 第一百二十六项自动测试与稽查：空agent、非Mapping values、布尔retry和整数auto_run动态拒绝且runs保持空；调度关联`8 passed`（另`4 subtests passed`），Python编译与diff门禁通过。
 - 第一百二十七项稽查首败与整改：IndustrySkillRegistry只验证capabilities/permissions为list，不验证元素类型和空值；数字或空权限可进入frozenset并污染机器人配置。现两类集合逐项强制非空字符串并strip后发布。
 - 第一百二十七项自动测试与稽查：数字/空capability及permission四类清单动态拒绝；行业Skill关联`2 passed`（另`4 subtests passed`），Python编译与diff门禁通过。
+- 第一百二十八项稽查首败与整改：IndustryWorkflowService可绑定空robot或非callable executor，create接受重复/空robot，modify更可写入任意mode并递增版本。现三类控制在共享表或版本变更前失败关闭。
+- 第一百二十八项自动测试与稽查：坏executor、空/重复robot及未知mode动态拒绝，原workflow保持version1；行业工作流关联`4 passed`（另`4 subtests passed`），Python编译与diff门禁通过。

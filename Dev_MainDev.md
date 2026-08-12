@@ -1128,3 +1128,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百二十五项：Agent整改调度已强制issue_ids逐项非空且remediation_round为正整数，匿名问题或布尔轮次不会进入共享整改表。调度关联`8 passed`、`2 subtests passed`。
 - BUG072第一百二十六项：Agent流水线启动已验证agent_ids逐项身份、values Mapping、max_retries真实整数和auto_run严格布尔，畸形运行不会创建部分上下文。调度关联`8 passed`、`4 subtests passed`。
 - BUG072第一百二十七项：行业Skill清单required_capabilities与permissions已逐项强制非空字符串并规范化，畸形集合不能进入机器人注册与模型选择。关联`2 passed`、`4 subtests passed`。
+- BUG072第一百二十八项：行业工作流executor绑定、robot列表及modify模式已完整验证，空/重复机器人、坏executor或未知模式不会污染工作流版本。关联`4 passed`、`4 subtests passed`。
