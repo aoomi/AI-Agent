@@ -195,7 +195,10 @@ class ProductionCapabilityRegistry:
                 key = (definition.capability, definition.provider_id)
                 self._inflight[key] = self._inflight.get(key, 0) + 1
             try:
-                result = handler(**input_snapshot)
+                # Every fallback attempt receives the same pristine request;
+                # a failed provider must not mutate the next provider's view.
+                attempt_inputs = json.loads(json.dumps(input_snapshot,allow_nan=False))
+                result = handler(**attempt_inputs)
                 if result is None: raise ProductionCapabilityError(f"capability returned no result: {capability}/{definition.provider_id}")
                 return definition, result
             except Exception as error:

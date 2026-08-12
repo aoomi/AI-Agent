@@ -16,6 +16,13 @@ class ProductionCapabilityContractTest(unittest.TestCase):
         inputs={"routing":{"regions":["local"]}};ProductionCapabilityRegistry().register("video","local",handler)
         registry=ProductionCapabilityRegistry();registry.register("video","local",handler);registry.invoke("video",**inputs)
         self.assertEqual(inputs["routing"]["regions"][0],"local")
+    def test_failed_provider_cannot_mutate_fallback_inputs(self) -> None:
+        registry=ProductionCapabilityRegistry();seen=[]
+        def failed(**inputs):inputs["routing"]["regions"][0]="failed";raise RuntimeError("failed")
+        def backup(**inputs):seen.append(inputs["routing"]["regions"][0]);return {"ok":True}
+        registry.register("video","a",failed,priority=1);registry.register("video","b",backup,priority=1)
+        registry.invoke("video",allow_fallback=True,routing={"regions":["local"]})
+        self.assertEqual(seen,["local"])
     def test_registration_rejects_runtime_pseudo_controls(self) -> None:
         registry=ProductionCapabilityRegistry()
         for kwargs in ({"enabled":1},{"healthy":0},{"replace":1},{"priority":True},{"metadata":[]}):

@@ -1283,3 +1283,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百八十项：AgentContextStore每次get已从标准JSON生成独立深快照，读取者不能通过嵌套对象反向污染共享上下文。
 - BUG072第二百八十一项：ProductionExtension probe_configuration已从标准JSON生成独立深快照，第三方factory探测不能反向污染调用方嵌套配置。
 - BUG072第二百八十二项：ProductionCapability invoke与ProductionExtension create输入已在inflight前强制标准JSON深快照，可替换handler/factory不能反向污染调用方请求。
+- BUG072第二百八十三项：ProductionCapability每个fallback尝试已从权威输入快照重新构造深副本，失败provider不能污染后续provider请求。
