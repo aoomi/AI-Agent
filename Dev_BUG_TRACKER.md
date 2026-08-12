@@ -3570,3 +3570,5 @@
 - 第二百七十六项自动测试与稽查：恶意编排器改写嵌套输入且返回后改写嵌套结果均被隔离；行业工作流、会话提案与LangGraph关联回归、Python编译及diff门禁通过。
 - 第二百七十七项稽查首败与整改：OpenAI兼容客户端验证structured result后直接返回transport解析对象；自定义transport可持有并事后改写嵌套响应。现校验通过后从标准JSON规范化结果返回独立深快照。
 - 第二百七十七项自动测试与稽查：transport原响应在complete后改写嵌套steps不影响返回值；请求schema、响应验证和取消关联回归、Python编译及diff门禁通过。
+- 第二百七十八项稽查首败与整改：通用LangGraphOrchestrator虽验证public result为标准JSON，却原样返回Graph/executor持有的嵌套对象，节点可在invoke后改写调用方结果。现公共状态从规范化JSON重建独立快照，LangGraph interrupt对象按控制协议保留。
+- 第二百七十八项自动测试与稽查：节点原output在invoke后改写嵌套steps不影响返回值；串并行、分支、interrupt与恢复关联回归、Python编译及diff门禁通过。

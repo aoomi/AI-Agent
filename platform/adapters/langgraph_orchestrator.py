@@ -75,9 +75,11 @@ class LangGraphOrchestrator:
   try:
    result=graph.invoke(value,config={"configurable":{"thread_id":thread_id}})
    public_state={key:item for key,item in dict(result).items() if key!="__interrupt__"}
-   try:json.dumps(public_state,allow_nan=False)
+   try:canonical_public_state=json.dumps(public_state,allow_nan=False)
    except (TypeError,ValueError) as error:raise LangGraphOrchestratorError("graph result must be standard JSON") from error
-   return result
+   snapshot=json.loads(canonical_public_state)
+   if "__interrupt__" in result:snapshot["__interrupt__"]=result["__interrupt__"]
+   return snapshot
   finally:
    with self._lock:self._active.discard(key)
  def _graph(self,name):

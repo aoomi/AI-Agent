@@ -8,6 +8,10 @@ class LangGraphRuntimeContractTest(unittest.TestCase):
   graph.compile("g",{"node":executor});inputs={"routing":{"regions":["local"]}}
   graph.invoke("g","thread",inputs)
   self.assertEqual(inputs["routing"]["regions"][0],"local")
+ def test_graph_result_is_an_independent_deep_snapshot(self):
+  output={"state":{"steps":["completed"]}};graph=LangGraphOrchestrator();graph.compile("g",{"node":lambda *_:output})
+  result=graph.invoke("g","thread",{});output["state"]["steps"][0]="forged"
+  self.assertEqual(result["outputs"]["node"]["state"]["steps"][0],"completed")
  def test_runtime_contracts_fail_closed(self):
   with self.assertRaisesRegex(LangGraphOrchestratorError,"checkpointer"):LangGraphOrchestrator(object())
   graph=LangGraphOrchestrator()
