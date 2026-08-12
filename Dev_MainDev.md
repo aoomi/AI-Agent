@@ -1082,3 +1082,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第七十九项：通用LangGraph编排已在发布前校验名称、executor、retry及branch/terminal拓扑，空thread_id不能进入检查点命名空间。
 - BUG072第八十项：Agent/协作上下文已拒绝空字段键和空task_id，状态与证据不再产生匿名不可追溯条目。
 - BUG072第八十一项：智能体会话长期memory改为先持久化候选快照、成功后才发布内存状态；send仅在memory持久成功后原子提交消息和提案，磁盘失败不再留下半提交会话或伪造已记忆事实。配置、会话与管理API关联`27 passed`、`3 subtests passed`，Python编译与只读diff稽查通过。
+- BUG072第八十二项：AgentConfiguration设置已在数据模型边界递归拒绝secret/token/password/api_key/authorization/credential组合键，直接创建、版本更新和管理API均不能把嵌套凭据写入历史快照或响应。配置、会话与管理API关联`28 passed`、`6 subtests passed`，Python编译与只读diff稽查通过。

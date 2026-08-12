@@ -84,6 +84,22 @@ class AgentConfigurationStoreTest(unittest.TestCase):
                 agent=agent, skill=skill, model_id="model-chat", updated_by_identity_id="owner"
             )
 
+    def test_sensitive_settings_are_rejected_recursively(self) -> None:
+        skill = self.skills["system_main_developer"]
+        agent, _ = self.agents.register(skill)
+        for settings in (
+            {"access_token": "plaintext"},
+            {"transport": {"headers": {"Authorization": "Bearer plaintext"}}},
+            {"profiles": [{"client_secret": "plaintext"}]},
+        ):
+            with self.subTest(settings=settings), self.assertRaisesRegex(
+                AgentConfigurationError, "sensitive fields"
+            ):
+                self.store.create(
+                    agent=agent, skill=skill, model_id="model-full",
+                    updated_by_identity_id="owner", settings=settings,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

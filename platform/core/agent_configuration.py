@@ -124,6 +124,19 @@ class AgentConfigurationStore:
             raise AgentConfigurationError(f"{role} Skill cannot write workspace")
 
     @staticmethod
+    def _contains_sensitive_key(value: Any) -> bool:
+        forbidden = ("secret", "token", "password", "api_key", "authorization", "credential")
+        if isinstance(value, Mapping):
+            return any(
+                any(word in str(key).lower() for word in forbidden)
+                or AgentConfigurationStore._contains_sensitive_key(item)
+                for key, item in value.items()
+            )
+        if isinstance(value, (list, tuple, set, frozenset)):
+            return any(AgentConfigurationStore._contains_sensitive_key(item) for item in value)
+        return False
+
+    @staticmethod
     def _build(
         *,
         configuration_id: str,
@@ -137,6 +150,8 @@ class AgentConfigurationStore:
         identity_id = updated_by_identity_id.strip()
         if not identity_id:
             raise AgentConfigurationError("updated_by_identity_id is required")
+        if AgentConfigurationStore._contains_sensitive_key(settings):
+            raise AgentConfigurationError("agent settings contain sensitive fields")
         role = str(skill.metadata["agent_role"])
         permissions = skill.metadata["permissions"]
         return AgentConfiguration(

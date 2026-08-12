@@ -3178,3 +3178,5 @@
 - 第八十项稽查首败与整改：AgentContext允许空字符串字段名，CollaborationContext允许空task_id进入状态表；此类匿名键会覆盖、无法可靠引用且破坏可追溯证据。现两类上下文在读改写前拒绝空键/任务标识，合法快照行为不变。
 - 第八十一项稽查首败与整改：AgentConversation虽已延后模型响应提交，但消息/提案仍早于长期memory落盘；文件写失败会让send报错却保留本轮对话，且MemoryStore先修改内存再落盘，失败后还会伪造已持久事实。现memory以候选副本完成原子文件替换后才发布内存状态，send也先完成memory持久化再在服务锁内提交消息/提案。
 - 第八十一项自动测试与稽查：故障memory注入证明消息仍仅系统首条、提案为空；只读目录模拟写失败证明旧memory快照不变。配置、会话与管理API关联`27 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
+- 第八十二项稽查首败与整改：Provider和Model注册已递归过滤敏感settings，但AgentConfiguration仍可持久`access_token`、嵌套Authorization或数组中的client_secret，并通过配置历史和管理API返回。现配置构造边界递归拒绝六类敏感词组合键，创建与更新共用同一门禁。
+- 第八十二项自动测试与稽查：顶层组合token、嵌套Authorization及数组client_secret三类动态拒绝；配置、会话与管理API关联`28 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
