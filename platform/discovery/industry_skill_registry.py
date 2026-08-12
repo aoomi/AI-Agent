@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
+from threading import RLock
 import re,yaml
 class IndustrySkillRegistryError(ValueError):pass
 @dataclass(frozen=True,slots=True)
@@ -10,7 +11,7 @@ class IndustrySkillDefinition:
  @property
  def metadata(self):return {"agent_role":"developer","permissions":list(self.permissions),"required_model_capabilities":list(self.required_capabilities),"system_prompt_version":"1.0"}
 class IndustrySkillRegistry:
- def __init__(self,plugins_root:Path):self.root=plugins_root.resolve();self._skills={}
+ def __init__(self,plugins_root:Path):self.root=plugins_root.resolve();self._skills={};self._lock=RLock()
  def scan(self)->tuple[IndustrySkillDefinition,...]:
   found={}
   for path in sorted(self.root.glob("**/industry-skills/*.yaml")):
@@ -21,10 +22,11 @@ class IndustrySkillRegistry:
     item=self._parse(industry,raw,path)
     if item.skill_id in found:raise IndustrySkillRegistryError(f"duplicate industry skill: {item.skill_id}")
     found[item.skill_id]=item
-  self._skills=found;return tuple(found[key] for key in sorted(found))
+  with self._lock:self._skills=found;return tuple(found[key] for key in sorted(found))
  def get(self,skill_id:str)->IndustrySkillDefinition:
-  try:return self._skills[skill_id]
-  except KeyError as error:raise IndustrySkillRegistryError("industry skill is not registered") from error
+  with self._lock:
+   try:return self._skills[skill_id]
+   except KeyError as error:raise IndustrySkillRegistryError("industry skill is not registered") from error
  @staticmethod
  def _parse(industry,raw,path):
   if not industry or not isinstance(raw,dict):raise IndustrySkillRegistryError("industry skill manifest is invalid")
