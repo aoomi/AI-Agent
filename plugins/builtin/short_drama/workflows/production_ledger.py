@@ -57,6 +57,13 @@ def _json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
+def _load_json(raw: object, label: str, *, expected: type | tuple[type, ...] | None = None) -> Any:
+    try:value = json.loads(raw, parse_constant=lambda constant: (_ for _ in ()).throw(ValueError(constant)))
+    except (json.JSONDecodeError, ValueError, TypeError) as error:raise ProductionLedgerError(f"{label} is invalid") from error
+    if expected is not None and not isinstance(value, expected):raise ProductionLedgerError(f"{label} is invalid")
+    return value
+
+
 def _is_upscale_scope(stage: str, scope_type: str, scope_id: str) -> bool:
     return stage == "review_export" and scope_type == "episode" and scope_id.startswith("upscale:")
 
@@ -874,13 +881,13 @@ class ProductionLedger:
         placeholders = ",".join("?" for _ in ids)
         with self._lock, self._connection() as connection:
             rows = connection.execute(f"SELECT * FROM production_versions WHERE scope_id IN ({placeholders}) ORDER BY versioned_at DESC", ids).fetchall()
-        return [{**json.loads(row["snapshot_json"]), "version_id": row["version_id"], "version_status": row["version_status"], "versioned_at": row["versioned_at"]} for row in rows]
+        return [{**_load_json(row["snapshot_json"], "production version snapshot", expected=dict), "version_id": row["version_id"], "version_status": row["version_status"], "versioned_at": row["versioned_at"]} for row in rows]
 
     @staticmethod
     def _record(row: sqlite3.Row) -> dict[str, Any]:
-        progress = json.loads(row["progress_json"])
-        production_evidence = json.loads(row["production_evidence_json"]) if row["production_evidence_json"] else None
-        audit_evidence = json.loads(row["audit_evidence_json"]) if row["audit_evidence_json"] else None
+        progress = _load_json(row["progress_json"], "production progress", expected=dict)
+        production_evidence = _load_json(row["production_evidence_json"], "production evidence") if row["production_evidence_json"] else None
+        audit_evidence = _load_json(row["audit_evidence_json"], "audit evidence") if row["audit_evidence_json"] else None
         if not _is_upscale_scope(row["stage"], row["scope_type"], row["scope_id"]):
             production_evidence = progress.get("production_evidence", production_evidence)
             audit_evidence = progress.get("audit_evidence", audit_evidence)
@@ -888,11 +895,11 @@ class ProductionLedger:
             "id": row["id"], "tenant_id": row["tenant_id"], "user_id": row["user_id"], "project_id": row["project_id"],
             "stage": row["stage"], "scope_type": row["scope_type"], "scope_id": row["scope_id"], "plugin_key": row["plugin_key"],
             "lifecycle": row["lifecycle"], "stage_substate": row["stage_substate"], "content_fingerprint": row["content_fingerprint"],
-            "audit_batch_id": row["audit_batch_id"], "confirmation": json.loads(row["confirmation_json"]) if row["confirmation_json"] else None,
+            "audit_batch_id": row["audit_batch_id"], "confirmation": _load_json(row["confirmation_json"], "production confirmation", expected=dict) if row["confirmation_json"] else None,
             "progress": progress, "production_evidence": production_evidence, "audit_evidence": audit_evidence,
             "generation": int(row["generation"] or 0), "revision": int(row["revision"] or 0),
             "checkpoint": row["checkpoint"], "error": row["error"],
-            "confirmation_scope": json.loads(row["confirmation_scope_json"]), "impact_scope": json.loads(row["impact_scope_json"]),
+            "confirmation_scope": _load_json(row["confirmation_scope_json"], "confirmation scope", expected=dict), "impact_scope": _load_json(row["impact_scope_json"], "impact scope", expected=list),
             "created_at": row["created_at"], "updated_at": row["updated_at"],
         }
 

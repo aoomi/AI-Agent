@@ -91,3 +91,18 @@ def test_server_stage_commit_wires_composition_audit_and_export_authorities():
     assert '"export_content_fingerprint":_media_sha256(target)' in backend
     helper = backend[backend.index("def _media_sha256"):backend.index("def _has_audio_stream")]
     assert "stream.read(1024 * 1024)" in helper
+
+
+def test_corrupt_ledger_json_fails_closed_on_records_and_versions():
+    with TemporaryDirectory() as temporary:
+        ledger=ProductionLedger(Path(temporary)/"ledger.sqlite")
+        ledger.commit_stage_authorities([authority(1)])
+        with ledger._connection() as connection:
+            connection.execute("UPDATE production_scopes SET progress_json='NaN'")
+        with pytest.raises(ProductionLedgerError,match="production progress is invalid"):
+            ledger.list(IDENTITY)
+        with ledger._connection() as connection:
+            connection.execute("UPDATE production_scopes SET progress_json='{}'")
+            connection.execute("UPDATE production_versions SET snapshot_json='[]'")
+        with pytest.raises(ProductionLedgerError,match="version snapshot is invalid"):
+            ledger.versions(IDENTITY)
