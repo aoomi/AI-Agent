@@ -289,6 +289,8 @@ class ProductionExtensionRegistry:
     def create(self, extension_point: str, /, *, provider_id: str | None = None, **configuration: Any) -> Any:
         extension_point = self._required_id("extension point", extension_point)
         provider_id = self._optional_id("provider", provider_id)
+        try:configuration_snapshot=json.loads(json.dumps(configuration,allow_nan=False))
+        except (TypeError,ValueError) as error:raise ProductionExtensionError("extension configuration must be standard JSON") from error
         with self._lock:
             definition, factory = self._entry(extension_point, provider_id)
             contract = self._contracts.get((extension_point, definition.provider_id))
@@ -297,7 +299,7 @@ class ProductionExtensionRegistry:
             key = (extension_point, definition.provider_id)
             self._inflight[key] = self._inflight.get(key, 0) + 1
         try:
-            instance = factory(**configuration)
+            instance = factory(**configuration_snapshot)
             if instance is None:
                 raise ProductionExtensionError(f"extension returned no instance: {extension_point}")
             if contract is not None:

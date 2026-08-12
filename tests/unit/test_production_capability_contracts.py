@@ -11,6 +11,11 @@ class ProductionCapabilityContractTest(unittest.TestCase):
         item=ProductionCapabilityRegistry().register("video","local",lambda:1,metadata=metadata)
         metadata["routing"]["regions"][0]="forged"
         self.assertEqual(item.metadata["routing"]["regions"][0],"local")
+    def test_handler_cannot_mutate_nested_caller_inputs(self) -> None:
+        def handler(**inputs):inputs["routing"]["regions"][0]="handler";return {"ok":True}
+        inputs={"routing":{"regions":["local"]}};ProductionCapabilityRegistry().register("video","local",handler)
+        registry=ProductionCapabilityRegistry();registry.register("video","local",handler);registry.invoke("video",**inputs)
+        self.assertEqual(inputs["routing"]["regions"][0],"local")
     def test_registration_rejects_runtime_pseudo_controls(self) -> None:
         registry=ProductionCapabilityRegistry()
         for kwargs in ({"enabled":1},{"healthy":0},{"replace":1},{"priority":True},{"metadata":[]}):

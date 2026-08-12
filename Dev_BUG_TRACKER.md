@@ -3578,3 +3578,5 @@
 - 第二百八十项自动测试与稽查：get返回后读取者改写嵌套steps不影响后续读取；AgentContext、调度与协作关联回归、Python编译及diff门禁通过。
 - 第二百八十一项稽查首败与整改：ProductionExtension契约probe_configuration仍只冻结顶层，第三方factory探测可改写调用方嵌套配置。现探测前从已验证标准JSON建立独立深快照。
 - 第二百八十一项自动测试与稽查：恶意factory探测改写嵌套region不影响原配置；扩展契约、激活回滚与inflight热插拔关联回归、Python编译及diff门禁通过。
+- 第二百八十二项稽查首败与整改：ProductionCapability invoke及ProductionExtension create把调用方嵌套输入直接交给可替换handler/factory，插件可反向污染请求并影响fallback。现两条热插拔执行边界均在inflight副作用前强制标准JSON并建立深快照。
+- 第二百八十二项自动测试与稽查：恶意handler/factory改写嵌套region均不影响原请求；能力fallback、扩展create与inflight保护关联回归、Python编译及diff门禁通过。

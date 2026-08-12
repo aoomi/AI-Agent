@@ -179,6 +179,8 @@ class ProductionCapabilityRegistry:
         provider_id = self._optional_id("provider", provider_id)
         if not isinstance(allow_fallback, bool):
             raise ProductionCapabilityError("allow_fallback must be boolean")
+        try:input_snapshot=json.loads(json.dumps(inputs,allow_nan=False))
+        except (TypeError,ValueError) as error:raise ProductionCapabilityError("capability inputs must be standard JSON") from error
         failures = []
         excluded: set[str] = set()
         while True:
@@ -193,7 +195,7 @@ class ProductionCapabilityRegistry:
                 key = (definition.capability, definition.provider_id)
                 self._inflight[key] = self._inflight.get(key, 0) + 1
             try:
-                result = handler(**inputs)
+                result = handler(**input_snapshot)
                 if result is None: raise ProductionCapabilityError(f"capability returned no result: {capability}/{definition.provider_id}")
                 return definition, result
             except Exception as error:
