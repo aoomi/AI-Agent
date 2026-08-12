@@ -145,6 +145,19 @@ class AgentConversationServiceTest(unittest.TestCase):
         self.assertEqual(len(service.messages(session.session_id, "owner")), 1)
         self.assertEqual(service.proposals(session.session_id, "owner"), ())
 
+    def test_context_and_proposal_require_standard_json(self) -> None:
+        skill,agent=self.configured();service=AgentConversationService(self.models,self.configurations,ModelClient({"reply":"ok"}));service.bind(agent,skill)
+        for value in (float("nan"),object()):
+            with self.subTest(value=value),self.assertRaisesRegex(ConversationError,"context must be standard JSON"):
+                service.open_session(agent.agent_id,"owner",{"project_id":"project","value":value})
+        for value in (float("nan"),object()):
+            client=ModelClient({"reply":"proposal","proposal":{"proposal_type":"configuration_change","requested_changes":{"value":value}}})
+            candidate=AgentConversationService(self.models,self.configurations,client);candidate.bind(agent,skill)
+            session=candidate.open_session(agent.agent_id,"owner",{"project_id":"project"})
+            with self.subTest(value=value),self.assertRaisesRegex(ConversationError,"requested_changes must be standard JSON"):
+                candidate.send(session.session_id,"change","owner")
+            self.assertEqual(candidate.proposals(session.session_id,"owner"),())
+
     def test_memory_store_does_not_publish_failed_file_update(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "memory.json"

@@ -155,6 +155,8 @@ class AgentConversationService:
         if not identity_id: raise ConversationError("created_by_identity_id is required")
         if any(not isinstance(key,str) or not key.strip() for key in (context or {})):raise ConversationError("conversation context keys must be non-empty strings")
         safe_context = MappingProxyType({key.strip(): value for key, value in (context or {}).items() if value is not None})
+        try:json.dumps(dict(safe_context),allow_nan=False)
+        except (TypeError,ValueError) as error:raise ConversationError("conversation context must be standard JSON") from error
         project_id=safe_context.get("project_id")
         if not isinstance(project_id,str) or not project_id.strip(): raise ConversationError("conversation project_id is required")
         session = ConversationSession(f"conversation-{uuid4().hex}", agent_id, configuration.configuration_version, identity_id, self._now(), safe_context)
@@ -298,6 +300,8 @@ class AgentConversationService:
         requested = dict(requested)
         if self._contains_sensitive_key(requested): raise ConversationError("proposal requested_changes contain sensitive fields")
         if plan and "plan" not in requested: requested["plan"] = list(plan)
+        try:json.dumps(requested,allow_nan=False)
+        except (TypeError,ValueError) as error:raise ConversationError("proposal requested_changes must be standard JSON") from error
         if configuration.role in {"tester", "inspector"} and proposal_type == "task_execution" and requested.get("read_only") is not True:
             raise ConversationError(f"{configuration.role} task proposal must be read-only")
         proposal = ConversationProposal(f"proposal-{uuid4().hex}", session.session_id, session.agent_id, proposal_type, "pending_confirmation", MappingProxyType(dict(requested)), True, self._now())

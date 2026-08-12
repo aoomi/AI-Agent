@@ -3488,3 +3488,5 @@
 - 第二百三十五项自动测试与稽查：NaN及任意对象task payload动态拒绝；内存队列、任务服务与集成关联回归、Python编译与diff门禁通过。
 - 第二百三十六项稽查首败与整改：AgentContext values与CollaborationEvidence metadata只屏蔽敏感键，NaN或任意对象可进入共享状态和稽查报告。现两条跨智能体边界均在共享写入前强制标准JSON。
 - 第二百三十六项自动测试与稽查：上下文与证据metadata的NaN/任意对象动态拒绝；Agent上下文与协作关联回归、Python编译与diff门禁通过。
+- 第二百三十七项稽查首败与整改：AgentConversation的session context与proposal requested_changes仅验证Mapping/敏感键，NaN或任意对象可进入会话和待确认提案。现两类状态在发布前强制标准JSON。
+- 第二百三十七项自动测试与稽查：context与proposal的NaN/任意对象动态拒绝且无提案副作用；会话与管理API关联回归、Python编译与diff门禁通过。

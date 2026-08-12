@@ -1237,3 +1237,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百三十四项：PublishedEvent payload已强制标准JSON，非标准数值或任意对象不会进入订阅器、投影或持久事件边界。
 - BUG072第二百三十五项：QueuedTask payload已强制标准JSON，与持久队列和事件信封保持相同运行时数据契约。
 - BUG072第二百三十六项：Agent共享上下文values与稽查证据metadata已强制标准JSON，非标准运行时值不会进入跨智能体上下文或整改证据。
+- BUG072第二百三十七项：Agent会话context与proposal requested_changes已强制标准JSON，非标准值不会进入会话共享状态或待确认执行提案。
