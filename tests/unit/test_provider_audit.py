@@ -9,4 +9,11 @@ class ProviderAuditLedgerTest(unittest.TestCase):
         with self.assertRaisesRegex(ProviderAuditError,"secret"):ledger.record(tenant_id="t",user_id="u",project_id="p",provider_id="x",capability="x",request={"api_key":"x"},input_tokens=0,output_tokens=0,duration_ms=0,cost_microunits=0)
         with self.assertRaisesRegex(ProviderAuditError,"secret"):ledger.record(tenant_id="t",user_id="u",project_id="p",provider_id="x",capability="x",request={"messages":[{"metadata":{"authorization":"Bearer hidden"}}]},input_tokens=0,output_tokens=0,duration_ms=0,cost_microunits=0)
         with self.assertRaisesRegex(ProviderAuditError,"negative"):ledger.record(tenant_id="t",user_id="u",project_id="p",provider_id="x",capability="x",request={},input_tokens=-1,output_tokens=0,duration_ms=0,cost_microunits=0)
+    def test_anonymous_provider_capability_and_list_scope_are_rejected(self):
+        ledger=ProviderAuditLedger()
+        values=dict(tenant_id="t",user_id="u",project_id="p",provider_id="provider",capability="chat",request={},input_tokens=0,output_tokens=0,duration_ms=0,cost_microunits=0)
+        for override in ({"provider_id":""},{"capability":""}):
+            with self.assertRaisesRegex(ProviderAuditError,"provider and capability"):ledger.record(**(values|override))
+        for scope in (("","u","p"),("t","","p"),("t","u","")):
+            with self.assertRaisesRegex(ProviderAuditError,"owner scope"):ledger.list(*scope)
 if __name__=="__main__":unittest.main()

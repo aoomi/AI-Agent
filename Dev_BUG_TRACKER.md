@@ -3204,3 +3204,5 @@
 - 第九十三项自动测试与稽查：空resource、负内存、空worker和零generation四类动态失败关闭；路由关联`4 passed`，Python编译与diff门禁通过。
 - 第九十四项稽查首败与整改：WorkerRegistry.reserve已有完整参数门禁，但list/reap接受非正heartbeat_timeout，remove接受匿名worker/非法generation，release_reservation接受空ID；调用错误被静默解释为空发现或零删除。现四类控制入口在SQLite读取/删除前统一验证。
 - 第九十四项自动测试与稽查：零超时、负超时、空worker、零代际及空reservation五类动态拒绝；发现、heartbeat与共享预留关联`10 passed`，Python编译与diff门禁通过。
+- 第九十五项稽查首败与整改：ProviderAudit record仅强制owner，仍可保存空provider_id/capability；list也接受部分或全空owner并返回空结果，导致不可归因记录和调用契约错误无法审计。现记录与查询边界均在共享列表访问前失败关闭必填身份。
+- 第九十五项自动测试与稽查：空provider、空capability及三类部分owner查询全部动态拒绝；provider审计与生产集成`7 passed`，Python编译与diff门禁通过。
