@@ -401,6 +401,58 @@ class ProductionLedger:
                 commit_callback()
             return committed
 
+    def commit_stage_authorities(
+        self,
+        records: Iterable[Mapping[str, Any]],
+        *,
+        commit_callback: Callable[[], Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Atomically publish server-created non-upscale evidence and its graph event."""
+        records = list(records)
+        if not records:
+            raise ProductionLedgerError("authoritative stage records are required")
+        identity = self._identity(records[0])
+        if any(self._identity(item) != identity for item in records):
+            raise ProductionLedgerError("authoritative stage records must share one identity")
+        with self._lock, self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            committed: list[dict[str, Any]] = []
+            for item in records:
+                stage, scope_type, scope_id = self._key(item)
+                if _is_upscale_scope(stage, scope_type, scope_id):
+                    raise ProductionLedgerError("upscale authority requires the dedicated commit protocol")
+                try:
+                    generation = int(item.get("generation") or 0)
+                except (TypeError, ValueError):
+                    generation = 0
+                fingerprint = str(item.get("content_fingerprint") or "").strip()
+                audit_batch_id = str(item.get("audit_batch_id") or "").strip()
+                production_json = _nonempty_evidence(item.get("production_evidence"), "production_evidence")
+                audit_json = _nonempty_evidence(item.get("audit_evidence"), "audit_evidence")
+                if generation < 1 or not fingerprint or not audit_batch_id:
+                    raise ProductionLedgerError("authoritative generation, fingerprint and audit batch are required")
+                current = connection.execute("""
+                    SELECT * FROM production_scopes
+                    WHERE tenant_id=? AND user_id=? AND project_id=? AND stage=? AND scope_type=? AND scope_id=?
+                """, (*identity, stage, scope_type, scope_id)).fetchone()
+                if current and int(current["generation"] or 0) > generation:
+                    raise ProductionLedgerError("stale authoritative stage generation")
+                if current and int(current["generation"] or 0) == generation:
+                    exact = (
+                        current["content_fingerprint"] == fingerprint
+                        and current["audit_batch_id"] == audit_batch_id
+                        and current["production_evidence_json"] == production_json
+                        and current["audit_evidence_json"] == audit_json
+                    )
+                    if not exact:
+                        raise ProductionLedgerError("same-generation stage authority is immutable")
+                    committed.append(self._record(current))
+                    continue
+                committed.append(self.upsert({**item, "lifecycle":"pending_confirmation", "confirmation":None}, connection=connection))
+            if commit_callback is not None:
+                commit_callback()
+            return committed
+
     def upsert(self, payload: Mapping[str, Any], *, connection: sqlite3.Connection | None = None) -> dict[str, Any]:
         tenant_id, user_id, project_id = self._identity(payload)
         stage, scope_type, scope_id = self._key(payload)
@@ -481,6 +533,12 @@ class ProductionLedger:
                 "production_evidence_json": current["production_evidence_json"] if current else None,
                 "audit_evidence_json": current["audit_evidence_json"] if current else None,
             }
+            production_value = payload.get("production_evidence")
+            audit_value = payload.get("audit_evidence")
+            if production_value is not None:
+                values["production_evidence_json"] = _nonempty_evidence(production_value, "production_evidence")
+            if audit_value is not None:
+                values["audit_evidence_json"] = _nonempty_evidence(audit_value, "audit_evidence")
             if _is_upscale_scope(stage, scope_type, scope_id):
                 production_value = payload.get("production_evidence", progress.get("production_evidence"))
                 audit_value = payload.get("audit_evidence", progress.get("audit_evidence"))

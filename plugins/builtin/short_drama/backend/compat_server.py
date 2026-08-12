@@ -438,6 +438,66 @@ def _commit_server_production_stage_result(
                 stage_generation=stage_generation,
             )
             return written["workflow"]
+        if stage == "composition" or (stage == "review_export" and result.get("operation") in {"audit", "export"}):
+            identity = {key:str(body.get(key) or "").strip() for key in ("tenant_id", "user_id", "project_id")}
+            batch_id = f"{stage}-{str(result.get('operation') or 'merge')}-{uuid4().hex}"
+            records: list[dict] = []
+            if stage == "composition":
+                items = result.get("items") if isinstance(result.get("items"), list) else []
+                for item in items:
+                    episode = int(item.get("episode") or 0); path = Path(str(item.get("path") or ""))
+                    if episode < 1 or not path.is_file():
+                        raise RuntimeError("composition authority requires a physical episode output")
+                    fingerprint = "sha256-" + hashlib.sha256(path.read_bytes()).hexdigest()
+                    production_evidence = {
+                        "path":str(path), "size":path.stat().st_size, "duration":_media_duration(path),
+                        "audio_mode":item.get("audio_mode"), "provider_evidence":item.get("production_evidence"),
+                    }
+                    audit_evidence = {"status":"not_applicable", "reason":"pending_final_video_audit"}
+                    item.update(content_fingerprint=fingerprint, audit_batch_id=batch_id, generation=stage_generation,
+                                production_evidence=production_evidence, audit_evidence=audit_evidence)
+                    records.append({**identity, "stage":"composition", "scope_type":"episode", "scope_id":str(episode),
+                        "stage_substate":"video_only" if item.get("audio_mode") == "none" else "full_mix",
+                        "content_fingerprint":fingerprint, "audit_batch_id":batch_id, "generation":stage_generation,
+                        "production_evidence":production_evidence, "audit_evidence":audit_evidence,
+                        "progress":{"completed":1, "total":1}, "checkpoint":f"composition:{batch_id}"})
+            elif result.get("operation") == "audit":
+                commands = {int(item.get("episode") or 0):item for item in body.get("commands") or [] if isinstance(item, dict)}
+                for item in result.get("items") or []:
+                    episode = int(item.get("episode") or 0); command = commands.get(episode) or {}
+                    audit_evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+                    if item.get("status") != "pass" or not audit_evidence:
+                        raise RuntimeError(f"episode {episode} final audit lacks passing evidence")
+                    production_evidence = {"path":str(command.get("path") or ""), "source_version":str(command.get("source_version") or "base")}
+                    canonical = _canonical_evidence_json({"episode":episode, "generation":stage_generation, "production":production_evidence, "audit":audit_evidence}, f"episode {episode} final audit authority")
+                    fingerprint = "sha256-" + hashlib.sha256(canonical.encode()).hexdigest()
+                    item.update(content_fingerprint=fingerprint, audit_batch_id=batch_id, generation=stage_generation,
+                                production_evidence=production_evidence, audit_evidence=audit_evidence)
+                    records.append({**identity, "stage":"review_export", "scope_type":"episode", "scope_id":f"review:{episode}",
+                        "stage_substate":"review", "content_fingerprint":fingerprint, "audit_batch_id":batch_id,
+                        "generation":stage_generation, "production_evidence":production_evidence, "audit_evidence":audit_evidence,
+                        "progress":{"completed":1, "total":1}, "checkpoint":f"review:{batch_id}"})
+            else:
+                command = body.get("command") if isinstance(body.get("command"), dict) else {}
+                declarations = {int(item.get("episode") or 0):item for item in command.get("audit_results") or [] if isinstance(item, dict)}
+                for item in result.get("files") or []:
+                    episode = int(item.get("episode") or 0); path = _resolve_media_input(item.get("url"))
+                    fingerprint = "sha256-" + hashlib.sha256(path.read_bytes()).hexdigest()
+                    production_evidence = {"path":str(path), "size":path.stat().st_size, "manifest_url":result.get("manifest_url"), "source_version":item.get("source_version")}
+                    audit_evidence = declarations.get(episode) or {"status":"not_applicable", "reason":"audit_not_required"}
+                    item.update(export_content_fingerprint=fingerprint, export_audit_batch_id=batch_id, generation=stage_generation)
+                    records.append({**identity, "stage":"review_export", "scope_type":"episode", "scope_id":f"export:{episode}",
+                        "stage_substate":"export", "content_fingerprint":fingerprint, "audit_batch_id":batch_id,
+                        "generation":stage_generation, "production_evidence":production_evidence, "audit_evidence":audit_evidence,
+                        "progress":{"completed":1, "total":1}, "checkpoint":f"export:{batch_id}"})
+            workflow_holder: dict[str, dict] = {}
+            def commit_graph_authority() -> None:
+                workflow_holder["workflow"] = _production_orchestrator().report(
+                    body, stage, "pending_confirmation", evidence={"server_coordinated":True, "authority_batch_id":batch_id},
+                    stage_generation=stage_generation, projection_revision=1,
+                )
+            PRODUCTION_LEDGER.commit_stage_authorities(records, commit_callback=commit_graph_authority)
+            return workflow_holder["workflow"]
         if stage == "review_export" and result.get("operation") == "upscale":
             authority_records = result.pop("_authority_records", None)
             if not isinstance(authority_records, list) or not authority_records:
