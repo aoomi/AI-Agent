@@ -106,6 +106,8 @@ class ResourceScheduler:
         ticket = ResourceTicket(f"resource-{uuid4().hex}", job_id.strip(), resource_class, RESOURCE_PRIORITIES[resource_class], estimated_memory, time.time(), pool, *scope)
         deadline = time.monotonic() + timeout if timeout is not None else None
         with self._condition:
+            if any(item.job_id==ticket.job_id and (item.tenant_id,item.user_id,item.project_id)==scope for item in (*self._queue,*self._active.values())):
+                raise ResourceSchedulerError("resource job is already queued or active")
             if sum(1 for item in self._queue if item.pool == pool) >= self.pool_queue_limits[pool]:
                 raise ResourceSchedulerError(f"resource pool backpressure: {pool}")
             if ticket.tenant_id and sum(1 for item in self._queue if item.pool == pool and item.tenant_id == ticket.tenant_id) >= self.tenant_queue_limits[pool]:

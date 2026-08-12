@@ -3458,3 +3458,5 @@
 - 第二百二十项自动测试与稽查：整数验签结果动态失败关闭；插件签名与完整性关联`5 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
 - 第二百二十一项稽查首败与整改：SkillToolGuard.redact以`str(key)`改写数字输出键，并原样放行NaN/Infinity和任意对象，脱敏后输出仍可能不可序列化或身份含混。现输出递归边界与输入消毒保持一致失败关闭。
 - 第二百二十一项自动测试与稽查：数字键、Infinity及任意对象输出动态拒绝；安全关联`3 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
+- 第二百二十二项稽查首败与整改：ResourceScheduler仅按ticket管理队列，同tenant/user/project/job可重复claim甚至跨资源池并发，违反同项目同阶段single-flight权威执行约束。现同scope job在queued/active集合中保持唯一。
+- 第二百二十二项自动测试与稽查：真实并发active期间重复scoped job动态拒绝；资源调度关联`4 passed`（另`20 subtests passed`），Python编译与diff门禁通过。
