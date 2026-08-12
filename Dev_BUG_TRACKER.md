@@ -3005,9 +3005,22 @@
 
 ### BUG-20260812-070：普通生产端点在权威门禁前派发导致worker旁路
 
-- 状态：主线开发中
+- 状态：已关闭（最终只读稽查通过）
 - 关联任务：M9.198正式三镜合片；不修改用户并行前端现场。
 - 正式复现：在video Graph仍为paused且台账没有video/audio/subtitle记录时，直接请求`/api/videos/merge`仍被gateway派发到本机worker并成功生成母版；worker因`X-Production-Dispatched=1`跳过`_begin_production_request`。随后使用`/api/production/run-stage`才按权威前序正确阻断。
 - 首个事实：Handler在取得body后先执行`_forward_production_request`并立即返回，`PRODUCTION_ENDPOINT_STAGES`门禁位于派发之后；dispatched worker又明确跳过门禁，导致普通生产端点从未在任何一侧执行权威阶段校验。
 - 风险：任意可派发的outline/image/video/composition/review_export普通端点可在前序未完成、旧代或暂停状态下产生物理副作用，绕过台账与LangGraph准入。
 - 下一状态：将普通生产端点门禁置于派发之前且只由gateway执行一次；worker仅接受带已验证派发证据的请求。动态覆盖合片前序阻断、合法派发单次门禁、伪造dispatched头拒绝和run-stage内部调用不重复begin。
+- 框架整改：普通生产端点在任何worker reservation和HTTP副作用前先执行一次权威门禁；通过门禁后才允许派发。`X-Production-Dispatched`不再是信任事实：进程内run-stage子调用必须携带启动时随机token，跨worker请求必须命中未过期、worker/resource/scope精确一致的共享reservation，否则HTTP 403。worker只在认证派发后跳过重复begin。
+- 正式验证：不存在项目的外部composition请求在派发前HTTP 409`project does not exist`；同一正式项目仅伪造`X-Production-Dispatched:1`返回403且未产物；正式run-stage composition generation 3通过私有内部证明完成video-only合片并进入pending_confirmation，随后精确generation/指纹/批次确认为completed，证明合法内部链未重复begin。Comfy队列0/0。
+- 独立软件测试：通过。派发证明动态覆盖无头、伪造头、进程token、精确reservation和错误reservation；生产控制、composition与阶段作用域关联`130 passed`，Python编译通过。用户并行修改的`test_production_gate_reconciliation.py`仍含旧源码字符串断言及两项已知前端断言失败，未作为本BUG证据且未越界修改。
+- 最终只读稽查：通过。gateway门禁严格早于reserve；reservation在远端响应完成前保持有效并在finally释放；worker匹配当前ID、资源类、service scope和request ID。内部token仅进程启动时生成并只用于loopback子调用，外部伪造头不能跳过门禁；合法run-stage仍由外层lease/generation提交控制。
+- 关闭时间：2026-08-12（Asia/Shanghai）。下一状态：已关闭；继续BUG071静音母版审核导出。
+
+### BUG-20260812-071：静音母版尚无权威审核与导出manifest证据
+
+- 状态：主线开发中
+- 关联任务：M9.198，承接BUG069/070；继续遵守只验证视频、不验证人声/BGM的用户范围。
+- 正式事实：composition generation 3已确认且物理静音母版可播放，但review_export阶段尚未对该精确composition generation/指纹执行视频审核，也没有生成绑定base版本、内容哈希和台账批次的导出manifest。
+- 风险：可播放母版仍可能在导出时读取旧版本或生成无法追溯的文件；缺少manifest无法证明用户测试的是已确认三镜母版。
+- 下一状态：检查现行审核/导出契约对video-only母版的支持，使用正式run-stage完成只适用视频的审核与导出，验证文件哈希、manifest、台账、重启恢复和资源归零。
