@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
+import math
 from threading import Condition, RLock
 import time
 from typing import Iterator
@@ -80,7 +81,7 @@ class ResourceScheduler:
         if (resource_class not in RESOURCE_PRIORITIES or not str(job_id).strip()
                 or isinstance(estimated_memory, bool) or not isinstance(estimated_memory, int) or estimated_memory < 0):
             raise ResourceSchedulerError("invalid resource request")
-        if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
+        if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0):
             raise ResourceSchedulerError("resource timeout must be positive")
         pool = self.resource_pools[resource_class]
         scope = tuple(str(value or "").strip() for value in (tenant_id, user_id, project_id))

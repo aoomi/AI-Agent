@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import math
 
 from ai_agent_core import ResourceScheduler, ResourceSchedulerError
 
@@ -17,7 +18,7 @@ class ResourceSchedulerContractTest(unittest.TestCase):
             with self.subTest(memory=memory), self.assertRaisesRegex(ResourceSchedulerError, "invalid resource request"):
                 with scheduler.claim("video", "job-1", estimated_memory=memory):  # type: ignore[arg-type]
                     pass
-        for timeout in (0, -1, True):
+        for timeout in (0, -1, True, math.nan, math.inf):
             with self.subTest(timeout=timeout), self.assertRaisesRegex(ResourceSchedulerError, "timeout must be positive"):
                 with scheduler.claim("video", "job-1", timeout=timeout):  # type: ignore[arg-type]
                     pass
