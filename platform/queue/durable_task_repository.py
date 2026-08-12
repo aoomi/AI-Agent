@@ -72,7 +72,6 @@ class DurableTaskRepository:
         finally: connection.close()
 
     def upsert(self, job_id: str, task_class: str, job: Mapping[str, Any]) -> dict[str, Any]:
-        self.upsert_many(task_class, {str(job_id):job})
         values = self._values(str(job_id), str(task_class), job)
         self.upsert_many(task_class, {str(job_id):job})
         return self.get(str(job_id), tenant_id=values["tenant_id"], user_id=values["user_id"], project_id=values["project_id"]) or {}
