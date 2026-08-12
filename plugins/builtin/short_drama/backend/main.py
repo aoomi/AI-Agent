@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from base64 import b64decode, b64encode
 from dataclasses import dataclass
+from hashlib import sha256
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -76,7 +77,7 @@ class ShortDramaBackend:
     def _review_export(self, paths: Mapping[str, str]) -> NodeOutput:
         content = self._read_bytes(paths, "composition")
         from short_drama_workflows.delivery_pipeline import DeliveryArtifact
-        composition = DeliveryArtifact("composition", content, "video/mp4", "")
+        composition = DeliveryArtifact("composition", content, "video/mp4", sha256(content).hexdigest())
         exported = self.delivery.export(composition, self.delivery.confirm_review(self.delivery.review(composition)))
         return NodeOutput(exported.content, exported.media_type)
 

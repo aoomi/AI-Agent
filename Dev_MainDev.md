@@ -78,6 +78,7 @@
 - BUG072第三百零三项整改：ShortDramaProviderBindings递归要求provider input键为非空字符串，禁止隐式`str`转换导致键碰撞和请求事实改写；关联`19 passed, 16 subtests passed`，继续横向稽查。
 - BUG072第三百零四项整改：TextPipeline所有入口强制Mapping/TextArtifact、真实字符串文本与非bool正整数，provider各阶段先验对象，阻断伪文本产物进入预生产链；关联`6 passed, 3 subtests passed`，继续横向稽查。
 - BUG072第三百零五项整改：MediaPipeline上游转换与timeline验证在属性访问/排序前强制MediaArtifact/MediaItem及非bool整数范围，阻断伪媒体对象进入链路；关联回归通过，继续横向稽查。
+- BUG072第三百零六项整改：DeliveryPipeline的合片、审核、修复、确认与导出入口统一强制真实bytes及领域对象不变量，验证媒体哈希并阻断伪交付事实；关联回归通过，继续横向稽查。
 - BUG071最终闭环：composition、review、export权威证据与Graph状态在同一SQLite事务提交；导出manifest绑定generation、audit batch、视频及manifest哈希。正式三镜静音母版导出8.1秒、243帧、704×1216 H.264且仅video stream，重启后HTTP可读；关联`134 passed`。用户要求的不超过15秒、只验证视频范围已可测试，继续BUG072架构v2.2全仓一致性稽查。
 - BUG070最终闭环：普通生产端点门禁移到派发前；worker只接受进程私有loopback token或精确共享reservation，伪造dispatched头正式403，缺前序请求409且无副作用，合法run-stage composition generation 3通过并确认。关联`130 passed`；继续BUG071静音母版审核导出。
 - BUG069最终闭环：LTX三镜经正式run-stage与同批次video/audio-not-applicable/subtitle-not-applicable台账确认后，显式video-only composition生成8.1秒、243帧、704×1216@30 H.264静音母版；重启恢复、HTTP媒体与队列归零通过，关联`129 passed`。继续BUG070生产端点派发门禁旁路。

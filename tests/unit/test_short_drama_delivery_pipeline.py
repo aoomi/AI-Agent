@@ -53,5 +53,14 @@ class DeliveryPipelineTest(unittest.TestCase):
         for decision in (object(),MODULE.ReviewDecision(True,(1,))):
             with self.subTest(decision=decision),self.assertRaises(MODULE.DeliveryPipelineError):MODULE.DeliveryPipeline(Invalid(decision=decision)).review(composition)
 
+    def test_public_boundaries_require_domain_objects_and_real_bytes(self) -> None:
+        pipeline=MODULE.DeliveryPipeline(Provider())
+        for videos in (b"video", ["video"], [b""]):
+            with self.subTest(videos=videos),self.assertRaises(MODULE.DeliveryPipelineError):pipeline.composition(videos,[b"a"],[b"s"])
+        fake=MODULE.DeliveryArtifact("composition",b"v","video/mp4","bad")
+        approved=MODULE.ReviewDecision(True,(),True)
+        for operation in (lambda:pipeline.review(fake),lambda:pipeline.repair(object(),MODULE.ReviewDecision(False,("quality",))),lambda:pipeline.export(fake,approved),lambda:pipeline.confirm_review(object())):
+            with self.subTest(operation=operation),self.assertRaises(MODULE.DeliveryPipelineError):operation()
+
 
 if __name__ == "__main__": unittest.main()
