@@ -40,9 +40,9 @@ class LangGraphOrchestrator:
   return graph
  def invoke(self,name:str,thread_id:str,inputs:Mapping[str,Any])->Mapping[str,Any]:
   if not isinstance(inputs,Mapping):raise LangGraphOrchestratorError("graph inputs must be a mapping")
-  try:json.dumps(dict(inputs),allow_nan=False)
+  try:canonical_inputs=json.dumps(dict(inputs),allow_nan=False)
   except (TypeError,ValueError) as error:raise LangGraphOrchestratorError("graph inputs must be standard JSON") from error
-  return self._invoke(name,thread_id,{"inputs":dict(inputs),"outputs":{}})
+  return self._invoke(name,thread_id,{"inputs":json.loads(canonical_inputs),"outputs":{}})
  def compile_branching(self,name:str,executors:Mapping[str,GraphExecutor],*,entry_node:str,branches:Mapping[str,Mapping[str,str]],terminal_nodes:tuple[str,...],max_attempts:int=3):
   if (not isinstance(name,str) or not isinstance(entry_node,str) or not isinstance(executors,Mapping) or not isinstance(branches,Mapping)
       or not isinstance(terminal_nodes,tuple) or any(not isinstance(node,str) or not node.strip() for node in terminal_nodes)

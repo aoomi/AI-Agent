@@ -3564,3 +3564,5 @@
 - 第二百七十三项自动测试与稽查：恶意executor改写嵌套region后原请求保持不变；Provider适配、韧性调用与生产集成关联回归、Python编译及diff门禁通过。
 - 第二百七十四项稽查首败与整改：ResilientProviderInvoker将同一嵌套inputs引用传给重试和fallback提供方，任一失败提供方可污染后续尝试及调用方。现限流/熔断副作用前建立唯一标准JSON深快照供整条调用链使用。
 - 第二百七十四项自动测试与稽查：恶意提供方改写嵌套region后原请求保持不变；重试、fallback、限流与熔断关联回归、Python编译及diff门禁通过。
+- 第二百七十五项稽查首败与整改：通用LangGraphOrchestrator仅浅拷贝inputs进入检查点和executor，节点可反向污染调用方嵌套请求并改变重放输入。现Graph invoke以已验证标准JSON建立独立深快照。
+- 第二百七十五项自动测试与稽查：恶意节点改写嵌套region后原请求保持不变；LangGraph串并行、分支、恢复与行业工作流关联回归、Python编译及diff门禁通过。

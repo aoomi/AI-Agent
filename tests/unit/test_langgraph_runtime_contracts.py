@@ -2,6 +2,12 @@ from __future__ import annotations
 import unittest
 from ai_agent_adapters import LangGraphOrchestrator,LangGraphOrchestratorError
 class LangGraphRuntimeContractTest(unittest.TestCase):
+ def test_graph_executor_cannot_mutate_nested_caller_inputs(self):
+  graph=LangGraphOrchestrator()
+  def executor(inputs,_outputs):inputs["routing"]["regions"][0]="graph";return "ok"
+  graph.compile("g",{"node":executor});inputs={"routing":{"regions":["local"]}}
+  graph.invoke("g","thread",inputs)
+  self.assertEqual(inputs["routing"]["regions"][0],"local")
  def test_runtime_contracts_fail_closed(self):
   with self.assertRaisesRegex(LangGraphOrchestratorError,"checkpointer"):LangGraphOrchestrator(object())
   graph=LangGraphOrchestrator()
