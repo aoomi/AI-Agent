@@ -261,8 +261,10 @@ class AgentConversationService:
                 executor = self.workflow_executor if proposal.proposal_type == "industry_workflow" else self.task_executor
                 if executor is None: raise ConversationError("real proposal executor is not configured")
                 result = executor.execute(configuration, proposal.requested_changes, identity_id)
-                if not result: raise ConversationError("task executor returned no result")
+                if not isinstance(result,Mapping) or not result: raise ConversationError("task executor returned no result")
                 if self._contains_sensitive_key(result): raise ConversationError("task executor result contains sensitive fields")
+                try:json.dumps(dict(result),allow_nan=False)
+                except (TypeError,ValueError) as error:raise ConversationError("task executor result must be standard JSON") from error
         except Exception:
             with self._lock:self._proposals[proposal.proposal_id] = replace(proposal, status="failed")
             raise

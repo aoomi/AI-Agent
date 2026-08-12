@@ -119,6 +119,14 @@ class AgentConversationServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(ConversationError, "sensitive fields"): service.confirm(proposal.proposal_id, "owner")
         self.assertEqual(service.proposals(session.session_id, "owner")[0].status, "failed")
 
+    def test_executor_result_requires_mapping_standard_json(self) -> None:
+        skill,agent=self.configured();client=ModelClient({"reply":"wait","proposal":{"proposal_type":"task_execution","requested_changes":{"objective":"run"}}})
+        for result in (["task"],{"value":float("nan")},{"value":object()}):
+            service=AgentConversationService(self.models,self.configurations,client,ResultExecutor(result));service.bind(agent,skill)
+            session=service.open_session(agent.agent_id,"owner",{"project_id":"project"});_,proposal=service.send(session.session_id,"run","owner")
+            with self.subTest(result=result),self.assertRaises(ConversationError):service.confirm(proposal.proposal_id,"owner")
+            self.assertEqual(service.proposals(session.session_id,"owner")[0].status,"failed")
+
     def test_sensitive_memory_update_is_not_persisted(self) -> None:
         skill, agent = self.configured(); memory = ConversationMemoryStore()
         client = ModelClient({"reply":"ok", "memory_updates":{"profiles":[{"client_secret":"plaintext"}]}})

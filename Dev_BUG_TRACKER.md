@@ -3504,3 +3504,5 @@
 - 第二百四十三项自动测试与稽查：NaN/任意对象inputs动态拒绝且提供方未被调用；韧性层关联回归、Python编译与diff门禁通过。
 - 第二百四十四项稽查首败与整改：AgentScheduler.resume依赖AgentContext.update逐个验证values，parallel run中坏值可在部分上下文更新后失败。现完整恢复输入在首个写入前失败关闭。
 - 第二百四十四项自动测试与稽查：NaN/任意对象resume values动态拒绝且原上下文不变；调度控制关联回归、Python编译与diff门禁通过。
+- 第二百四十五项稽查首败与整改：AgentConversation仅用真值与敏感键检查executor result，列表会在dict转换时泄漏异常，NaN/任意对象可进入applied_result。现提案失败统一记录failed且不发布坏结果。
+- 第二百四十五项自动测试与稽查：列表、NaN与任意对象executor result动态拒绝且proposal终态为failed；会话关联回归、Python编译与diff门禁通过。
