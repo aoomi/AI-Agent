@@ -33,4 +33,7 @@ class PersistenceAdaptersTest(unittest.TestCase):
    root=Path(d);state=SQLiteStateStore(root/"state.db");queue=SQLiteDurableQueue(root/"queue.db");objects=LocalObjectStore(root/"objects")
    for operation in (lambda:state.put("t","n","k",{"value":float("nan")}),lambda:queue.enqueue("t",{"value":object()}),lambda:objects.put("t","key","text")):
     with self.subTest(operation=operation),self.assertRaises(PersistenceError):operation()
+ def test_persistence_constructor_paths_must_be_path_models(self):
+  for build in (lambda:SQLiteStateStore("state.db"),lambda:LocalObjectStore("objects"),lambda:SQLiteDurableQueue("queue.db")):
+   with self.subTest(build=build),self.assertRaises(PersistenceError):build()
 if __name__=="__main__":unittest.main()

@@ -1205,3 +1205,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百零二项：行业Skill注册已验证Path根、字符串industry/manifest字段/查询ID及IndustrySkillDefinition项目机器人模型；数字字段不会被隐式字符串化进入流程注册。行业关联`9 passed`、`12 subtests passed`。
 - BUG072第二百零三项：模型定义/需求/注册/读取/列表/选择已完整验证字符串身份、Mapping设置、frozenset能力、模型实例及布尔控制，畸形运行时对象不会进入模型源或选择器。模型会话关联`30 passed`、`21 subtests passed`。
 - BUG072第二百零四项：LangGraph串并行与分支节点键已拒绝数字伪ID，内部Graph读取同步验证字符串name；畸形节点不会被隐式字符串化后进入StateGraph。Graph关联`6 passed`、`11 subtests passed`。
+- BUG072第二百零五项：SQLite状态/队列及本地对象存储构造已严格要求Path模型，对象scope路径同步移除冗余`str(...)`转换；字符串伪路径不会泄漏parent/resolve异常。持久化关联`9 passed`、`21 subtests passed`。

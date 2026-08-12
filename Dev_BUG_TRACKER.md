@@ -3424,3 +3424,5 @@
 - 第二百零三项自动测试与稽查：九类坏定义/需求/注册/读取/列表/选择控制动态拒绝；模型、配置与会话关联`30 passed`（另`21 subtests passed`），Python编译与diff门禁通过。
 - 第二百零四项稽查首败与整改：LangGraph compile/compile_branching以`str(node)`接受数字executor键，内部_graph也未验证运行时name，畸形节点可能延迟到StateGraph并产生含混身份。现所有节点及Graph读取身份严格要求字符串。
 - 第二百零四项自动测试与稽查：数字串行/分支节点及内部graph name动态失败关闭；Graph单元与集成关联`6 passed`（另`11 subtests passed`），Python编译与diff门禁通过。
+- 第二百零五项稽查首败与整改：三类私有部署持久适配器构造直接对运行时path调用parent/resolve，对象路径又在类型验证后冗余字符串化，坏路径会泄漏AttributeError。现构造根统一要求Path并保持声明身份类型。
+- 第二百零五项自动测试与稽查：三类字符串伪path动态失败关闭，重启恢复、敏感字段、租户围栏及非JSON回归保持通过；持久化关联`9 passed`（另`21 subtests passed`），Python编译与diff门禁通过。

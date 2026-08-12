@@ -7,7 +7,9 @@ from pathlib import Path
 from uuid import uuid4
 class PersistenceError(ValueError):pass
 class SQLiteStateStore:
- def __init__(self,path:Path):self.path=path;path.parent.mkdir(parents=True,exist_ok=True);self.db=sqlite3.connect(path,check_same_thread=False);self._lock=RLock();self.db.execute("CREATE TABLE IF NOT EXISTS state(tenant TEXT,namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(tenant,namespace,key))");self.db.commit()
+ def __init__(self,path:Path):
+  if not isinstance(path,Path):raise PersistenceError("state path must be a Path")
+  self.path=path;path.parent.mkdir(parents=True,exist_ok=True);self.db=sqlite3.connect(path,check_same_thread=False);self._lock=RLock();self.db.execute("CREATE TABLE IF NOT EXISTS state(tenant TEXT,namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(tenant,namespace,key))");self.db.commit()
  def put(self,tenant,namespace,key,value):
   if any(not isinstance(item,str) for item in (tenant,namespace,key)) or not all(item.strip() for item in (tenant,namespace,key)):raise PersistenceError("state owner and key are required")
   forbidden=("secret","token","password","api_key","authorization","credential")
@@ -25,15 +27,17 @@ class SQLiteStateStore:
   if row is None:raise PersistenceError("state record not found")
   return json.loads(row[0])
 class LocalObjectStore:
- def __init__(self,root:Path):self.root=root.resolve();self.root.mkdir(parents=True,exist_ok=True)
+ def __init__(self,root:Path):
+  if not isinstance(root,Path):raise PersistenceError("object root must be a Path")
+  self.root=root.resolve();self.root.mkdir(parents=True,exist_ok=True)
  def put(self,tenant,key,content):
   if not isinstance(content,(bytes,bytearray,memoryview)):raise PersistenceError("object content must be bytes")
   target=self._path(tenant,key);target.parent.mkdir(parents=True,exist_ok=True);tmp=target.with_suffix(target.suffix+f".{uuid4().hex}.tmp");tmp.write_bytes(content);tmp.replace(target);return str(target.relative_to(self.root))
  def get(self,tenant,key):return self._path(tenant,key).read_bytes()
  def _path(self,tenant,key):
   if not isinstance(tenant,str) or not isinstance(key,str):raise PersistenceError("object owner and key are required")
-  tenant_path,key_path=Path(str(tenant).strip()),Path(str(key).strip())
-  if (not str(tenant).strip() or not str(key).strip() or tenant_path.is_absolute() or key_path.is_absolute()
+  tenant_path,key_path=Path(tenant.strip()),Path(key.strip())
+  if (not tenant.strip() or not key.strip() or tenant_path.is_absolute() or key_path.is_absolute()
       or len(tenant_path.parts)!=1 or tenant_path.parts[0] in (".","..") or any(part in (".","..") for part in key_path.parts)):
    raise PersistenceError("object owner and key are required")
   tenant_root=(self.root/tenant_path).resolve();target=(tenant_root/key_path).resolve()
@@ -42,7 +46,9 @@ class LocalObjectStore:
 @dataclass(frozen=True,slots=True)
 class DurableQueueItem:item_id:str;tenant_id:str;payload:dict;status:str
 class SQLiteDurableQueue:
- def __init__(self,path:Path):path.parent.mkdir(parents=True,exist_ok=True);self.db=sqlite3.connect(path,check_same_thread=False);self._lock=RLock();self.db.execute("CREATE TABLE IF NOT EXISTS queue(id TEXT PRIMARY KEY,tenant TEXT,payload TEXT,status TEXT)");self.db.commit()
+ def __init__(self,path:Path):
+  if not isinstance(path,Path):raise PersistenceError("queue path must be a Path")
+  path.parent.mkdir(parents=True,exist_ok=True);self.db=sqlite3.connect(path,check_same_thread=False);self._lock=RLock();self.db.execute("CREATE TABLE IF NOT EXISTS queue(id TEXT PRIMARY KEY,tenant TEXT,payload TEXT,status TEXT)");self.db.commit()
  def enqueue(self,tenant,payload):
   if not isinstance(tenant,str) or not tenant.strip():raise PersistenceError("queue tenant is required")
   if not isinstance(payload,dict):raise PersistenceError("queue payload must be an object")
