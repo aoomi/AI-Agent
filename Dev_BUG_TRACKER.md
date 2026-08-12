@@ -3176,3 +3176,5 @@
 - 第七十八项稽查首败与整改：provider韧性层未校验熔断threshold/recovery，零阈值或非正恢复窗会形成异常状态；fallback还允许重复provider，导致同一失败提供方被重复调用并扭曲限流/熔断计数。现构造与调用边界拒绝非法参数、空能力及重复fallback链。
 - 第七十九项稽查首败与整改：通用LangGraph编排接受空name/thread、非法retry次数、非callable executor及指向不存在节点的branch/terminal，错误会延迟到编译或执行并污染调用语义。现两类compile在发布前完整校验拓扑与执行器，invoke/resume拒绝空线程身份。
 - 第八十项稽查首败与整改：AgentContext允许空字符串字段名，CollaborationContext允许空task_id进入状态表；此类匿名键会覆盖、无法可靠引用且破坏可追溯证据。现两类上下文在读改写前拒绝空键/任务标识，合法快照行为不变。
+- 第八十一项稽查首败与整改：AgentConversation虽已延后模型响应提交，但消息/提案仍早于长期memory落盘；文件写失败会让send报错却保留本轮对话，且MemoryStore先修改内存再落盘，失败后还会伪造已持久事实。现memory以候选副本完成原子文件替换后才发布内存状态，send也先完成memory持久化再在服务锁内提交消息/提案。
+- 第八十一项自动测试与稽查：故障memory注入证明消息仍仅系统首条、提案为空；只读目录模拟写失败证明旧memory快照不变。配置、会话与管理API关联`27 passed`（另`3 subtests passed`），Python编译与diff门禁通过。

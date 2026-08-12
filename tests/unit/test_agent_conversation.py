@@ -24,6 +24,11 @@ class TaskExecutor:
         return {"task_id": "task-1"}
 
 
+class FailingMemoryStore(ConversationMemoryStore):
+    def update(self, identity_id, project_id, values):
+        raise OSError("memory persistence failed")
+
+
 class AgentConversationServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.skills = {skill.skill_id: skill for skill in SkillRegistry(ROOT / "plugins/builtin").scan()}
@@ -77,6 +82,36 @@ class AgentConversationServiceTest(unittest.TestCase):
             service.send(session.session_id, "invalid response", "owner")
         self.assertEqual(len(service.messages(session.session_id, "owner")), 1)
         self.assertEqual(service.proposals(session.session_id, "owner"), ())
+
+    def test_memory_persistence_failure_has_no_partial_conversation_commit(self) -> None:
+        skill, agent = self.configured()
+        client = ModelClient({
+            "reply": "待确认",
+            "memory_updates": {"style": "brief"},
+            "proposal": {"proposal_type": "configuration_change", "requested_changes": {"settings": {"x": 1}}},
+        })
+        service = AgentConversationService(
+            self.models, self.configurations, client, memory_store=FailingMemoryStore()
+        )
+        service.bind(agent, skill)
+        session = service.open_session(agent.agent_id, "owner", {"project_id": "project"})
+        with self.assertRaisesRegex(OSError, "memory persistence failed"):
+            service.send(session.session_id, "remember this", "owner")
+        self.assertEqual(len(service.messages(session.session_id, "owner")), 1)
+        self.assertEqual(service.proposals(session.session_id, "owner"), ())
+
+    def test_memory_store_does_not_publish_failed_file_update(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "memory.json"
+            store = ConversationMemoryStore(path)
+            store.update("owner", "project", {"style": "brief"})
+            path.parent.chmod(0o500)
+            try:
+                with self.assertRaises(OSError):
+                    store.update("owner", "project", {"goal": "finish"})
+            finally:
+                path.parent.chmod(0o700)
+            self.assertEqual(store.read("owner", "project"), {"style": "brief"})
 
     def test_rejected_proposal_cannot_be_confirmed(self) -> None:
         skill, agent = self.configured()

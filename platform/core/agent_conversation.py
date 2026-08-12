@@ -86,13 +86,16 @@ class ConversationMemoryStore:
         if not identity_id.strip() or not project_id.strip(): raise ConversationError("conversation memory identity and project are required")
         safe = {str(key): value for key, value in values.items() if str(key).strip() and value is not None}
         with self._lock:
-            current = self._items.setdefault((identity_id, project_id), {}); current.update(safe)
+            item_key = (identity_id, project_id)
+            current = dict(self._items.get(item_key, {})); current.update(safe)
+            candidate = dict(self._items); candidate[item_key] = current
             if self.storage_path:
                 self.storage_path.parent.mkdir(parents=True, exist_ok=True)
                 temporary = self.storage_path.with_suffix(self.storage_path.suffix + ".tmp")
-                payload = {f"{owner}\u0000{project}": item for (owner, project), item in self._items.items()}
+                payload = {f"{owner}\u0000{project}": item for (owner, project), item in candidate.items()}
                 temporary.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
                 temporary.replace(self.storage_path)
+            self._items = candidate
             return MappingProxyType(dict(current))
 
 
@@ -179,11 +182,11 @@ class AgentConversationService:
             raise ConversationError("model execution plan is invalid")
         proposal = self._proposal_from_model(session, configuration, raw.get("proposal"), tuple(plan), persist=False)
         assistant = self._message(session, "assistant", reply.strip())
+        if memory_updates:
+            self.memory_store.update(session.created_by_identity_id, str(session.context.get("project_id", "")), memory_updates)
         with self._lock:
             self._messages[session_id].extend((user_message, assistant))
             if proposal is not None:self._proposals[proposal.proposal_id] = proposal
-        if memory_updates:
-            self.memory_store.update(session.created_by_identity_id, str(session.context.get("project_id", "")), memory_updates)
         return assistant, proposal
 
     @staticmethod
