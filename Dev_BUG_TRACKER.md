@@ -3157,3 +3157,4 @@
 - 第五十九项稽查首败与整改：跨worker reservation ID虽已纳入owner哈希，但远端只按ID/worker/resource/scope验真，无法直接证明请求body的owner与预留owner一致。现SQLite reservation迁移新增owner_scope，派发写入、幂等冲突检查、快照和远端验真均精确绑定请求所有者；无owner探活保持空scope兼容。
 - 第六十项稽查首败与整改：TaskLease同owner acquire/renew未约束heartbeat时间单调，时钟回拨、乱序线程或更短TTL可缩短租约并把heartbeat倒退，破坏同generation晚到隔离。现acquire显式拒绝倒退，renew以SQLite条件CAS同时要求时间单调且新到期不早于旧到期，失败时保留当前权威租约。
 - 第六十一项稽查首败与整改：SecurityAuditLedger并发append以无锁“读末尾hash→追加”构链，多线程可生成共享previous_hash分叉并使审计链不可验证；export/verify/entries也读取可变列表。现RLock覆盖原子构链和快照读取，并拒绝空审计身份/动作字段。
+- 第六十二项稽查首败与整改：AgentScheduler虽有run single-flight集合，但run状态写回及pause/retry/takeover/resume读改写仍部分绕过锁；外部控制可在executor运行中改状态，随后被晚到结果覆盖。现所有run状态提交均加锁，四种控制先在同一临界区拒绝active run，再执行合法状态转换。

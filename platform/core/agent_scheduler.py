@@ -111,7 +111,7 @@ class AgentScheduler:
         targets = agent_ids if mode == "parallel" else agent_ids[:1]
         for agent_id in targets: self.contexts.update(tenant_id, project_id, agent_id, values)
         run = PipelineRun(f"run-{uuid4().hex}", tenant_id, project_id, agent_ids, mode=mode, max_retries=max_retries)
-        self.runs[run.run_id] = run
+        with self._lock:self.runs[run.run_id] = run
         return self.run(run.run_id) if auto_run else run
 
     def run(self, run_id: str) -> PipelineRun:
@@ -132,15 +132,15 @@ class AgentScheduler:
             target = result.status
             if target != "completed":
                 run = replace(run, status=target)
-                self.runs[run_id] = run
+                with self._lock:self.runs[run_id] = run
                 return run
             next_index = run.current_index + 1
             if next_index < len(run.agent_ids):
                 self.contexts.update(run.tenant_id, run.project_id, run.agent_ids[next_index], {"upstream": dict(result.values)})
             run = replace(run, current_index=next_index)
-            self.runs[run_id] = run
+            with self._lock:self.runs[run_id] = run
         run = replace(run, status="completed")
-        self.runs[run_id] = run
+        with self._lock:self.runs[run_id] = run
         return run
 
     def _run_parallel(self, run: PipelineRun) -> PipelineRun:
@@ -151,12 +151,12 @@ class AgentScheduler:
                 results = {agent_id: future.result() for agent_id, future in futures.items()}
         except Exception:
             failed = replace(run, status="failed")
-            self.runs[run.run_id] = failed
+            with self._lock:self.runs[run.run_id] = failed
             return failed
         statuses = {result.status for result in results.values()}
         status = "failed" if "failed" in statuses else "waiting_human" if "waiting_human" in statuses else "completed"
         completed = replace(run, current_index=len(run.agent_ids) if status == "completed" else 0, status=status)
-        self.runs[run.run_id] = completed
+        with self._lock:self.runs[run.run_id] = completed
         return completed
 
     def _execute(self, run: PipelineRun, agent_id: str) -> ExecutionResult:
@@ -174,29 +174,37 @@ class AgentScheduler:
         return result
 
     def pause(self, run_id: str) -> PipelineRun:
-        run = self._get(run_id)
-        if run.status != "running": raise SchedulerError("only running runs can pause")
-        paused = replace(run, status="paused"); self.runs[run_id] = paused; return paused
+        with self._lock:
+            run = self._get(run_id)
+            if run_id in self._active_runs: raise SchedulerError("active pipeline run cannot pause until its current agent yields")
+            if run.status != "running": raise SchedulerError("only running runs can pause")
+            paused = replace(run, status="paused"); self.runs[run_id] = paused; return paused
 
     def retry(self, run_id: str) -> PipelineRun:
-        run = self._get(run_id)
-        if run.status != "failed": raise SchedulerError("only failed runs can retry")
-        if run.retry_count >= run.max_retries: raise SchedulerError("maximum retries reached")
-        self.runs[run_id] = replace(run, status="running", retry_count=run.retry_count + 1)
+        with self._lock:
+            run = self._get(run_id)
+            if run_id in self._active_runs: raise SchedulerError("pipeline run is already active")
+            if run.status != "failed": raise SchedulerError("only failed runs can retry")
+            if run.retry_count >= run.max_retries: raise SchedulerError("maximum retries reached")
+            self.runs[run_id] = replace(run, status="running", retry_count=run.retry_count + 1)
         return self.run(run_id)
 
     def manual_takeover(self, run_id: str) -> PipelineRun:
-        run = self._get(run_id)
-        if run.status in {"completed", "cancelled"}: raise SchedulerError("terminal run cannot be taken over")
-        takeover = replace(run, status="waiting_human"); self.runs[run_id] = takeover; return takeover
+        with self._lock:
+            run = self._get(run_id)
+            if run_id in self._active_runs: raise SchedulerError("active pipeline run cannot be taken over until its current agent yields")
+            if run.status in {"completed", "cancelled"}: raise SchedulerError("terminal run cannot be taken over")
+            takeover = replace(run, status="waiting_human"); self.runs[run_id] = takeover; return takeover
 
     def resume(self, run_id: str, values: Mapping[str, Any]) -> PipelineRun:
-        run = self._get(run_id)
-        if run.status not in {"waiting_human", "paused"}:
-            raise SchedulerError("only waiting_human or paused runs can resume")
+        with self._lock:
+            run = self._get(run_id)
+            if run_id in self._active_runs: raise SchedulerError("pipeline run is already active")
+            if run.status not in {"waiting_human", "paused"}:
+                raise SchedulerError("only waiting_human or paused runs can resume")
         targets = run.agent_ids if run.mode == "parallel" else (run.agent_ids[run.current_index],)
         for agent_id in targets: self.contexts.update(run.tenant_id, run.project_id, agent_id, values)
-        self.runs[run_id] = replace(run, status="running")
+        with self._lock:self.runs[run_id] = replace(run, status="running")
         return self.run(run_id)
 
     def _get(self, run_id: str) -> PipelineRun:
