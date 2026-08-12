@@ -5027,6 +5027,17 @@ def _launch_waiting_video_job(job_id: str, body: dict) -> None:
     threading.Thread(target=_invoke_production_capability, args=("video.shot",), kwargs={"job_id":job_id, "body":body}, daemon=True, name=f"video-{job_id[:8]}").start()
 
 
+def _waiting_video_release_window_open() -> bool:
+    """Admit persisted waiters only after Comfy is proven fully idle."""
+    if ACTIVE_VIDEO_JOBS or _heavy_task_busy():
+        return False
+    try:
+        queue = _comfy_json("/queue")
+    except Exception:
+        return False
+    return not queue.get("queue_running") and not queue.get("queue_pending")
+
+
 def _recover_terminal_video_prompt(job_id: str, body: dict, terminal_status: str, terminal_stage: str, terminal_error: str) -> None:
     subject_key = _video_key(body)
     try:
@@ -5089,10 +5100,10 @@ def _monitor_waiting_video_jobs() -> None:
                     if _cancel_job_comfy_prompts(job):
                         _terminate_process_tree(process); ACTIVE_VIDEO_PROCESSES.pop(job_id, None); ACTIVE_VIDEO_JOBS.discard(job_id); changed = True
             if changed: _save_video_jobs(jobs)
-            waiting = None if ACTIVE_VIDEO_JOBS or _heavy_task_busy() else next(((job_id, job) for job_id, job in jobs.get("jobs", {}).items() if job.get("status") == "waiting_memory" and isinstance(job.get("request"), dict)), None)
+            waiting = next(((job_id, job) for job_id, job in jobs.get("jobs", {}).items() if job.get("status") == "waiting_memory" and isinstance(job.get("request"), dict)), None)
         for recovery in recoveries:
             threading.Thread(target=_recover_terminal_video_prompt, args=recovery, daemon=True, name=f"video-prompt-recovery-{recovery[0][:8]}").start()
-        if not waiting: continue
+        if not waiting or not _waiting_video_release_window_open(): continue
         job_id, job = waiting
         ready, memory = _memory_ready(VIDEO_ESTIMATED_MEMORY)
         _update_video_job(job_id, memory=memory, heartbeat_at=_iso_now())
@@ -9316,7 +9327,7 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                 jobs = _load_video_jobs(); matches = [job for job in jobs.setdefault("jobs", {}).values() if job.get("subject_key") == subject_key and job.get("status") in {"waiting_memory", "generating"}]
                 if matches: return self._json(HTTPStatus.CONFLICT, {**matches[-1], "error":"video_subject_active"})
                 job_id = str(uuid4())
-                status = "generating" if ready and not ACTIVE_VIDEO_JOBS and not _heavy_task_busy() else "waiting_memory"
+                status = "generating" if ready and _waiting_video_release_window_open() else "waiting_memory"
                 jobs["jobs"][job_id] = {"job_id":job_id, "subject_key":subject_key, "status":status, "stage":"queued" if status == "waiting_memory" else "starting", "request":body, "memory":memory, "queued_at":_iso_now(), "heartbeat_at":_iso_now(), "timeout_seconds":VIDEO_TASK_TIMEOUT_SECONDS, "pid":None, "process_group":None}; _save_video_jobs(jobs)
                 if status == "generating": ACTIVE_VIDEO_JOBS.add(job_id); ACTIVE_VIDEO_SUBJECTS[subject_key] = job_id
             if status == "generating":
