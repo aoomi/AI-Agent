@@ -10,8 +10,9 @@ class ResourceSchedulerContractTest(unittest.TestCase):
     def test_constructor_rejects_pseudo_integer_pool_limits(self) -> None:
         for kwargs in ({"pool_capacities":{"global":True}},{"pool_queue_limits":{"global":1.5}},
                        {"pool_capacities":{"unused":1}}, {"resource_pools":{"unknown":"global"}},
-                       {"serialized_pools":{"unused"}}):
-            with self.subTest(kwargs=kwargs),self.assertRaisesRegex(ValueError,"pool"):
+                       {"serialized_pools":{"unused"}}, {"resource_pools":[]},
+                       {"serialized_pools":["global"]}, {"execution_lock":object()}):
+            with self.subTest(kwargs=kwargs),self.assertRaises(ValueError):
                 ResourceScheduler(**kwargs)  # type: ignore[arg-type]
 
     def test_claim_rejects_invalid_runtime_numeric_controls(self) -> None:

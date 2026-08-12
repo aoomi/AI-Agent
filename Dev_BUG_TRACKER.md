@@ -3326,3 +3326,5 @@
 - 第一百五十四项自动测试与稽查：四类跨域/折叠路径动态拒绝，合法嵌套对象仍可跨重启读取；持久化关联回归、Python编译与diff门禁通过。
 - 第一百五十五项稽查首败与整改：ResourceScheduler接受未知resource映射、未被任何资源使用的容量/限额池及悬空serialized pool；多余容量池会在snapshot访问缺失限额时触发KeyError，其余配置则静默无效。现四类映射均与实际资源池闭合集合校验。
 - 第一百五十五项自动测试与稽查：未知资源、悬空容量池和serialized pool动态失败关闭；专项关联回归、Python编译与diff门禁通过。
+- 第一百五十六项稽查首败与整改：ResourceScheduler依赖静态注解直接调用配置`.get`/`dict`并在claim才使用execution_lock，列表配置或坏锁会泄漏底层异常且可能先进入队列。现构造时完整验证Mapping、集合及锁协议。
+- 第一百五十六项自动测试与稽查：列表配置、列表serialized pool和坏锁动态失败关闭；专项关联回归、Python编译与diff门禁通过。

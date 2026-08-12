@@ -8,6 +8,7 @@ import math
 from threading import Condition, RLock
 import time
 from typing import Iterator
+from collections.abc import Mapping
 from uuid import uuid4
 
 
@@ -52,6 +53,13 @@ class ResourceScheduler:
         project_queue_limits: dict[str, int] | None = None,
         serialized_pools: set[str] | None = None,
     ) -> None:
+        mappings=(resource_pools,pool_capacities,pool_queue_limits,tenant_queue_limits,project_queue_limits)
+        if any(value is not None and not isinstance(value,Mapping) for value in mappings):
+            raise ValueError("resource pool configuration must be mappings")
+        if execution_lock is not None and not all(callable(getattr(execution_lock, name, None)) for name in ("acquire", "release", "__enter__", "__exit__")):
+            raise ValueError("execution_lock must implement the lock protocol")
+        if serialized_pools is not None and (not isinstance(serialized_pools,set) or any(not isinstance(pool,str) for pool in serialized_pools)):
+            raise ValueError("serialized pools must be a string set")
         self.execution_lock = execution_lock or RLock()
         self.resource_pools = {resource: (resource_pools or {}).get(resource, "global") for resource in RESOURCE_PRIORITIES}
         self.pool_capacities = dict(pool_capacities or {"global": 1})
