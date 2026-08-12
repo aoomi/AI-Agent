@@ -214,6 +214,10 @@ class InMemoryTaskQueue:
                 raise QueueConflictError("progress_percent is invalid")
             updated = replace(task, status=status, payload={**dict(task.payload), "progress_percent": progress_percent})
             self._tasks[task_id] = updated
+            if status == "queued":
+                if task_id not in self._pending:self._pending.append(task_id)
+            else:
+                while task_id in self._pending:self._pending.remove(task_id)
             return updated
 
     def _require(self, task_id: str) -> QueuedTask:

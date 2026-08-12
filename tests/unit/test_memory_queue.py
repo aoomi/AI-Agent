@@ -137,8 +137,15 @@ class InMemoryTaskQueueTest(unittest.TestCase):
         queue=InMemoryTaskQueue();queue.enqueue(task())
         waiting=queue.apply_status_event("task-1","tenant-a","identity-1","project-1","waiting_memory",0)
         self.assertEqual(waiting.status,"waiting_memory")
+        self.assertIsNone(queue.claim("tenant-a"))
         queued=queue.apply_status_event("task-1","tenant-a","identity-1","project-1","queued",0)
         self.assertEqual(queued.status,"queued")
+        self.assertEqual(queue.claim("tenant-a").task_id,"task-1")
+
+    def test_projected_running_task_cannot_be_claimed_again(self) -> None:
+        queue=InMemoryTaskQueue();queue.enqueue(task())
+        queue.apply_status_event("task-1","tenant-a","identity-1","project-1","running",10)
+        self.assertIsNone(queue.claim("tenant-a"))
 
     def test_status_event_rejects_boolean_progress_without_mutation(self) -> None:
         queue = InMemoryTaskQueue(); queue.enqueue(task()); queue.claim("tenant-a")
