@@ -40,7 +40,8 @@ class TaskLeaseRepository:
             connection.close()
 
     def acquire(self, job_id: str, owner_id: str, *, ttl: float = 30.0, now: float | None = None) -> dict[str, object]:
-        if not job_id.strip() or not owner_id.strip() or ttl <= 0:
+        if (not job_id.strip() or not owner_id.strip() or isinstance(ttl,bool)
+                or not isinstance(ttl,(int,float)) or ttl <= 0):
             raise TaskLeaseError("invalid lease request")
         moment = time.time() if now is None else now
         with self._lock, self._connection() as connection:
@@ -63,7 +64,7 @@ class TaskLeaseRepository:
 
     def renew(self, job_id: str, owner_id: str, generation: int, *, ttl: float = 30.0, now: float | None = None) -> bool:
         self._validate_owner(job_id, owner_id, generation)
-        if ttl <= 0: raise TaskLeaseError("invalid lease renewal")
+        if isinstance(ttl,bool) or not isinstance(ttl,(int,float)) or ttl <= 0: raise TaskLeaseError("invalid lease renewal")
         moment = time.time() if now is None else now
         with self._lock, self._connection() as connection:
             result = connection.execute("""UPDATE task_leases SET lease_expires_at=?,heartbeat_at=?

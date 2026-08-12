@@ -3260,3 +3260,5 @@
 - 第一百二十一项自动测试与稽查：四类畸形模型定义和三类非法需求动态失败关闭；模型、配置与会话关联`29 passed`（另`10 subtests passed`），Python编译与diff门禁通过。
 - 第一百二十二项稽查首败与整改：TaskProgressProjection用`isinstance(progress,int)`接收进度，Python布尔True会被当作1写入投影。现进度明确拒绝布尔伪整数，再执行0—100范围校验。
 - 第一百二十二项自动测试与稽查：101及True进度动态失败关闭，合法事件投影保持；任务投影关联测试、Python编译与diff门禁通过。
+- 第一百二十三项稽查首败与整改：TaskLease acquire/renew只比较TTL大小，布尔True可作为1秒租约进入权威表，字符串则泄漏TypeError而非契约错误。现两类入口统一强制非布尔正数。
+- 第一百二十三项自动测试与稽查：布尔及字符串TTL在acquire/renew均动态失败关闭；租约与生产控制关联测试、Python编译与diff门禁通过。
