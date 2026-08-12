@@ -1057,3 +1057,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第五十五项：私有部署状态库与SQLite持久队列共享连接已支持多线程并以事务锁串行化，claim不可交错。关联`4 passed`，只读稽查通过。
 - BUG072第五十六项：跨worker reservation幂等键已绑定path+tenant/user/project+request ID，阻断同ID跨所有者共享派发证明；继续派发契约回归。
 - BUG072第五十七项：worker heartbeat在同generation内已强制时间单调，阻断乱序晚到快照回滚容量、负载和健康时间；动态路由与SQLite发现均覆盖。
+- BUG072第五十七项组合复测：生产控制、跨worker派发证明与持久任务owner矩阵`93 passed`；旧无身份fixture已补齐合法所有者，不再掩盖生产门禁。

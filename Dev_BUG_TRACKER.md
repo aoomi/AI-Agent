@@ -3152,3 +3152,4 @@
 - 第五十五项自动测试与稽查：持久适配器与私有部署韧性关联`4 passed`；Python编译与diff门禁通过。只读确认对象存储仍保持同目录原子替换和路径穿越门禁。
 - 第五十六项稽查首败与整改：跨worker派发在调用方提供request_id/job_id时直接作为全局reservation主键，未纳入tenant/user/project；不同所有者复用同ID会共享既有reservation，远端仅验证reservation与worker/resource，形成跨项目派发证明串线。现reservation ID由path+请求携带的owner scope+显式request ID哈希派生；无显式ID继续把完整body纳入哈希，兼容尚未完成身份补齐的非生产探活请求。
 - 第五十七项稽查首败与整改：内存路由和SQLite worker发现仅拒绝更旧generation，同generation乱序晚到heartbeat可覆盖更新容量、负载和时间戳，违背epoch内晚到响应隔离。现同generation强制heartbeat_at单调，两种实现均丢弃倒退快照并保留当前权威值，避免时钟短暂回拨终止心跳循环。
+- 第五十七项自动测试与稽查：新增内存与SQLite同代乱序heartbeat动态回归；同步修正四处被完整owner读取契约淘汰的旧测试fixture，生产控制、派发证明和持久任务owner组合`93 passed`，Python编译及diff门禁通过。

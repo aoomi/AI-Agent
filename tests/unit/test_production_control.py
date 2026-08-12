@@ -311,16 +311,17 @@ class ProductionControlTests(unittest.TestCase):
                 "request":{"tenant_id":"tenant-a", "user_id":"user-a", "project_id":"project-a", "endpoint":"/api/shots/generate"},
                 "stage":"qwen_repairing", "heartbeat_at":"2026-08-08T21:03:26+00:00",
             })
-            self.assertEqual(repository.get("legacy-job")["status"], "queued")
+            owner = {"tenant_id":"tenant-a", "user_id":"user-a", "project_id":"project-a"}
+            self.assertEqual(repository.get("legacy-job", **owner)["status"], "queued")
             module._recover_image_jobs()
-            recovered = repository.get("legacy-job")
+            recovered = repository.get("legacy-job", **owner)
             self.assertEqual(recovered["status"], "failed")
             self.assertEqual(recovered["payload"]["status"], "failed")
             self.assertEqual(recovered["payload"]["tenant_id"], "tenant-a")
             self.assertEqual(repository.pending_projections(task_class="image"), [])
             self.assertEqual(module.PRODUCTION_ORCHESTRATOR.state({"tenant_id":"tenant-a", "user_id":"user-a", "project_id":"project-a"})["stages"]["image"], "failed")
             module._recover_image_jobs()
-            self.assertEqual(repository.get("legacy-job")["status"], "failed")
+            self.assertEqual(repository.get("legacy-job", **owner)["status"], "failed")
 
     def test_production_capabilities_are_replaceable_and_disableable(self):
         self.assertIs(production_capability_registry(), production_capability_registry())
@@ -677,20 +678,21 @@ class ProductionControlTests(unittest.TestCase):
             module.TEXT_JOBS_FILE = directory / "text-jobs.json"
             module.TASK_REPOSITORIES = {}
             module.SERVICE_SHUTTING_DOWN.set()
-            old = {"jobs":{"job":{"job_id":"job", "status":"queued", "project_id":"project"}}}
+            owner = {"tenant_id":"tenant", "user_id":"user", "project_id":"project"}
+            old = {"jobs":{"job":{"job_id":"job", "status":"queued", **owner}}}
             atomic_write_json(module.TEXT_JOBS_FILE, old)
             original_writer = module.atomic_write_json
             module.atomic_write_json = lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("projection failed"))
-            latest = {"jobs":{"job":{"job_id":"job", "status":"completed", "project_id":"project"}}}
+            latest = {"jobs":{"job":{"job_id":"job", "status":"completed", **owner}}}
             with self.assertRaisesRegex(OSError, "projection failed"):
                 module._save_text_jobs(latest)
             module.atomic_write_json = original_writer
-            self.assertEqual(module._task_repository(module.TEXT_JOBS_FILE).get("job")["payload"]["status"], "completed")
+            self.assertEqual(module._task_repository(module.TEXT_JOBS_FILE).get("job", **owner)["payload"]["status"], "completed")
             self.assertEqual(module._load_text_jobs()["jobs"]["job"]["status"], "completed")
             original_sync = module._sync_durable_tasks
             module._sync_durable_tasks = lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("authority failed"))
             with self.assertRaisesRegex(OSError, "authority failed"):
-                module._save_text_jobs({"jobs":{"job":{"job_id":"job", "status":"failed"}}})
+                module._save_text_jobs({"jobs":{"job":{"job_id":"job", "status":"failed", **owner}}})
             module._sync_durable_tasks = original_sync
             self.assertEqual(json.loads(module.TEXT_JOBS_FILE.read_text())["jobs"]["job"]["status"], "queued")
         backend = (root / "plugins/builtin/short_drama/backend/compat_server.py").read_text(encoding="utf-8")
@@ -712,7 +714,10 @@ class ProductionControlTests(unittest.TestCase):
                 return original_execute(connection, values)
             repository._execute_upsert = fail_second
             with self.assertRaisesRegex(OSError, "second task failed"):
-                repository.upsert_many("text", {"one":{"status":"queued"}, "two":{"status":"queued"}}, enqueue_projection=True)
+                repository.upsert_many("text", {
+                    "one":{"status":"queued", "tenant_id":"tenant", "user_id":"user", "project_id":"project"},
+                    "two":{"status":"queued", "tenant_id":"tenant", "user_id":"user", "project_id":"project"},
+                }, enqueue_projection=True)
             self.assertEqual(repository.list(task_class="text"), [])
             self.assertEqual(repository.pending_projections(task_class="text"), [])
 
@@ -1176,7 +1181,7 @@ class ProductionControlTests(unittest.TestCase):
                 "tenant_id":"tenant", "user_id":"user", "project_id":"project",
                 "stage":"queued", "status":"waiting_memory", "request":{"project_id":"project"},
             })
-            record = repository.get("video-wait")
+            record = repository.get("video-wait", tenant_id="tenant", user_id="user", project_id="project")
             self.assertEqual(record["status"], "waiting_memory")
             self.assertEqual(record["payload"]["status"], "waiting_memory")
 
