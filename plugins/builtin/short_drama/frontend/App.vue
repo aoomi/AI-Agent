@@ -2584,7 +2584,7 @@ async function generateAssistantImageWithRecovery(payload:Record<string, unknown
   while (Date.now() < deadline) {
     if (signal.aborted) throw new DOMException("图片生成已停止", "AbortError");
     if (directResult) return directResult;
-    const claimed = await assetService.characterResult<ImageResult & { status?:string; error?:string }>(jobName).catch(() => null);
+    const claimed = await assetService.characterResult<ImageResult & { status?:string; error?:string }>(jobName, projectIdentity).catch(() => null);
     if (claimed?.ok && claimed.status === 200 && claimed.data.image?.url) return claimed.data;
     if (claimed && claimed.status >= 500) throw new Error(claimed.data.error || "图片生成失败");
     if (directSettled && directError && claimed?.status === 404) throw directError;
@@ -3803,7 +3803,7 @@ async function loadAssetState(project = activeProjectRecord.value, session = pro
       }
       if (!item.image_url) {
         const jobName = assetBaselineJobName(project.id, group.kind, item);
-        const completed = await assetService.characterResult<{ status:string; image?:{ url:string }; error?:string }>(jobName).catch(() => null);
+        const completed = await assetService.characterResult<{ status:string; image?:{ url:string }; error?:string }>(jobName, projectIdentity).catch(() => null);
         if (!isCurrentProjectSession(project.id, session)) return;
         if (completed?.ok && completed.data.status === "completed" && completed.data.image?.url) {
           item.image_url = completed.data.image.url; item.status = "waiting_confirmation"; item.error = ""; recovered = true;
@@ -3817,7 +3817,7 @@ async function loadAssetState(project = activeProjectRecord.value, session = pro
       for (const [variantIndex, variant] of (item.detail_assets || []).entries()) {
         if (variant.image_url) continue;
         const variantJobName = `${project.id}_${item.generation_nonce || "legacy"}_${group.kind}_${item.name}_angle_${variantIndex + 2}`;
-        const completed = await assetService.characterResult<{ status:string; image?:{ url:string }; error?:string }>(variantJobName).catch(() => null);
+        const completed = await assetService.characterResult<{ status:string; image?:{ url:string }; error?:string }>(variantJobName, projectIdentity).catch(() => null);
         if (!isCurrentProjectSession(project.id, session)) return;
         if (completed?.ok && completed.data.status === "completed" && completed.data.image?.url) {
           variant.image_url = completed.data.image.url;
@@ -3911,7 +3911,7 @@ async function recoverCompletedAssetImages() {
     ] as const) for (const item of group.items) {
       if (!item.image_url) {
         const jobName = assetBaselineJobName(project.id, group.kind, item);
-        const completed = await assetService.characterResult<{ status:string; image?:{ url:string }; error?:string }>(jobName).catch(() => null);
+        const completed = await assetService.characterResult<{ status:string; image?:{ url:string }; error?:string }>(jobName, projectIdentity).catch(() => null);
         if (!isCurrentProjectSession(project.id, session)) return;
         if (completed?.ok && completed.data.status === "completed" && completed.data.image?.url) {
           item.image_url = completed.data.image.url;
@@ -3937,7 +3937,7 @@ async function recoverCompletedAssetImages() {
       for (const [variantIndex, variant] of (item.detail_assets || []).entries()) {
         if (variant.image_url || variant.status !== "generating") continue;
         const variantJobName = `${project.id}_${item.generation_nonce || "legacy"}_${group.kind}_${item.name}_angle_${variantIndex + 2}`;
-        const completed = await assetService.characterResult<{ status:string; image?:{ url:string }; error?:string }>(variantJobName).catch(() => null);
+        const completed = await assetService.characterResult<{ status:string; image?:{ url:string }; error?:string }>(variantJobName, projectIdentity).catch(() => null);
         if (!isCurrentProjectSession(project.id, session)) return;
         if (completed?.ok && completed.data.status === "completed" && completed.data.image?.url) {
           variant.image_url = completed.data.image.url;

@@ -46,6 +46,7 @@
 - BUG072第十一项整改：项目版本读取与列表在访问历史快照前补齐当前tenant/user/project所有权门禁，阻断仅凭project/version ID跨所有者读取完整快照；关联`93 passed`，继续横向稽查。
 - BUG072第十二项整改：3D任务状态查询由仅凭job UUID改为tenant/user/project完整所有者过滤，异主查询不再读取请求、进度或候选结果；轮询调用同步身份，关联`108 passed`，继续横向稽查。
 - BUG072第十三项整改：系统AI任务状态补齐tenant/user/project/session四字段所有者门禁，与创建时持久context精确匹配，阻断跨项目及旧会话UUID读取；关联`88 passed`，继续横向稽查。
+- BUG072第十四项整改：图片结果查询补齐tenant/user/project完整所有者过滤，阻断同名资产或已知job UUID跨项目读取及异主孤儿恢复副作用；五个调用点同步身份，关联`108 passed`，继续横向稽查。
 - BUG071最终闭环：composition、review、export权威证据与Graph状态在同一SQLite事务提交；导出manifest绑定generation、audit batch、视频及manifest哈希。正式三镜静音母版导出8.1秒、243帧、704×1216 H.264且仅video stream，重启后HTTP可读；关联`134 passed`。用户要求的不超过15秒、只验证视频范围已可测试，继续BUG072架构v2.2全仓一致性稽查。
 - BUG070最终闭环：普通生产端点门禁移到派发前；worker只接受进程私有loopback token或精确共享reservation，伪造dispatched头正式403，缺前序请求409且无副作用，合法run-stage composition generation 3通过并确认。关联`130 passed`；继续BUG071静音母版审核导出。
 - BUG069最终闭环：LTX三镜经正式run-stage与同批次video/audio-not-applicable/subtitle-not-applicable台账确认后，显式video-only composition生成8.1秒、243帧、704×1216@30 H.264静音母版；重启恢复、HTTP媒体与队列归零通过，关联`129 passed`。继续BUG070生产端点派发门禁旁路。

@@ -4,7 +4,7 @@ export const assetService = {
   generateAssistantImage<T>(body:unknown, signal?:AbortSignal, fallback = "图片生成失败") { return postJson<T>("/api/assistant/images/generate", body, { signal }, fallback); },
   generateCharacter<T>(body:unknown, signal?:AbortSignal, fallback = "人物资产生成失败") { return postJson<T>("/api/characters/generate", body, { signal }, fallback); },
   extractCharacters<T>(body:unknown, signal?:AbortSignal) { return postJson<T>("/api/characters/extract", body, { signal }, "没有提取到有效角色"); },
-  characterResult<T>(name:string) { return requestJson<T>(`/api/characters/result?name=${encodeURIComponent(name)}`); },
+  characterResult<T>(name:string, identity:{ tenant_id:string; user_id:string; project_id:string }) { return requestJson<T>(`/api/characters/result?${new URLSearchParams({ name, ...identity })}`); },
   stopCharacter(name:string, identity:Record<string, unknown> = {}) { return postJsonIgnoringResponse("/api/characters/stop", { ...identity, name }); },
   generateShot<T>(body:unknown, signal?:AbortSignal, fallback = "镜头画面生成失败") { return postJson<T>("/api/shots/generate", body, { signal }, fallback); },
   repairShot<T>(body:unknown, signal?:AbortSignal, fallback = "镜头画面修复失败") { return postJson<T>("/api/shots/repair", body, { signal }, fallback); },

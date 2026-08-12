@@ -8402,9 +8402,13 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path in {"/api/result-media", "/api/media"}:
             return self._media(parsed)
         if parsed.path == "/api/characters/result":
-            name = parse_qs(parsed.query).get("name", [""])[0]
+            query = parse_qs(parsed.query)
+            name = query.get("name", [""])[0]
+            identity = {key:query.get(key, [""])[0].strip() for key in ("tenant_id", "user_id", "project_id")}
+            if not all(identity.values()):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_image_scope"})
             stored_jobs = _load_image_jobs().get("jobs", {})
-            matches = [(job_id, item) for job_id, item in stored_jobs.items() if item.get("request_name") == name or job_id == name]
+            matches = [(job_id, item) for job_id, item in stored_jobs.items() if _job_matches_scope(item, identity) and (item.get("request_name") == name or job_id == name)]
             job_id, job = max(matches, key=lambda pair:_parse_job_time(pair[1].get("started_at"))) if matches else ("", None)
             if job and job.get("status") == "generating" and job_id not in ACTIVE_IMAGE_JOBS:
                 job = {"status":"failed", "error":"图片任务已中断，请点击继续生成", "finished_at":datetime.now(UTC).isoformat()}
