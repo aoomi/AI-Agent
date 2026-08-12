@@ -26,7 +26,7 @@ class TextArtifact:
 
 
 def _artifact(node_type: str, content: Mapping[str, Any]) -> TextArtifact:
-    if not content:
+    if not isinstance(content,Mapping) or not content:
         raise TextPipelineError(f"{node_type} output must not be empty")
     try:
         canonical = json.dumps(
@@ -44,39 +44,41 @@ class TextPipeline:
         self.provider = provider
 
     def requirements(self, brief: Mapping[str, Any]) -> TextArtifact:
+        if not isinstance(brief,Mapping):raise TextPipelineError("requirements must be an object")
         required = ("title", "premise", "episode_count")
         if any(key not in brief for key in required):
             raise TextPipelineError("requirements need title, premise and episode_count")
-        if not isinstance(brief["episode_count"], int) or brief["episode_count"] < 1:
+        if isinstance(brief["episode_count"],bool) or not isinstance(brief["episode_count"], int) or brief["episode_count"] < 1:
             raise TextPipelineError("episode_count must be a positive integer")
-        if not str(brief["title"]).strip() or not str(brief["premise"]).strip():
+        if not isinstance(brief["title"],str) or not isinstance(brief["premise"],str) or not brief["title"].strip() or not brief["premise"].strip():
             raise TextPipelineError("title and premise must not be empty")
         return _artifact("requirements", brief)
 
     def outline(self, requirements: TextArtifact) -> TextArtifact:
         self._require_node(requirements, "requirements")
         output = self.provider.generate("short_drama.outline", requirements.content)
-        if not isinstance(output.get("episodes"), list) or not output["episodes"]:
+        if not isinstance(output,Mapping) or not isinstance(output.get("episodes"), list) or not output["episodes"]:
             raise TextPipelineError("outline provider must return non-empty episodes")
         return _artifact("outline", output)
 
     def script(self, outline: TextArtifact) -> TextArtifact:
         self._require_node(outline, "outline")
         output = self.provider.generate("short_drama.script", outline.content)
-        if not isinstance(output.get("scenes"), list) or not output["scenes"]:
+        if not isinstance(output,Mapping) or not isinstance(output.get("scenes"), list) or not output["scenes"]:
             raise TextPipelineError("script provider must return non-empty scenes")
         return _artifact("script", output)
 
     def storyboard(self, script: TextArtifact) -> TextArtifact:
         self._require_node(script, "script")
         output = self.provider.generate("short_drama.storyboard", script.content)
-        if not isinstance(output.get("shots"), list) or not output["shots"]:
+        if not isinstance(output,Mapping) or not isinstance(output.get("shots"), list) or not output["shots"]:
             raise TextPipelineError("storyboard provider must return non-empty shots")
         return _artifact("storyboard", output)
 
     def asset_catalog(self, storyboard: TextArtifact) -> TextArtifact:
         self._require_node(storyboard, "storyboard")
         output = self.provider.generate("short_drama.asset_catalog", storyboard.content)
+        if not isinstance(output,Mapping):raise TextPipelineError("asset catalog output must be an object")
         for key in ("characters", "scenes", "props", "shot_prompts"):
             if not isinstance(output.get(key), list): raise TextPipelineError(f"asset catalog requires {key}")
         return _artifact("assets", output)
@@ -87,5 +89,5 @@ class TextPipeline:
 
     @staticmethod
     def _require_node(artifact: TextArtifact, expected: str) -> None:
-        if artifact.node_type != expected:
+        if not isinstance(artifact,TextArtifact) or artifact.node_type != expected:
             raise TextPipelineError(f"expected {expected} artifact")

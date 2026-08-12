@@ -61,5 +61,15 @@ class TextPipelineTest(unittest.TestCase):
         artifacts=MODULE.TextPipeline(ChainProvider()).run_preproduction({"title":"剧","premise":"故事","episode_count":1})
         self.assertEqual(tuple(item.node_type for item in artifacts),("requirements","outline","script","storyboard","assets"))
 
+    def test_runtime_contract_rejects_pseudo_requirements_and_provider_outputs(self) -> None:
+        pipeline=MODULE.TextPipeline(Provider())
+        for brief in ([],{"title":1,"premise":"p","episode_count":1},{"title":"t","premise":"p","episode_count":True}):
+            with self.subTest(brief=brief),self.assertRaises(MODULE.TextPipelineError):pipeline.requirements(brief)
+        requirements=pipeline.requirements({"title":"t","premise":"p","episode_count":1})
+        class Invalid:
+            def generate(self,*_):return []
+        with self.assertRaises(MODULE.TextPipelineError):MODULE.TextPipeline(Invalid()).outline(requirements)
+        with self.assertRaises(MODULE.TextPipelineError):pipeline.outline(object())
+
 
 if __name__ == "__main__": unittest.main()
