@@ -1302,6 +1302,30 @@ class ProductionControlTests(unittest.TestCase):
                 brain.execute(identity, "requirements", {})
             self.assertTrue(brain.unregister_stage("requirements"))
 
+    def test_langgraph_stage_provider_cannot_change_while_executing(self):
+        with TemporaryDirectory() as temporary:
+            identity = {"tenant_id":"t", "user_id":"u", "project_id":"p"}
+            brain = ProductionOrchestrator(Path(temporary) / "control.sqlite")
+            entered = threading.Event(); release = threading.Event(); results = []
+
+            def slow(inputs):
+                entered.set(); release.wait(timeout=2); return {"brief":inputs["brief"]}
+
+            brain.register_stage("requirements", slow, provider_id="original")
+            worker = threading.Thread(target=lambda:results.append(brain.execute(identity, "requirements", {"brief":"仙侠"})))
+            worker.start(); self.assertTrue(entered.wait(timeout=2))
+            for mutation in (
+                lambda:brain.register_stage("requirements", lambda _:{}, provider_id="replacement", replace=True),
+                lambda:brain.enable_stage("requirements", False),
+                lambda:brain.unregister_stage("requirements"),
+            ):
+                with self.assertRaisesRegex(ValueError, "in-flight"):
+                    mutation()
+            release.set(); worker.join(timeout=2)
+            self.assertEqual(results[0]["output"], {"brief":"仙侠"})
+            brain.register_stage("requirements", lambda _:{"brief":"replacement"}, provider_id="replacement", replace=True)
+            self.assertEqual(brain.stages()[0].provider_id, "replacement")
+
     def test_langgraph_rejects_stage_when_previous_gate_is_incomplete(self):
         with TemporaryDirectory() as temporary:
             identity = {"tenant_id":"t", "user_id":"u", "project_id":"p"}

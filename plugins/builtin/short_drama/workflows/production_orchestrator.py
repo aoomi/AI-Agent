@@ -89,6 +89,7 @@ class ProductionOrchestrator:
         self.checkpointer.setup()
         self.director = director
         self._executors: dict[str, tuple[StageDefinition, StageExecutor]] = {}
+        self._executor_inflight: dict[str, int] = {}
         self._lock = RLock()
         self.graph = self._compile()
 
@@ -127,13 +128,18 @@ class ProductionOrchestrator:
         if not callable(executor) or not provider:
             raise ValueError("stage executor and provider are required")
         with self._lock:
+            if replace and self._executor_inflight.get(canonical, 0):
+                raise ValueError(f"stage executor has in-flight invocations: {canonical}")
             if canonical in self._executors and not replace:
                 raise ValueError(f"stage executor already registered: {canonical}")
             self._executors[canonical] = (StageDefinition(canonical, provider, enabled), executor)
 
     def unregister_stage(self, stage: str) -> bool:
+        canonical = canonical_stage(stage)
         with self._lock:
-            return self._executors.pop(canonical_stage(stage), None) is not None
+            if self._executor_inflight.get(canonical, 0):
+                raise ValueError(f"stage executor has in-flight invocations: {canonical}")
+            return self._executors.pop(canonical, None) is not None
 
     def enable_stage(self, stage: str, enabled: bool) -> StageDefinition:
         canonical = canonical_stage(stage)
@@ -142,6 +148,8 @@ class ProductionOrchestrator:
                 definition, executor = self._executors[canonical]
             except KeyError as error:
                 raise ValueError(f"stage executor is not installed: {canonical}") from error
+            if not enabled and self._executor_inflight.get(canonical, 0):
+                raise ValueError(f"stage executor has in-flight invocations: {canonical}")
             updated = StageDefinition(canonical, definition.provider_id, enabled)
             self._executors[canonical] = (updated, executor)
             return updated
@@ -164,8 +172,9 @@ class ProductionOrchestrator:
                 definition, executor = self._executors[canonical]
             except KeyError as error:
                 raise ValueError(f"stage executor is not installed: {canonical}") from error
-        if not definition.enabled:
-            raise ValueError(f"stage executor is disabled: {canonical}")
+            if not definition.enabled:
+                raise ValueError(f"stage executor is disabled: {canonical}")
+            self._executor_inflight[canonical] = self._executor_inflight.get(canonical, 0) + 1
         self.report(identity, canonical, "running")
         try:
             try:
@@ -177,6 +186,13 @@ class ProductionOrchestrator:
         except Exception as error:
             failed = self.report(identity, canonical, "failed", error=str(error))
             return {**failed, "output": None, "error": str(error)}
+        finally:
+            with self._lock:
+                remaining = self._executor_inflight.get(canonical, 1) - 1
+                if remaining:
+                    self._executor_inflight[canonical] = remaining
+                else:
+                    self._executor_inflight.pop(canonical, None)
         waiting = self.report(identity, canonical, "pending_confirmation", evidence=dict(output))
         return {**waiting, "output": dict(output), "error": ""}
 
