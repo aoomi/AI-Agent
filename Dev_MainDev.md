@@ -1152,3 +1152,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百四十九项：AgentScheduler已验证registry/context依赖协议、Graph executors/inputs Mapping、approval布尔、run身份及resume values结构；畸形调度不会进入active围栏。关联`10 passed`、`6 subtests passed`。
 - BUG072第一百五十项：生产能力注册已严格验证enabled/healthy/replace控制布尔、priority整数和metadata Mapping；EventBus同步验证IdentityContext、payload及publish事件类型。关联`107 passed`、`22 subtests passed`。
 - BUG072第一百五十一项：生产扩展注册已验证trusted builtin集合、enabled/replace/activate布尔、metadata Mapping及required_methods逐项字符串；畸形基础设施不会探针或发布。关联`101 passed`、`19 subtests passed`。
+- BUG072第一百五十二项：内存路由与SQLite worker发现已拒绝NaN/Infinity心跳、时钟、超时和TTL，并强制remove generation为真实正整数；非有限值不能绕过健康窗、长期占用预留或污染权威发现状态。专项`4 passed`、`25 subtests passed`。

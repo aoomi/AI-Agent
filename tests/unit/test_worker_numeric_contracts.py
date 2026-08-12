@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import math
 import unittest
 from pathlib import Path
 
@@ -42,6 +43,26 @@ class WorkerNumericContractTest(unittest.TestCase):
                 for target in (router,registry):
                     with self.subTest(worker=worker,target=target),self.assertRaisesRegex(WorkloadRoutingError,"invalid worker capacity"):
                         target.heartbeat(worker)
+
+    def test_worker_clocks_and_generations_must_be_finite_exact_numbers(self) -> None:
+        router=WorkloadRouter()
+        with tempfile.TemporaryDirectory() as directory:
+            registry=WorkerRegistry(Path(directory)/"workers.db")
+            for worker in (self._worker(heartbeat_at=math.nan), self._worker(heartbeat_at=math.inf)):
+                for target in (router,registry):
+                    with self.subTest(worker=worker,target=target),self.assertRaises(WorkloadRoutingError):
+                        target.heartbeat(worker)
+            for target in (router, registry):
+                with self.subTest(target=target), self.assertRaises(WorkloadRoutingError):
+                    target.remove("worker", 1.5) if target is registry else target.remove("worker", generation=1.5)  # type: ignore[arg-type]
+            for operation in (
+                lambda: router.reap(now=math.nan), lambda: router.snapshot(now=math.inf),
+                lambda: router.route("video", now=True), lambda: registry.list(now=math.nan),
+                lambda: registry.reap(now=math.inf), lambda: registry.reservation_snapshot(now=True),
+                lambda: registry.reserve("request", "video", now=math.nan),
+            ):
+                with self.subTest(operation=operation), self.assertRaisesRegex(WorkloadRoutingError, "clock"):
+                    operation()
 
 
 if __name__ == "__main__":

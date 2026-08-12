@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import math
 from threading import RLock
 import time
 from typing import Iterable
@@ -30,7 +31,7 @@ class WorkloadRouter:
     """Select the least-loaded healthy worker without binding to discovery storage."""
 
     def __init__(self, *, heartbeat_timeout: float = 30.0, max_queue_depth: int = 32) -> None:
-        if (isinstance(heartbeat_timeout, bool) or not isinstance(heartbeat_timeout, (int, float)) or heartbeat_timeout <= 0
+        if (isinstance(heartbeat_timeout, bool) or not isinstance(heartbeat_timeout, (int, float)) or not math.isfinite(heartbeat_timeout) or heartbeat_timeout <= 0
                 or isinstance(max_queue_depth, bool) or not isinstance(max_queue_depth, int) or max_queue_depth <= 0):
             raise ValueError("heartbeat_timeout and max_queue_depth must be positive")
         self.heartbeat_timeout = heartbeat_timeout
@@ -44,7 +45,7 @@ class WorkloadRouter:
         integer_fields=(worker.capacity,worker.active,worker.queue_depth,worker.available_memory,worker.generation)
         if (any(isinstance(value,bool) or not isinstance(value,int) for value in integer_fields)
                 or worker.capacity <= 0 or worker.active < 0 or worker.active > worker.capacity or worker.queue_depth < 0 or worker.available_memory < 0 or worker.generation < 1
-                or isinstance(worker.heartbeat_at,bool) or not isinstance(worker.heartbeat_at,(int,float))):
+                or isinstance(worker.heartbeat_at,bool) or not isinstance(worker.heartbeat_at,(int,float)) or not math.isfinite(worker.heartbeat_at)):
             raise WorkloadRoutingError("invalid worker capacity")
         with self._lock:
             previous = self._workers.get(worker.worker_id)
@@ -57,7 +58,7 @@ class WorkloadRouter:
 
     def remove(self, worker_id: str, *, generation: int | None = None) -> bool:
         worker_id = worker_id.strip()
-        if not worker_id or generation is not None and (isinstance(generation, bool) or generation < 1):
+        if not worker_id or generation is not None and (isinstance(generation, bool) or not isinstance(generation, int) or generation < 1):
             raise WorkloadRoutingError("invalid worker removal")
         with self._lock:
             current = self._workers.get(worker_id)
@@ -69,6 +70,8 @@ class WorkloadRouter:
     def reap(self, *, now: float | None = None) -> int:
         """Remove heartbeat-expired workers from the in-memory routing view."""
         moment = time.time() if now is None else now
+        if isinstance(moment, bool) or not isinstance(moment, (int, float)) or not math.isfinite(moment):
+            raise WorkloadRoutingError("invalid worker clock")
         with self._lock:
             stale = [worker_id for worker_id, worker in self._workers.items() if moment - worker.heartbeat_at > self.heartbeat_timeout]
             for worker_id in stale:
@@ -80,6 +83,8 @@ class WorkloadRouter:
         if not resource_class or isinstance(estimated_memory, bool) or not isinstance(estimated_memory, int) or estimated_memory < 0:
             raise WorkloadRoutingError("invalid worker route")
         moment = time.time() if now is None else now
+        if isinstance(moment, bool) or not isinstance(moment, (int, float)) or not math.isfinite(moment):
+            raise WorkloadRoutingError("invalid worker clock")
         with self._lock:
             eligible = [
                 worker for worker in self._workers.values()
@@ -97,6 +102,8 @@ class WorkloadRouter:
 
     def snapshot(self, *, now: float | None = None) -> list[dict[str, object]]:
         moment = time.time() if now is None else now
+        if isinstance(moment, bool) or not isinstance(moment, (int, float)) or not math.isfinite(moment):
+            raise WorkloadRoutingError("invalid worker clock")
         with self._lock:
             workers: Iterable[WorkerSnapshot] = tuple(self._workers.values())
         return [{**asdict(worker), "healthy":moment - worker.heartbeat_at <= self.heartbeat_timeout} for worker in sorted(workers, key=lambda item:item.worker_id)]

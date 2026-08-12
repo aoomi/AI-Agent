@@ -3318,3 +3318,5 @@
 - 第一百五十项自动测试与稽查：五类能力伪控制、坏事件context及非事件publish动态拒绝；生产控制与事件关联`107 passed`（另`22 subtests passed`），Python编译与diff门禁通过。
 - 第一百五十一项稽查首败与整改：ProductionExtensionRegistry信任集合和register布尔/metadata依赖静态类型，required_methods还会把数字字符串化为方法名。现构造及注册在factory探针和共享注册表前完整失败关闭。
 - 第一百五十一项自动测试与稽查：坏trusted集合及五类伪注册控制动态拒绝；生产扩展控制关联`101 passed`（另`19 subtests passed`），Python编译与diff门禁通过。
+- 第一百五十二项稽查首败与整改：WorkloadRouter/WorkerRegistry允许NaN或Infinity心跳、当前时钟、心跳窗和预留TTL进入比较或SQLite，remove generation也接受浮点值，可能令节点永久健康、预留不释放或代际围栏含混。现所有时间边界统一要求有限真实数值，代际删除统一要求真实正整数。
+- 第一百五十二项自动测试与稽查：NaN/Infinity heartbeat、clock及浮点generation在内存与SQLite入口均动态失败关闭；专项`4 passed`（另`25 subtests passed`），Python编译与只读diff稽查通过。全量单元回归`752 passed, 2 skipped, 29 failed`，失败均落在用户当前未提交的短剧backend/frontend及其测试基线，未纳入本项完成声明。
