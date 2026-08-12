@@ -3280,3 +3280,5 @@
 - 第一百三十一项自动测试与稽查：空host/environment、布尔及越界port动态拒绝；平台bootstrap/API关联测试、Python编译与diff门禁通过。
 - 第一百三十二项稽查首败与整改：PluginInstallVerifier不验证signature_verifier协议，平台/最低版本解析接受非严格三段版本，allowed/request permissions及签名身份可为空，错误会延迟到包读取或签名调用。现构造和verify副作用前完整失败关闭。
 - 第一百三十二项自动测试与稽查：坏verifier、两段版本及空授权权限动态拒绝；插件验证安全关联`3 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
+- 第一百三十三项稽查首败与整改：PluginSandboxBroker不验证策略身份/writable/allowlist，run_process把字符串视作Sequence并接受布尔timeout，畸形控制可能延迟到subprocess。现策略构造与进程执行入口严格失败关闭。
+- 第一百三十三项自动测试与稽查：空plugin、整数writable、字符串command及布尔timeout动态拒绝；插件沙箱安全关联`3 passed`（另`4 subtests passed`），Python编译与diff门禁通过。

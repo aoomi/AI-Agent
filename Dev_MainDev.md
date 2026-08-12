@@ -1133,3 +1133,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百三十项：内存任务队列状态事件progress_percent已排除布尔伪整数，True不能将权威任务从running变更为paused并记录1%。队列关联回归通过。
 - BUG072第一百三十一项：PlatformConfig直接构造已验证并规范化host/environment，port强制0—65535真实整数；非环境变量组合根同样受配置门禁。平台启动关联回归通过。
 - BUG072第一百三十二项：插件安装验证器已在构造时验证签名协议、严格三段平台版本和授权权限集合，验证请求同步要求完整签名身份及非空权限。安全关联`3 passed`、`3 subtests passed`。
+- BUG072第一百三十三项：插件沙箱策略已强制plugin/tenant身份、writable布尔及非空allowlist，进程命令拒绝字符串伪序列且timeout为1—300真实整数。安全关联`3 passed`、`4 subtests passed`。
