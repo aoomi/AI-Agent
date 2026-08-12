@@ -26,7 +26,7 @@ class IndustryWorkflowService:
   if not identity_id:raise IndustryWorkflowError("workflow identity is required")
   if operation=="create":
    raw_robots=changes.get("robot_ids",());mode=changes.get("mode","serial");industry=changes.get("industry_id","")
-   if (not isinstance(raw_robots,tuple) or not isinstance(mode,str) or not isinstance(industry,str)):raise IndustryWorkflowError("workflow creation is invalid")
+   if (not isinstance(raw_robots,(list,tuple)) or not isinstance(mode,str) or not isinstance(industry,str)):raise IndustryWorkflowError("workflow creation is invalid")
    robots=tuple(robot.strip() if isinstance(robot,str) else robot for robot in raw_robots);industry=industry.strip()
    if (not workflow_id or not industry or not robots or any(not isinstance(robot,str) or not robot for robot in robots)
        or len(set(robots))!=len(robots) or mode not in {"serial","parallel","branching"}):raise IndustryWorkflowError("workflow creation is invalid")
@@ -42,6 +42,7 @@ class IndustryWorkflowService:
    if operation=="connect":
     source,target=changes.get("source_robot_id",""),changes.get("target_robot_id","")
     if not isinstance(source,str) or not isinstance(target,str):raise IndustryWorkflowError("workflow connection is invalid")
+    source,target=source.strip(),target.strip()
     if source not in item.robot_ids or target not in item.robot_ids or source==target:raise IndustryWorkflowError("workflow connection is invalid")
     item=replace(item,edges=item.edges+((source,target),),version=item.version+1)
     with self._lock:self.workflows[workflow_id]=item
@@ -63,7 +64,7 @@ class IndustryWorkflowService:
      with self._lock:self._active_workflows.discard(workflow_id);self._active_robots.difference_update(item.robot_ids)
    elif operation=="modify":
     mode=changes.get("mode",item.mode)
-    if mode not in {"serial","parallel","branching"}:raise IndustryWorkflowError("workflow mode is invalid")
+    if not isinstance(mode,str) or mode not in {"serial","parallel","branching"}:raise IndustryWorkflowError("workflow mode is invalid")
     item=replace(item,mode=mode,version=item.version+1)
     with self._lock:self.workflows[workflow_id]=item
    else:raise IndustryWorkflowError("workflow operation is invalid")

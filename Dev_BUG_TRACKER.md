@@ -3446,3 +3446,5 @@
 - 第二百一十四项自动测试与稽查：数字kind与数字secret动态失败关闭；Provider单元与生产集成关联`12 passed`（另`11 subtests passed`），Python编译与diff门禁通过。
 - 第二百一十五项稽查首败与整改：ProviderService.test_connection直接解包并持久化checker任意结果，列表、布尔/负latency或数字/空error可泄漏异常或污染权威健康状态。现探活结果在CAS写回前完整验证。
 - 第二百一十五项自动测试与稽查：四类坏health结果动态失败关闭；Provider配置与生产集成关联`9 passed`（另`17 subtests passed`），Python编译与diff门禁通过。
+- 第二百一十六项稽查首败与整改：IndustryWorkflow connect未规范化source/target导致合法空白ID误拒，modify直接对任意mode做集合查找，列表会泄漏TypeError；整改时同步确认集成契约允许JSON列表robot_ids。现连接、模式和创建容器契约一致。
+- 第二百一十六项自动测试与稽查：空白连接ID规范化成功、列表mode动态拒绝且版本不变，列表robot创建与Graph运行集成通过；行业关联`7 passed`（另`10 subtests passed`），Python编译与diff门禁通过。
