@@ -27,6 +27,12 @@ class ProviderAdapterDefinition:
         if not self.provider_id.strip() or not self.capabilities: raise ProviderAdapterError("provider id and capabilities are required")
         if not self.secret_reference.startswith(("env://","vault://","secret://")): raise ProviderAdapterError("provider requires an external secret reference")
         if self.timeout_seconds<1: raise ProviderAdapterError("provider timeout must be positive")
+        forbidden=("secret","token","password","api_key","authorization","credential")
+        def contains_secret(value:Any)->bool:
+            if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
+            if isinstance(value,(list,tuple)):return any(contains_secret(item) for item in value)
+            return False
+        if contains_secret(self.settings or {}):raise ProviderAdapterError("provider settings cannot contain secrets")
         object.__setattr__(self,"settings",MappingProxyType(dict(self.settings or {})))
 
 @dataclass(frozen=True, slots=True)

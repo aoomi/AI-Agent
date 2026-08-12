@@ -22,5 +22,8 @@ class ProviderAdapterRegistryTest(unittest.TestCase):
         registry.register(ProviderAdapterDefinition("p2","image",frozenset({"generate.image"}),"vault://missing",30),executor)
         with self.assertRaisesRegex(ProviderAdapterError,"authorized"):registry.invoke("p2","generate.video",{})
         with self.assertRaisesRegex(ProviderAdapterError,"resolved"):registry.invoke("p2","generate.image",{})
+    def test_nested_adapter_settings_reject_credentials(self):
+        with self.assertRaisesRegex(ProviderAdapterError,"secrets"):
+            ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30,settings={"transport":{"headers":[{"authorization":"Bearer hidden"}]}})
 
 if __name__=="__main__":unittest.main()

@@ -1066,3 +1066,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第六十三项：行业工作流活动workflow/robot ID命名空间已拆分，消除同名ID导致的虚假热替换或single-flight冲突。
 - BUG072第六十四项：Provider审计请求敏感字段门禁已递归覆盖嵌套对象与数组，补齐authorization等凭据键过滤。
 - BUG072第六十五项：Provider配置注册的敏感字段门禁已递归覆盖嵌套settings，阻止凭据进入配置快照和管理API响应。
+- BUG072第六十六项：ProviderAdapter底层定义同步递归过滤嵌套settings，直接构造路径不能绕过敏感配置门禁。
