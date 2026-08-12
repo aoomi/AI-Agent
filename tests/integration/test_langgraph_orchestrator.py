@@ -18,4 +18,9 @@ class LangGraphOrchestratorTest(unittest.TestCase):
   scheduler=AgentScheduler(AgentRegistry(),AgentContextStore());scheduler.use_graph_orchestrator(LangGraphOrchestrator());result=scheduler.start_graph(graph_id="g",thread_id="t",executors={"x":lambda i,o:"ok"},inputs={});self.assertEqual(result["outputs"]["x"],"ok")
  def test_branching_routes_to_selected_process_robot(self):
   graph=LangGraphOrchestrator();graph.compile_branching("branch",{"router":lambda i,o:i["route"],"left":lambda i,o:"L","right":lambda i,o:"R"},entry_node="router",branches={"router":{"left":"left","right":"right"}},terminal_nodes=("left","right"));result=graph.invoke("branch","branch-1",{"route":"right"});self.assertEqual(result["outputs"]["right"],"R");self.assertNotIn("left",result["outputs"])
+ def test_invalid_graph_topology_fails_before_compile(self):
+  graph=LangGraphOrchestrator()
+  with self.assertRaisesRegex(Exception,"invalid branching"):graph.compile_branching("branch",{"router":lambda i,o:"missing"},entry_node="router",branches={"router":{"x":"missing"}},terminal_nodes=("missing",))
+  graph.compile("valid",{"node":lambda i,o:"ok"})
+  with self.assertRaisesRegex(Exception,"thread_id"):graph.invoke("valid","",{})
 if __name__=="__main__":unittest.main()
