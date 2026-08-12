@@ -13,7 +13,7 @@ from ai_agent_tenant import IdentityContext, IdentityContextError
 
 
 TaskStatus = Literal["queued", "waiting_memory", "running", "waiting_human", "paused", "completed", "failed", "cancelled"]
-TERMINAL_STATUSES = frozenset({"completed", "cancelled"})
+TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 STATUS_TRANSITIONS = frozenset({
     ("queued", "running"), ("queued", "cancelled"), ("running", "waiting_human"),
     ("running", "paused"), ("running", "completed"), ("running", "failed"),

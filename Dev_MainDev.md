@@ -92,6 +92,7 @@
 - BUG072第三百一十七项整改：WorkerRegistry与WorkloadRouter heartbeat统一重建规范化worker身份、作用域、资源和端点快照，发现/路由/预留/移除不再产生幽灵worker；关联回归通过，继续横向稽查。
 - BUG072第三百一十八项整改：WorkerRegistry持久读取在严格schema后重建canonical WorkerSnapshot，历史空白身份记录也能与list/reserve作用域精确一致；关联回归通过，继续横向稽查。
 - BUG072第三百一十九项整改：InMemoryTaskQueue状态投影与pending deque原子同步，仅queued精确入列且去重，waiting_memory/running等状态移除，关闭重复claim并恢复资源释放后准入；关联回归通过，继续横向稽查。
+- BUG072第三百二十项整改：InMemoryTaskQueue将failed纳入终态取消保护，失败事实必须经显式resume回到queued后才能取消，生命周期与法定恢复边一致；关联回归通过，继续横向稽查。
 - BUG071最终闭环：composition、review、export权威证据与Graph状态在同一SQLite事务提交；导出manifest绑定generation、audit batch、视频及manifest哈希。正式三镜静音母版导出8.1秒、243帧、704×1216 H.264且仅video stream，重启后HTTP可读；关联`134 passed`。用户要求的不超过15秒、只验证视频范围已可测试，继续BUG072架构v2.2全仓一致性稽查。
 - BUG070最终闭环：普通生产端点门禁移到派发前；worker只接受进程私有loopback token或精确共享reservation，伪造dispatched头正式403，缺前序请求409且无副作用，合法run-stage composition generation 3通过并确认。关联`130 passed`；继续BUG071静音母版审核导出。
 - BUG069最终闭环：LTX三镜经正式run-stage与同批次video/audio-not-applicable/subtitle-not-applicable台账确认后，显式video-only composition生成8.1秒、243帧、704×1216@30 H.264静音母版；重启恢复、HTTP媒体与队列归零通过，关联`129 passed`。继续BUG070生产端点派发门禁旁路。

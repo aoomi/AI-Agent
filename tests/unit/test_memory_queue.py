@@ -99,6 +99,12 @@ class InMemoryTaskQueueTest(unittest.TestCase):
         with self.assertRaisesRegex(QueueConflictError, "terminal"):
             queue.cancel("task-1")
 
+    def test_failed_task_must_resume_before_cancellation(self) -> None:
+        queue=InMemoryTaskQueue();queue.enqueue(task());queue.claim("tenant-a");queue.finish("task-1","failed")
+        with self.assertRaisesRegex(QueueConflictError,"terminal"):queue.cancel("task-1")
+        self.assertEqual(queue.resume("task-1").status,"queued")
+        self.assertEqual(queue.cancel("task-1").status,"cancelled")
+
     def test_failed_and_paused_tasks_can_return_to_queue(self) -> None:
         queue = InMemoryTaskQueue(); queue.enqueue(task()); queue.claim("tenant-a")
         queue.finish("task-1", "failed")
