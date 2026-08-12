@@ -1135,3 +1135,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百三十二项：插件安装验证器已在构造时验证签名协议、严格三段平台版本和授权权限集合，验证请求同步要求完整签名身份及非空权限。安全关联`3 passed`、`3 subtests passed`。
 - BUG072第一百三十三项：插件沙箱策略已强制plugin/tenant身份、writable布尔及非空allowlist，进程命令拒绝字符串伪序列且timeout为1—300真实整数。安全关联`3 passed`、`4 subtests passed`。
 - BUG072第一百三十四项：Skill工具授权已验证role/tool及声明/显式权限逐项非空，sanitize depth强制非负真实整数；畸形安全上下文不会进入授权或递归处理。安全关联`3 passed`、`3 subtests passed`。
+- BUG072第一百三十五项：OpenAI兼容客户端已验证HTTPS origin无userinfo/fragment、timeout真实正数、transport/cancellation协议及messages/schema结构；畸形请求不会触达模型提供方。关联`5 passed`、`5 subtests passed`。
