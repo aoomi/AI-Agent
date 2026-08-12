@@ -160,15 +160,13 @@ class AgentConversationService:
         if self.model_client is None: raise ConversationError("real conversation model client is not configured")
         configuration = self.configurations.get(session.agent_id);session_id=session.session_id
         model = self.models.select(ModelRequirements(frozenset({"chat", "structured_output"})), preferred_model_id=configuration.model_id)
-        with self._lock:self._messages[session_id].append(self._message(session, "user", text));messages=tuple(self._messages[session_id])
+        user_message = self._message(session, "user", text)
+        with self._lock:messages=(*self._messages[session_id], user_message)
         raw = self.model_client.complete(model, messages, self.RESPONSE_SCHEMA)
         reply = raw.get("reply")
         if not isinstance(reply, str) or not reply.strip(): raise ConversationError("model response reply is invalid")
-        assistant = self._message(session, "assistant", reply.strip())
-        with self._lock:self._messages[session_id].append(assistant)
         memory_updates = raw.get("memory_updates")
-        if isinstance(memory_updates, Mapping) and memory_updates:
-            self.memory_store.update(session.created_by_identity_id, str(session.context.get("project_id", "")), memory_updates)
+        if memory_updates is not None and not isinstance(memory_updates, Mapping): raise ConversationError("model memory_updates are invalid")
         needs_clarification = raw.get("needs_clarification", False)
         if not isinstance(needs_clarification, bool): raise ConversationError("model clarification control is invalid")
         selected_skill_id = raw.get("selected_skill_id")
@@ -179,7 +177,14 @@ class AgentConversationService:
         plan = raw.get("plan", [])
         if not isinstance(plan, list) or any(not isinstance(step, str) or not step.strip() for step in plan):
             raise ConversationError("model execution plan is invalid")
-        return assistant, self._proposal_from_model(session, configuration, raw.get("proposal"), tuple(plan))
+        proposal = self._proposal_from_model(session, configuration, raw.get("proposal"), tuple(plan), persist=False)
+        assistant = self._message(session, "assistant", reply.strip())
+        with self._lock:
+            self._messages[session_id].extend((user_message, assistant))
+            if proposal is not None:self._proposals[proposal.proposal_id] = proposal
+        if memory_updates:
+            self.memory_store.update(session.created_by_identity_id, str(session.context.get("project_id", "")), memory_updates)
+        return assistant, proposal
 
     @staticmethod
     def _system_prompt(configuration: AgentConfiguration, agent: AgentInstance, skill: SkillDefinition, context: Mapping[str, Any], memory: Mapping[str, Any]) -> str:
@@ -259,7 +264,7 @@ class AgentConversationService:
         if session.created_by_identity_id != owner: raise ConversationError("conversation session is not owned by identity")
         return session
 
-    def _proposal_from_model(self, session: ConversationSession, configuration: AgentConfiguration, raw: Any, plan: tuple[str, ...] = ()) -> ConversationProposal | None:
+    def _proposal_from_model(self, session: ConversationSession, configuration: AgentConfiguration, raw: Any, plan: tuple[str, ...] = (), *, persist: bool = True) -> ConversationProposal | None:
         if raw is None: return None
         if not isinstance(raw, Mapping): raise ConversationError("model proposal is invalid")
         proposal_type, requested = raw.get("proposal_type"), raw.get("requested_changes")
@@ -270,7 +275,8 @@ class AgentConversationService:
         if configuration.role in {"tester", "inspector"} and proposal_type == "task_execution" and requested.get("read_only") is not True:
             raise ConversationError(f"{configuration.role} task proposal must be read-only")
         proposal = ConversationProposal(f"proposal-{uuid4().hex}", session.session_id, session.agent_id, str(proposal_type), "pending_confirmation", MappingProxyType(dict(requested)), True, self._now())
-        with self._lock:self._proposals[proposal.proposal_id] = proposal
+        if persist:
+            with self._lock:self._proposals[proposal.proposal_id] = proposal
         return proposal
 
     def _message(self, session: ConversationSession, role: str, content: str) -> ConversationMessage:
