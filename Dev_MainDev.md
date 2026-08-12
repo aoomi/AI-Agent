@@ -1141,3 +1141,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百三十八项：通用LangGraph已验证checkpointer协议、executors/inputs Mapping、max_attempts真实整数及approval严格布尔；畸形Graph控制不会编译或执行线程。关联`6 passed`、`4 subtests passed`。
 - BUG072第一百三十九项：插件生命周期记录已强制安全plugin_id、语义化三段version及封闭status集合，路径式身份或模糊版本不能进入安装历史。插件/API关联`10 passed`、`2 subtests passed`。
 - BUG072第一百四十项：AgentState模型与transition目标已强制非空agent身份及封闭生命周期状态，直接构造或运行时字符串不能绕过状态机。生命周期/调度关联`12 passed`。
+- BUG072第一百四十一项：Agent会话context/memory values已强制Mapping，send内容验证类型，session/proposal内部查找同步拒绝空ID；畸形会话控制不会进入模型或共享表。会话/API关联`19 passed`。

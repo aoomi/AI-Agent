@@ -36,6 +36,11 @@ class FailingMemoryStore(ConversationMemoryStore):
 
 
 class AgentConversationServiceTest(unittest.TestCase):
+    def test_runtime_control_shapes_are_rejected(self) -> None:
+        skill,agent=self.configured();service=AgentConversationService(self.models,self.configurations,None);service.bind(agent,skill)
+        with self.assertRaisesRegex(ConversationError,"context must be a mapping"):service.open_session(agent.agent_id,"identity",[])
+        with self.assertRaisesRegex(ConversationError,"session_id is required"):service.messages(" ","identity")
+        with self.assertRaisesRegex(ConversationError,"proposal_id is required"):service.confirm(" ","identity")
     def setUp(self) -> None:
         self.skills = {skill.skill_id: skill for skill in SkillRegistry(ROOT / "plugins/builtin").scan()}
         self.agents = AgentRegistry(); self.models = ModelRegistry()

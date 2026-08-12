@@ -3296,3 +3296,5 @@
 - 第一百三十九项自动测试与稽查：路径式plugin ID和两段version动态拒绝；插件生命周期与管理API关联`10 passed`（另`2 subtests passed`），Python编译与diff门禁通过。
 - 第一百四十项稽查首败与整改：AgentLifecycle.transition会拒绝未知组合，但AgentState模型本身可直接构造空agent或未知status，target也依赖Literal静态约束。现模型及转换边界均以封闭状态集合失败关闭。
 - 第一百四十项自动测试与稽查：空agent、未知初始状态和未知target动态拒绝；生命周期与调度关联`12 passed`，Python编译与diff门禁通过。
+- 第一百四十一项稽查首败与整改：AgentConversation open_session/memory update依赖Mapping假设，send非字符串泄漏AttributeError，_session/_proposal把空ID伪装unknown。现四类边界在配置、模型、持久memory或共享表访问前严格失败关闭。
+- 第一百四十一项自动测试与稽查：列表context、空session及空proposal动态拒绝；会话与管理API关联`19 passed`，Python编译与diff门禁通过。

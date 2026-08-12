@@ -84,6 +84,7 @@ class ConversationMemoryStore:
 
     def update(self, identity_id: str, project_id: str, values: Mapping[str, Any]) -> Mapping[str, Any]:
         if not identity_id.strip() or not project_id.strip(): raise ConversationError("conversation memory identity and project are required")
+        if not isinstance(values, Mapping): raise ConversationError("conversation memory values must be a mapping")
         safe = {str(key): value for key, value in values.items() if str(key).strip() and value is not None}
         with self._lock:
             item_key = (identity_id, project_id)
@@ -137,6 +138,7 @@ class AgentConversationService:
         with self._lock:self._bindings[agent.agent_id] = (agent, skill)
 
     def open_session(self, agent_id: str, created_by_identity_id: str, context: Mapping[str, Any] | None = None) -> ConversationSession:
+        if context is not None and not isinstance(context, Mapping):raise ConversationError("conversation context must be a mapping")
         configuration = self.configurations.get(agent_id)
         identity_id = created_by_identity_id.strip()
         if not identity_id: raise ConversationError("created_by_identity_id is required")
@@ -150,6 +152,7 @@ class AgentConversationService:
         return session
 
     def send(self, session_id: str, content: str, identity_id: str) -> tuple[ConversationMessage, ConversationProposal | None]:
+        if not isinstance(content,str):raise ConversationError("conversation content is required")
         with self._lock:
             session = self._owned_session(session_id, identity_id)
             if session_id in self._active_sessions:raise ConversationError("conversation session is already active")
@@ -291,11 +294,15 @@ class AgentConversationService:
         return ConversationMessage(f"message-{uuid4().hex}", session.session_id, session.agent_id, role, content, self._now())
 
     def _session(self, session_id: str) -> ConversationSession:
+        session_id=session_id.strip()
+        if not session_id:raise ConversationError("session_id is required")
         with self._lock:
             try: return self._sessions[session_id]
             except KeyError as error: raise ConversationError(f"unknown conversation session: {session_id}") from error
 
     def _proposal(self, proposal_id: str) -> ConversationProposal:
+        proposal_id=proposal_id.strip()
+        if not proposal_id:raise ConversationError("proposal_id is required")
         with self._lock:
             try: return self._proposals[proposal_id]
             except KeyError as error: raise ConversationError(f"unknown proposal: {proposal_id}") from error
