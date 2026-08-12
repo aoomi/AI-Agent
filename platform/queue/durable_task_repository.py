@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from datetime import UTC, datetime
 import json
+import math
 from pathlib import Path
 import sqlite3
 from threading import Event, RLock, Thread
@@ -72,13 +73,14 @@ class DurableTaskRepository:
         finally: connection.close()
 
     def upsert(self, job_id: str, task_class: str, job: Mapping[str, Any]) -> dict[str, Any]:
-        values = self._values(str(job_id), str(task_class), job)
-        self.upsert_many(task_class, {str(job_id):job})
-        return self.get(str(job_id), tenant_id=values["tenant_id"], user_id=values["user_id"], project_id=values["project_id"]) or {}
+        if not isinstance(job_id,str) or not isinstance(task_class,str):raise ValueError("durable task identity must be strings")
+        values = self._values(job_id, task_class, job)
+        self.upsert_many(task_class, {job_id:job})
+        return self.get(job_id, tenant_id=values["tenant_id"], user_id=values["user_id"], project_id=values["project_id"]) or {}
 
     def upsert_many(self, task_class: str, jobs: Mapping[str, Mapping[str, Any]], *, enqueue_projection: bool = False) -> list[dict[str, Any]]:
-        if not isinstance(jobs, Mapping) or not isinstance(enqueue_projection, bool):raise ValueError("durable task batch contract is invalid")
-        prepared = [(str(job_id), self._values(str(job_id), str(task_class), job)) for job_id, job in jobs.items()]
+        if not isinstance(task_class,str) or not isinstance(jobs, Mapping) or not isinstance(enqueue_projection, bool) or any(not isinstance(job_id,str) for job_id in jobs):raise ValueError("durable task batch contract is invalid")
+        prepared = [(job_id, self._values(job_id, task_class, job)) for job_id, job in jobs.items()]
         applied: list[str] = []
         with self._lock, self._connection() as connection:
             for job_id, values in prepared:
@@ -112,7 +114,9 @@ class DurableTaskRepository:
         if not isinstance(job, Mapping):raise ValueError("durable task payload must be a mapping")
         request = job.get("request") if isinstance(job.get("request"), Mapping) else {}
         now = datetime.now(UTC).isoformat()
-        tenant_id=str(job.get("tenant_id") or request.get("tenant_id") or "").strip();user_id=str(job.get("user_id") or request.get("user_id") or "").strip();project_id=str(job.get("project_id") or request.get("project_id") or "").strip()
+        raw_scope=tuple(job.get(key) or request.get(key) or "" for key in ("tenant_id","user_id","project_id"))
+        if any(not isinstance(value,str) for value in raw_scope):raise ValueError("durable task owner scope is required")
+        tenant_id,user_id,project_id=(value.strip() for value in raw_scope)
         if not job_id.strip() or not task_class.strip() or not all((tenant_id,user_id,project_id)):raise ValueError("durable task owner scope is required")
         return {
             "job_id":str(job_id), "task_class":str(task_class),
@@ -154,7 +158,8 @@ class DurableTaskRepository:
         return deleted
 
     def requeue_projection(self, job_id: str) -> int:
-        if not str(job_id).strip():raise ValueError("projection job_id is required")
+        if not isinstance(job_id,str) or not job_id.strip():raise ValueError("projection job_id is required")
+        job_id=job_id.strip()
         with self._lock, self._connection() as connection:
             row = connection.execute("SELECT task_class,payload_json FROM durable_tasks WHERE job_id=?", (str(job_id),)).fetchone()
             if not row: return 0
@@ -168,8 +173,9 @@ class DurableTaskRepository:
 
     @contextmanager
     def projection_lock(self, scope_key: str, *, ttl: float = 30.0):
-        key = str(scope_key).strip(); owner = uuid4().hex
-        if not key or isinstance(ttl,bool) or not isinstance(ttl,(int,float)) or ttl <= 1: raise ValueError("invalid projection lock")
+        if not isinstance(scope_key,str):raise ValueError("invalid projection lock")
+        key = scope_key.strip(); owner = uuid4().hex
+        if not key or isinstance(ttl,bool) or not isinstance(ttl,(int,float)) or not math.isfinite(ttl) or ttl <= 1: raise ValueError("invalid projection lock")
         now = time.time()
         lost = Event(); lease = ProjectionLease(False, lost, self, key, owner)
         acquired = False
@@ -211,9 +217,11 @@ class DurableTaskRepository:
                 pass
 
     def get(self, job_id: str, *, tenant_id: str, user_id: str, project_id: str) -> dict[str, Any] | None:
-        job_id=str(job_id).strip()
+        if not isinstance(job_id,str):raise ValueError("durable task job_id is required")
+        job_id=job_id.strip()
         if not job_id:raise ValueError("durable task job_id is required")
-        scope=tuple(str(value).strip() for value in (tenant_id,user_id,project_id))
+        if any(not isinstance(value,str) for value in (tenant_id,user_id,project_id)):raise ValueError("durable task owner scope is required")
+        scope=tuple(value.strip() for value in (tenant_id,user_id,project_id))
         if not all(scope):raise ValueError("durable task owner scope is required")
         with self._lock, self._connection() as connection:
             row = connection.execute("SELECT * FROM durable_tasks WHERE job_id=? AND tenant_id=? AND user_id=? AND project_id=?", (job_id,*scope)).fetchone()
@@ -221,7 +229,8 @@ class DurableTaskRepository:
 
     def list(self, *, tenant_id: str = "", user_id: str = "", project_id: str = "", task_class: str = "", nonterminal_only: bool = False) -> list[dict[str, Any]]:
         if not isinstance(nonterminal_only,bool):raise ValueError("nonterminal_only must be boolean")
-        scope=tuple(str(value).strip() for value in (tenant_id,user_id,project_id))
+        if any(not isinstance(value,str) for value in (tenant_id,user_id,project_id,task_class)):raise ValueError("durable task query scope must be strings")
+        scope=tuple(value.strip() for value in (tenant_id,user_id,project_id))
         if any(scope) and not all(scope):raise ValueError("tenant_id, user_id and project_id must be supplied together")
         clauses: list[str] = []; values: list[Any] = []
         for column, value in (("tenant_id",tenant_id),("user_id",user_id),("project_id",project_id)):

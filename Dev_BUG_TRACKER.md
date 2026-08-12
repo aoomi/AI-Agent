@@ -3384,3 +3384,5 @@
 - 第一百八十三项自动测试与稽查：十三类坏身份/控制/代际动态拒绝；Graph事件围栏专项回归、Python编译与diff门禁通过。
 - 第一百八十四项稽查首败与整改：TaskLeaseRepository接受NaN/Infinity TTL/now、浮点generation且直接strip身份，可能制造永久租约、错误过期判断或含混所有者。现全部租约控制入口共享有限时钟和严格所有权门禁。
 - 第一百八十四项自动测试与稽查：十一类坏TTL/clock/identity/generation动态失败关闭；租约专项回归、Python编译与diff门禁通过。
+- 第一百八十五项稽查首败与整改：DurableTaskRepository广泛用`str(...)`接受数字job/task/owner/query，projection lock又允许NaN/Infinity TTL，可能形成含混所有者或永久锁。现任务持久化与投影控制入口严格验证运行时类型。
+- 第一百八十五项自动测试与稽查：十四类坏身份/批量/query/lock控制动态失败关闭；专项回归、Python编译与diff门禁通过。
