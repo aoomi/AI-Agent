@@ -81,6 +81,8 @@ class DurableTaskRepository:
         with self._lock, self._connection() as connection:
             for job_id, values in prepared:
                 current = connection.execute("SELECT payload_json,task_class FROM durable_tasks WHERE job_id=?", (job_id,)).fetchone()
+                if current and current["task_class"] != str(task_class):
+                    raise ValueError("durable task job_id belongs to another task class")
                 if current and current["task_class"] == str(task_class) and current["payload_json"] == values["payload_json"]:
                     continue
                 self._execute_upsert(connection, values)
@@ -97,11 +99,11 @@ class DurableTaskRepository:
     def _values(job_id: str, task_class: str, job: Mapping[str, Any]) -> dict[str, Any]:
         request = job.get("request") if isinstance(job.get("request"), Mapping) else {}
         now = datetime.now(UTC).isoformat()
+        tenant_id=str(job.get("tenant_id") or request.get("tenant_id") or "").strip();user_id=str(job.get("user_id") or request.get("user_id") or "").strip();project_id=str(job.get("project_id") or request.get("project_id") or "").strip()
+        if not job_id.strip() or not task_class.strip() or not all((tenant_id,user_id,project_id)):raise ValueError("durable task owner scope is required")
         return {
             "job_id":str(job_id), "task_class":str(task_class),
-            "tenant_id":str(job.get("tenant_id") or request.get("tenant_id") or "local-default"),
-            "user_id":str(job.get("user_id") or request.get("user_id") or "aoo"),
-            "project_id":str(job.get("project_id") or request.get("project_id") or ""),
+            "tenant_id":tenant_id, "user_id":user_id, "project_id":project_id,
             "stage":str(job.get("stage") or job.get("phase") or task_class), "subject_key":str(job.get("subject_key") or ""),
             "status":str(job.get("status") or "queued"), "pid":job.get("pid"), "process_group":job.get("process_group"),
             "heartbeat_at":str(job.get("heartbeat_at") or ""), "started_at":str(job.get("started_at") or job.get("queued_at") or ""),

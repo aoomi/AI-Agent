@@ -3144,3 +3144,5 @@
 - 第五十一项自动测试与稽查：行业工作流及LangGraph串并行/分支/恢复关联`6 passed`；Python编译与diff门禁通过。只读确认orchestrator外部执行锁外运行且缺executor不泄漏活动标记。
 - 第五十二项稽查首败与整改：ResourceScheduler票据支持tenant/user/project隔离，但`cancel_job(job_id)`仍全局匹配；跨项目相同job_id会被一起撤销。现取消API支持完整owner scope并要求三字段成组，带scope时只取消精确所有者票据；受信内部裸job兼容保留。
 - 第五十二项自动测试与稽查：资源优先级、取消、池并行、容量及分层背压专项`7 passed`；Python编译与diff门禁通过。只读确认作用域过滤在取消标记写入前完成。
+- 第五十三项稽查首败与整改：DurableTaskRepository在缺owner时静默填`local-default/aoo/空project`，且全局job_id冲突可被另一task_class覆盖，违背完整所有者门禁和任务类型不可变。现upsert强制tenant/user/project完整非空，并在同事务拒绝job_id跨task_class改写；不迁移或删除旧运行数据。
+- 第五十三项自动测试与稽查：新增完整owner缺失及跨task_class覆盖拒绝动态契约，连同投影租约/重放关联`4 passed`；Python编译与diff门禁通过。两项旧测试使用无身份伪任务而首败，属于被新失败关闭契约淘汰的fixture，未降低门禁。

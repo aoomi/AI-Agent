@@ -1052,3 +1052,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第五十项：开发→稽查协作的handoff执行与report整改已single-flight，四类共享状态迁移并发安全，外部executor/scheduler不持锁。关联`11 passed`、`3 subtests passed`，只读稽查通过。
 - BUG072第五十一项：行业工作流运行与robot executor热替换已建立inflight/single-flight围栏，拓扑和执行器快照原子化。关联`6 passed`，只读稽查通过。
 - BUG072第五十二项：资源等待取消已支持tenant/user/project精确所有者匹配，阻断同job_id跨项目撤销。专项`7 passed`，只读稽查通过。
+- BUG072第五十三项：持久任务写入已强制完整owner scope，并拒绝同job_id跨task_class覆盖。新动态契约及投影关联`4 passed`；旧无身份fixture不再代表合法生产任务，只读稽查通过。
