@@ -3230,3 +3230,5 @@
 - 第一百零六项自动测试与稽查：空skill、空agent及两类空读取动态拒绝；Agent映射、注册与API关联`9 passed`，Python编译与diff门禁通过。
 - 第一百零七项稽查首败与整改：SecurityAuditLedger.run会先append started再调用未经验证的operation，非callable会制造一对started/failed伪业务事件；export还接受空tenant/actor并记录匿名导出。现两类契约在任何审计链追加前失败关闭。
 - 第一百零七项自动测试与稽查：非callable operation、空tenant及空actor三类均零审计副作用；安全审计与发布管理关联`6 passed`，Python编译与diff门禁通过。
+- 第一百零八项稽查首败与整改：ProviderAdapterRegistry构造与register未验证resolver/executor协议，get/invoke接受空身份，list接受任意kind并伪装空结果；错误会延迟到secret解析或执行阶段。现五类控制契约在共享注册表和真实provider副作用前失败关闭。
+- 第一百零八项自动测试与稽查：坏resolver/executor、空provider/capability和非法kind动态拒绝；Provider注册、生产集成与短剧backend关联`10 passed`，Python编译与diff门禁通过。

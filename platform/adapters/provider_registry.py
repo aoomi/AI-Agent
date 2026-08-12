@@ -43,8 +43,11 @@ class ProviderInvocation:
     output:Any
 
 class ProviderAdapterRegistry:
-    def __init__(self,secret_resolver:SecretResolver)->None:self._resolver=secret_resolver;self._providers:dict[str,tuple[ProviderAdapterDefinition,ProviderExecutor]]={};self._lock=RLock();self._inflight:dict[str,int]={}
+    def __init__(self,secret_resolver:SecretResolver)->None:
+        if not callable(getattr(secret_resolver,"resolve",None)):raise ProviderAdapterError("secret resolver contract is invalid")
+        self._resolver=secret_resolver;self._providers:dict[str,tuple[ProviderAdapterDefinition,ProviderExecutor]]={};self._lock=RLock();self._inflight:dict[str,int]={}
     def register(self,definition:ProviderAdapterDefinition,executor:ProviderExecutor)->tuple[ProviderAdapterDefinition,bool]:
+        if not callable(getattr(executor,"execute",None)):raise ProviderAdapterError("provider executor contract is invalid")
         with self._lock:
             existing=self._providers.get(definition.provider_id)
             if existing:
@@ -52,12 +55,17 @@ class ProviderAdapterRegistry:
                 return definition,True
             self._providers[definition.provider_id]=(definition,executor);return definition,False
     def get(self,provider_id:str)->ProviderAdapterDefinition:
+        provider_id=provider_id.strip()
+        if not provider_id:raise ProviderAdapterError("provider id is required")
         with self._lock:
             try:return self._providers[provider_id][0]
             except KeyError as error:raise ProviderAdapterError(f"unknown provider: {provider_id}") from error
     def list(self,*,kind:str|None=None)->tuple[ProviderAdapterDefinition,...]:
+        if kind is not None and kind not in {"model","text","image","video","audio"}:raise ProviderAdapterError("provider kind is invalid")
         with self._lock:return tuple(sorted((d for d,_ in self._providers.values() if kind is None or d.kind==kind),key=lambda d:d.provider_id))
     def invoke(self,provider_id:str,capability:str,inputs:Mapping[str,Any])->ProviderInvocation:
+        provider_id,capability=provider_id.strip(),capability.strip()
+        if not provider_id or not capability:raise ProviderAdapterError("provider and capability are required")
         with self._lock:
             try:definition,executor=self._providers[provider_id]
             except KeyError as error:raise ProviderAdapterError(f"unknown provider: {provider_id}") from error

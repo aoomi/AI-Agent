@@ -25,5 +25,11 @@ class ProviderAdapterRegistryTest(unittest.TestCase):
     def test_nested_adapter_settings_reject_credentials(self):
         with self.assertRaisesRegex(ProviderAdapterError,"secrets"):
             ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30,settings={"transport":{"headers":[{"authorization":"Bearer hidden"}]}})
+    def test_registry_rejects_invalid_provider_control_contracts(self):
+        with self.assertRaisesRegex(ProviderAdapterError,"resolver contract"):ProviderAdapterRegistry(object())
+        registry=ProviderAdapterRegistry(Secrets());definition=ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30)
+        with self.assertRaisesRegex(ProviderAdapterError,"executor contract"):registry.register(definition,object())
+        for operation in (lambda:registry.get(""),lambda:registry.list(kind="unknown"),lambda:registry.invoke("","generate.image",{}),lambda:registry.invoke("p","",{})):
+            with self.assertRaises(ProviderAdapterError):operation()
 
 if __name__=="__main__":unittest.main()
