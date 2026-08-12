@@ -36,8 +36,8 @@ class TaskTrackingApiTest(unittest.TestCase):
         self.server.shutdown(); self.server.server_close(); self.thread.join(timeout=2); self.temp.cleanup()
 
     @staticmethod
-    def headers(tenant="tenant-a"):
-        return {"X-Request-Id": "request-1", "X-Trace-Id": "trace-1", "X-Identity-Id": "identity-1", "X-Identity-Kind": "user", "X-Tenant-Id": tenant}
+    def headers(tenant="tenant-a", identity="identity-1"):
+        return {"X-Request-Id": "request-1", "X-Trace-Id": "trace-1", "X-Identity-Id": identity, "X-Identity-Kind": "user", "X-Tenant-Id": tenant}
 
     def test_list_detail_cancel_and_cross_tenant_isolation(self) -> None:
         request = Request(self.base + "/api/v1/tasks?project_id=project-a", headers=self.headers())
@@ -60,7 +60,7 @@ class TaskTrackingApiTest(unittest.TestCase):
         self.assertEqual(task["payload"]["progress_percent"], 40)
 
     def test_failed_task_can_resume_through_http(self) -> None:
-        resume = Request(self.base + "/api/v1/tasks/task-d/resume", headers=self.headers("tenant-c"), data=b"", method="POST")
+        resume = Request(self.base + "/api/v1/tasks/task-d/resume", headers=self.headers("tenant-c", "identity-3"), data=b"", method="POST")
         with urlopen(resume, timeout=2) as response:
             self.assertEqual(json.load(response)["data"]["status"], "queued")
 
