@@ -3416,3 +3416,5 @@
 - 第一百九十九项自动测试与稽查：坏事件/context及数字project动态失败关闭；事件、投影与任务集成关联`14 passed`（另`13 subtests passed`），Python编译与diff门禁通过。
 - 第二百项稽查首败与整改：TaskService不验证queue/events/context，事件消费又以`str/int`宽松转换task/status/progress，数字伪身份或字符串进度可进入权威状态更新。现依赖、scope和原始事件值均在队列副作用前失败关闭。
 - 第二百项自动测试与稽查：坏依赖/context、数字task及字符串progress动态拒绝且任务保持running；任务、队列与集成关联`24 passed`（另`23 subtests passed`），Python编译与diff门禁通过。
+- 第二百零一项稽查首败与整改：AgentRegistry的scoped注册用`str(...)`接受任意Skill/数字scope，register/sync/get/status也依赖静态类型，畸形对象会污染索引或泄漏属性异常。现全部注册与读取边界完整验证。
+- 第二百零一项自动测试与稽查：坏Skill、数字scope/ID/status及列表sync动态失败关闭；注册映射关联`10 passed`（另`12 subtests passed`），Python编译与diff门禁通过。

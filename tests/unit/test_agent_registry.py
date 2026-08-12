@@ -43,6 +43,11 @@ class AgentRegistryTest(unittest.TestCase):
         ):
             with self.assertRaisesRegex(AgentRegistryError,"required"):operation()
 
+    def test_runtime_model_scope_and_collection_types_are_rejected(self) -> None:
+        registry=AgentRegistry()
+        for operation in (lambda:registry.register(object()),lambda:registry.register_scoped(object(),"t","p"),lambda:registry.register_scoped(skill(),1,"p"),lambda:registry.scoped(1,"p","s"),lambda:registry.sync([skill()]),lambda:registry.get(1),lambda:registry.for_skill(1),lambda:registry.update_status(1,"idle")):
+            with self.subTest(operation=operation),self.assertRaises(AgentRegistryError):operation()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -35,7 +35,8 @@ class AgentRegistry:
         self._lock = RLock()
 
     def register_scoped(self, skill: object, tenant_id: str, project_id: str) -> tuple[ProcessRobotInstance,bool]:
-        skill_id=str(getattr(skill,"skill_id",""));name=str(getattr(skill,"name",""));scope=(tenant_id.strip(),project_id.strip(),skill_id)
+        if not isinstance(skill,SkillDefinition) or any(not isinstance(value,str) for value in (tenant_id,project_id)):raise AgentRegistryError("tenant, project and Skill are required")
+        skill_id=skill.skill_id;name=skill.name;scope=(tenant_id.strip(),project_id.strip(),skill_id.strip())
         if not all(scope): raise AgentRegistryError("tenant, project and Skill are required")
         with self._lock:
             existing=self._scoped.get(scope)
@@ -43,14 +44,15 @@ class AgentRegistry:
             robot=ProcessRobotInstance(f"robot-{uuid4().hex}",skill_id,name,scope[0],scope[1]);self._scoped[scope]=robot;self._scoped_by_id[robot.agent_id]=robot;return robot,False
 
     def scoped(self, tenant_id:str, project_id:str, skill_id:str)->ProcessRobotInstance:
-        scope=tuple(str(value).strip() for value in (tenant_id,project_id,skill_id))
+        if any(not isinstance(value,str) for value in (tenant_id,project_id,skill_id)):raise AgentRegistryError("tenant, project and Skill are required")
+        scope=tuple(value.strip() for value in (tenant_id,project_id,skill_id))
         if not all(scope):raise AgentRegistryError("tenant, project and Skill are required")
         with self._lock:
             try:return self._scoped[scope]
             except KeyError as error:raise AgentRegistryError("scoped process robot does not exist") from error
 
     def register(self, skill: SkillDefinition) -> tuple[AgentInstance, bool]:
-        if not skill.skill_id.strip() or not skill.name.strip():raise AgentRegistryError("Skill identity is required")
+        if not isinstance(skill,SkillDefinition) or any(not isinstance(value,str) or not value.strip() for value in (skill.skill_id,skill.name)):raise AgentRegistryError("Skill identity is required")
         with self._lock:
             existing_id = self._by_skill.get(skill.skill_id)
             if existing_id is not None: return self._by_id[existing_id], True
@@ -58,9 +60,11 @@ class AgentRegistry:
             self._by_id[instance.agent_id] = instance; self._by_skill[skill.skill_id] = instance.agent_id; return instance, False
 
     def sync(self, skills: tuple[SkillDefinition, ...]) -> tuple[AgentInstance, ...]:
+        if not isinstance(skills,tuple) or any(not isinstance(skill,SkillDefinition) for skill in skills):raise AgentRegistryError("Skills must be a tuple of definitions")
         return tuple(self.register(skill)[0] for skill in skills)
 
     def get(self, agent_id: str) -> AgentInstance:
+        if not isinstance(agent_id,str):raise AgentRegistryError("agent_id is required")
         agent_id=agent_id.strip()
         if not agent_id:raise AgentRegistryError("agent_id is required")
         with self._lock:
@@ -70,6 +74,7 @@ class AgentRegistry:
                 except KeyError:raise AgentRegistryError(f"unknown agent_id: {agent_id}") from error
 
     def for_skill(self, skill_id: str) -> AgentInstance:
+        if not isinstance(skill_id,str):raise AgentRegistryError("skill_id is required")
         skill_id=skill_id.strip()
         if not skill_id:raise AgentRegistryError("skill_id is required")
         with self._lock:
@@ -77,6 +82,7 @@ class AgentRegistry:
             except KeyError as error: raise AgentRegistryError(f"unknown skill_id: {skill_id}") from error
 
     def update_status(self, agent_id: str, status: str) -> AgentInstance:
+        if not isinstance(agent_id,str) or not isinstance(status,str):raise AgentRegistryError("agent lifecycle identity is required")
         agent_id,status=agent_id.strip(),status.strip()
         if not agent_id:raise AgentRegistryError("agent_id is required")
         if status not in self.STATUSES:raise AgentRegistryError("agent status is invalid")
