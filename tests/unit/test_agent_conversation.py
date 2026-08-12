@@ -186,6 +186,15 @@ class AgentConversationServiceTest(unittest.TestCase):
             self.assertEqual(ConversationMemoryStore(path).read("owner", "project-1")["style"], "精简")
             self.assertEqual(ConversationMemoryStore(path).read("other", "project-1"), {})
 
+    def test_persistent_memory_rejects_non_standard_json_without_partial_write(self) -> None:
+        with TemporaryDirectory() as directory:
+            path=Path(directory)/"memory.json";store=ConversationMemoryStore(path)
+            for value in (float("nan"),object()):
+                with self.subTest(value=value),self.assertRaisesRegex(ConversationError,"standard JSON"):
+                    store.update("owner","project",{"value":value})
+            self.assertFalse(path.exists())
+            self.assertEqual(store.read("owner","project"),{})
+
     def test_clarification_cannot_create_execution_proposal(self) -> None:
         skill, agent = self.configured()
         client = ModelClient({"reply": "需要确认目标平台", "needs_clarification": True, "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "执行"}}})

@@ -1228,3 +1228,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百二十五项：TaskLeaseRepository构造边界已严格要求Path数据库模型，字符串伪路径不会泄漏resolve属性异常或绕过持久依赖契约。
 - BUG072第二百二十六项：StructuredLogger与JsonLinesExporter已统一强制标准JSON，NaN/Infinity和任意对象不会进入日志sink或JSONL持久导出。
 - BUG072第二百二十七项：Provider审计请求指纹已移除`default=str`宽松转换并强制标准JSON，任意对象与NaN不会生成含混审计哈希。
+- BUG072第二百二十八项：ConversationMemoryStore持久更新已强制标准JSON并在写入前失败关闭，NaN或任意对象不会创建部分文件或污染内存状态。

@@ -3470,3 +3470,5 @@
 - 第二百二十六项自动测试与稽查：NaN/Infinity及任意对象日志/导出动态拒绝且不创建文件；可观测性关联回归、Python编译与diff门禁通过。
 - 第二百二十七项稽查首败与整改：ProviderAuditLedger的request_hash使用`default=str`把任意对象改写为进程表示，并接受NaN，无法作为稳定可重放审计指纹。现原始请求必须可标准JSON序列化。
 - 第二百二十七项自动测试与稽查：NaN及任意对象request动态拒绝；Provider审计关联回归、Python编译与diff门禁通过。
+- 第二百二十八项稽查首败与整改：ConversationMemoryStore持久路径使用json.dumps默认接受NaN，且任意对象异常未转换为领域契约。现候选状态先完整序列化，失败时文件与内存均不改变。
+- 第二百二十八项自动测试与稽查：NaN及任意对象memory动态拒绝且无文件/内存副作用；会话关联回归、Python编译与diff门禁通过。

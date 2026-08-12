@@ -96,7 +96,9 @@ class ConversationMemoryStore:
                 self.storage_path.parent.mkdir(parents=True, exist_ok=True)
                 temporary = self.storage_path.with_suffix(self.storage_path.suffix + ".tmp")
                 payload = {f"{owner}\u0000{project}": item for (owner, project), item in candidate.items()}
-                temporary.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+                try:encoded=json.dumps(payload, ensure_ascii=False, sort_keys=True, allow_nan=False)
+                except (TypeError,ValueError) as error:raise ConversationError("conversation memory must be standard JSON") from error
+                temporary.write_text(encoded, encoding="utf-8")
                 temporary.replace(self.storage_path)
             self._items = candidate
             return MappingProxyType(dict(current))
