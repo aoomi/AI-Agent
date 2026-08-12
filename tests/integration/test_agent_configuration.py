@@ -41,7 +41,7 @@ class AgentConfigurationIntegrationTest(unittest.TestCase):
         skill, agent = self.configure("system_main_developer")
         client = ResponseClient({"reply": "切换方案待确认", "proposal": {"proposal_type": "configuration_change", "requested_changes": {"model_id": "model-b", "settings": {"effort": "high"}}}})
         service = AgentConversationService(self.models, self.configurations, client); service.bind(agent, skill)
-        _, proposal = service.send(service.open_session(agent.agent_id, "owner").session_id, "切换高上下文模型")
+        _, proposal = service.send(service.open_session(agent.agent_id, "owner", {"project_id":"project"}).session_id, "切换高上下文模型", "owner")
         self.assertEqual(self.configurations.get(agent.agent_id).model_id, "model-a")
         service.confirm(proposal.proposal_id, "owner")
         updated = self.configurations.get(agent.agent_id)
@@ -52,7 +52,7 @@ class AgentConfigurationIntegrationTest(unittest.TestCase):
         skill, agent = self.configure("system_main_developer"); executor = RecordingExecutor()
         client = ResponseClient({"reply": "复杂任务待确认", "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "跨模块实现", "steps": ["contract", "backend", "frontend"]}}})
         service = AgentConversationService(self.models, self.configurations, client, executor); service.bind(agent, skill)
-        _, proposal = service.send(service.open_session(agent.agent_id, "owner").session_id, "执行复杂任务")
+        _, proposal = service.send(service.open_session(agent.agent_id, "owner", {"project_id":"project"}).session_id, "执行复杂任务", "owner")
         self.assertEqual(executor.executions, [])
         service.confirm(proposal.proposal_id, "owner")
         self.assertEqual(executor.executions[0][0:2], ("developer", True))
@@ -61,19 +61,19 @@ class AgentConfigurationIntegrationTest(unittest.TestCase):
         skill, agent = self.configure("system_inspector"); executor = RecordingExecutor()
         readonly = ResponseClient({"reply": "只读稽查待确认", "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "检查代码", "read_only": True}}})
         service = AgentConversationService(self.models, self.configurations, readonly, executor); service.bind(agent, skill)
-        _, proposal = service.send(service.open_session(agent.agent_id, "owner").session_id, "检查")
+        _, proposal = service.send(service.open_session(agent.agent_id, "owner", {"project_id":"project"}).session_id, "检查", "owner")
         service.confirm(proposal.proposal_id, "owner")
         self.assertEqual(executor.executions[0][0:2], ("inspector", False))
         writable = ResponseClient({"reply": "修改", "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "修改代码"}}})
         denied = AgentConversationService(self.models, self.configurations, writable, executor); denied.bind(agent, skill)
         with self.assertRaisesRegex(ConversationError, "read-only"):
-            denied.send(denied.open_session(agent.agent_id, "owner").session_id, "修改")
+            denied.send(denied.open_session(agent.agent_id, "owner", {"project_id":"project"}).session_id, "修改", "owner")
 
     def test_no_real_model_client_never_returns_simulated_success(self) -> None:
         skill, agent = self.configure("system_main_developer")
         service = AgentConversationService(self.models, self.configurations, None); service.bind(agent, skill)
         with self.assertRaisesRegex(ConversationError, "real conversation model client is not configured"):
-            service.send(service.open_session(agent.agent_id, "owner").session_id, "生成方案")
+            service.send(service.open_session(agent.agent_id, "owner", {"project_id":"project"}).session_id, "生成方案", "owner")
 
 
 if __name__ == "__main__": unittest.main()

@@ -3168,3 +3168,4 @@
 - 第七十项稽查首败与整改：worker快照允许active大于capacity，路由负载比虽可计算但该节点已违反自身容量事实，仍会被发现和展示且可能干扰选择排序。现内存路由和SQLite发现统一拒绝超容量活动计数，并补齐generation正整数校验一致性。
 - 第七十一项稽查首败与整改：ResourceScheduler.claim拒绝空job_id，但cancel_job接受空ID并执行全队列扫描，调用方缺字段被伪装为“取消0项”而非契约错误。现取消入口同步拒绝空job_id，避免未定位目标的控制请求静默成功。
 - 第七十二项稽查首败与整改：EventBus.subscribe只校验事件类型，不校验handler可调用；错误订阅会成功进入共享表，直到后续业务publish才以TypeError中断整条事件链。现注册边界立即拒绝非callable handler，坏配置不污染订阅快照。
+- 第七十三项稽查首败与整改：平台ConversationMemoryStore允许空project_id，open_session也接受无项目context，使同一identity的无项目对话共享全局记忆；这与项目级上下文隔离相冲突。现会话创建及memory read/update均强制非空identity+project，缺项目在读取历史或调用模型前失败关闭。

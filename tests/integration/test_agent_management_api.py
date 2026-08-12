@@ -53,7 +53,7 @@ class AgentManagementApiTest(unittest.TestCase):
         updated = self.post(f"/api/v1/agent-configurations/{agent['agent_id']}/update", {"expected_version": 1, "settings": {"approval": "strict"}})
         self.assertEqual(updated["configuration_version"], 2)
         self.assertEqual(len(self.get(f"/api/v1/agent-configurations/{agent['agent_id']}/history")["items"]), 2)
-        session = self.post("/api/v1/agent-conversations", {"agent_id": agent["agent_id"]})
+        session = self.post("/api/v1/agent-conversations", {"agent_id": agent["agent_id"], "context":{"project_id":"project"}})
         turn = self.post(f"/api/v1/agent-conversations/{session['session_id']}/messages", {"content": "执行复杂任务"})
         self.assertEqual(turn["proposal"]["status"], "pending_confirmation")
         applied = self.post(f"/api/v1/agent-proposals/{turn['proposal']['proposal_id']}/confirm", {})
@@ -79,7 +79,7 @@ class AgentManagementApiTest(unittest.TestCase):
             agent = post("/api/v1/agents/register", {"skill_id": "system_main_developer"})
             post("/api/v1/models/register", {"model_id": "model-full", "provider_id": "provider", "display_name": "Full", "capabilities": ["chat", "reasoning", "tool_calling", "structured_output"], "context_window": 32768})
             post("/api/v1/agent-configurations", {"agent_id": agent["agent_id"], "model_id": "model-full"})
-            session = post("/api/v1/agent-conversations", {"agent_id": agent["agent_id"]})
+            session = post("/api/v1/agent-conversations", {"agent_id": agent["agent_id"], "context":{"project_id":"project"}})
             with self.assertRaises(HTTPError) as error: post(f"/api/v1/agent-conversations/{session['session_id']}/messages", {"content": "你好"})
             self.assertEqual(error.exception.code, 409)
         finally:

@@ -24,7 +24,7 @@ class InspectorConversationSecurityTest(unittest.TestCase):
         self.assertFalse(configuration.writable)
         service = AgentConversationService(models, configurations, WritableProposalClient()); service.bind(agent, skill)
         with self.assertRaisesRegex(ConversationError, "read-only"):
-            service.send(service.open_session(agent.agent_id, "owner").session_id, "修改代码")
+            service.send(service.open_session(agent.agent_id, "owner", {"project_id":"project"}).session_id, "修改代码", "owner")
 
 
 if __name__ == "__main__": unittest.main()

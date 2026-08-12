@@ -79,9 +79,11 @@ class ConversationMemoryStore:
                 self._items[(identity_id, project_id)] = dict(values)
 
     def read(self, identity_id: str, project_id: str = "") -> Mapping[str, Any]:
+        if not identity_id.strip() or not project_id.strip(): raise ConversationError("conversation memory identity and project are required")
         with self._lock: return MappingProxyType(dict(self._items.get((identity_id, project_id), {})))
 
     def update(self, identity_id: str, project_id: str, values: Mapping[str, Any]) -> Mapping[str, Any]:
+        if not identity_id.strip() or not project_id.strip(): raise ConversationError("conversation memory identity and project are required")
         safe = {str(key): value for key, value in values.items() if str(key).strip() and value is not None}
         with self._lock:
             current = self._items.setdefault((identity_id, project_id), {}); current.update(safe)
@@ -135,6 +137,7 @@ class AgentConversationService:
         identity_id = created_by_identity_id.strip()
         if not identity_id: raise ConversationError("created_by_identity_id is required")
         safe_context = MappingProxyType({str(key): value for key, value in (context or {}).items() if str(key).strip() and value is not None})
+        if not str(safe_context.get("project_id") or "").strip(): raise ConversationError("conversation project_id is required")
         session = ConversationSession(f"conversation-{uuid4().hex}", agent_id, configuration.configuration_version, identity_id, self._now(), safe_context)
         agent, skill = self._binding(agent_id)
         memory = self.memory_store.read(identity_id, str(safe_context.get("project_id", "")))
