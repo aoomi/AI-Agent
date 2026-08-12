@@ -3150,3 +3150,4 @@
 - 第五十四项自动测试与稽查：新增同job异user读取为空及完整scope读取命中动态契约`1 passed`；Python编译与diff门禁通过。生产HTTP runtime list既有完整三字段调用保持兼容。
 - 第五十五项稽查首败与整改：私有部署SQLiteStateStore/SQLiteDurableQueue长期共享默认单线程连接，却会被平台多线程调用；跨线程直接抛ProgrammingError，并发claim也无同实例互斥。现连接显式允许跨线程且每实例RLock覆盖完整事务，claim的BEGIN→SELECT→UPDATE→commit不可交错。
 - 第五十五项自动测试与稽查：持久适配器与私有部署韧性关联`4 passed`；Python编译与diff门禁通过。只读确认对象存储仍保持同目录原子替换和路径穿越门禁。
+- 第五十六项稽查首败与整改：跨worker派发在调用方提供request_id/job_id时直接作为全局reservation主键，未纳入tenant/user/project；不同所有者复用同ID会共享既有reservation，远端仅验证reservation与worker/resource，形成跨项目派发证明串线。现reservation ID由path+请求携带的owner scope+显式request ID哈希派生；无显式ID继续把完整body纳入哈希，兼容尚未完成身份补齐的非生产探活请求。

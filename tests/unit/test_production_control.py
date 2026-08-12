@@ -120,8 +120,10 @@ class ProductionControlTests(unittest.TestCase):
         for _ in range(2):
             with self.assertRaisesRegex(OSError, "unavailable"):
                 module._forward_production_request("/api/outline/plan", body, False)
-        self.assertEqual([item[0] for item in registry.reserved], ["stable-request", "stable-request"])
-        self.assertEqual(registry.released, ["stable-request", "stable-request"])
+        reservation_ids = [item[0] for item in registry.reserved]
+        self.assertEqual(reservation_ids[0], reservation_ids[1])
+        self.assertNotEqual(reservation_ids[0], "stable-request")
+        self.assertEqual(registry.released, reservation_ids)
 
     def test_task_lease_fences_expired_owner_and_late_results(self):
         with TemporaryDirectory() as temporary:

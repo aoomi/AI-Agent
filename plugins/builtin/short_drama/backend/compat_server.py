@@ -7203,8 +7203,10 @@ def _forward_production_request(path: str, body: dict, dispatched: bool) -> tupl
         return None
     _heartbeat_local_worker()
     explicit_request_id = str(body.get("request_id") or body.get("job_id") or "").strip()
-    request_id = explicit_request_id or "dispatch-" + hashlib.sha256(json.dumps(
-        {"path":path, "body":body}, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
+    owner_scope = tuple(str(body.get(key) or "").strip() for key in ("tenant_id", "user_id", "project_id"))
+    request_id = "dispatch-" + hashlib.sha256(json.dumps(
+        {"path":path, "owner_scope":owner_scope, "request_id":explicit_request_id, "body":None if explicit_request_id else body},
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
     ).encode("utf-8")).hexdigest()
     worker = WORKER_REGISTRY.reserve(
         request_id, resource_class, estimated_memory=max(0, int(body.get("estimated_memory") or 0)),
