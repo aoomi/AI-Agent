@@ -6,13 +6,13 @@ from ai_agent_queue import InMemoryTaskQueue, QueueConflictError, QueuedTask
 from ai_agent_tenant import IdentityContext, IdentityContextError
 
 
-def task(task_id: str = "task-1", operation_key: str = "operation-1", tenant_id: str = "tenant-a") -> QueuedTask:
+def task(task_id: str = "task-1", operation_key: str = "operation-1", tenant_id: str = "tenant-a", identity_id: str = "identity-1") -> QueuedTask:
     return QueuedTask(
         task_id=task_id,
         project_id="project-1",
         operation_key=operation_key,
         task_type="contract_test",
-        context=IdentityContext("request-1", "trace-1", "identity-1", "user", tenant_id),
+        context=IdentityContext("request-1", "trace-1", identity_id, "user", tenant_id),
         payload={"input": "value"},
     )
 
@@ -43,6 +43,13 @@ class InMemoryTaskQueueTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(QueueConflictError, "conflicts"):
             queue.enqueue(conflicting)
+
+    def test_same_tenant_different_identities_have_independent_operation_keys(self) -> None:
+        queue = InMemoryTaskQueue()
+        first, first_replayed = queue.enqueue(task())
+        second, second_replayed = queue.enqueue(task(task_id="task-2", identity_id="identity-2"))
+        self.assertFalse(first_replayed); self.assertFalse(second_replayed)
+        self.assertNotEqual(first.task_id, second.task_id)
 
     def test_claim_and_read_are_tenant_scoped(self) -> None:
         queue = InMemoryTaskQueue()
