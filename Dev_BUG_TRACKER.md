@@ -3294,3 +3294,5 @@
 - 第一百三十八项自动测试与稽查：坏checkpointer、布尔attempts、整数approval、列表inputs动态拒绝；Graph关联`6 passed`（另`4 subtests passed`），Python编译与diff门禁通过。
 - 第一百三十九项稽查首败与整改：PluginRecord只验证plugin_id/version非空，路径穿越式ID、非三段版本和模型直接构造的未知status均可进入生命周期历史。现记录边界强制安全标识、SemVer形态及封闭状态集合。
 - 第一百三十九项自动测试与稽查：路径式plugin ID和两段version动态拒绝；插件生命周期与管理API关联`10 passed`（另`2 subtests passed`），Python编译与diff门禁通过。
+- 第一百四十项稽查首败与整改：AgentLifecycle.transition会拒绝未知组合，但AgentState模型本身可直接构造空agent或未知status，target也依赖Literal静态约束。现模型及转换边界均以封闭状态集合失败关闭。
+- 第一百四十项自动测试与稽查：空agent、未知初始状态和未知target动态拒绝；生命周期与调度关联`12 passed`，Python编译与diff门禁通过。

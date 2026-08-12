@@ -24,9 +24,17 @@ class AgentState:
     agent_id: str
     status: AgentStatus = "idle"
 
+    def __post_init__(self) -> None:
+        if not self.agent_id.strip():
+            raise AgentLifecycleError("agent_id is required")
+        if self.status not in {"idle","loading","running","waiting_human","completed","failed"}:
+            raise AgentLifecycleError("agent status is invalid")
+
 
 class AgentLifecycle:
     def transition(self, state: AgentState, target: AgentStatus) -> AgentState:
+        if target not in {"idle","loading","running","waiting_human","completed","failed"}:
+            raise AgentLifecycleError("agent status is invalid")
         if (state.status, target) not in TRANSITIONS:
             raise AgentLifecycleError(f"forbidden transition: {state.status}:{target}")
         return replace(state, status=target)
