@@ -32,6 +32,7 @@
 
 ### M9.198：真实全链路成片生产验收（主线开发中）
 
+- BUG069最终闭环：LTX三镜经正式run-stage与同批次video/audio-not-applicable/subtitle-not-applicable台账确认后，显式video-only composition生成8.1秒、243帧、704×1216@30 H.264静音母版；重启恢复、HTTP媒体与队列归零通过，关联`129 passed`。继续BUG070生产端点派发门禁旁路。
 - BUG057按用户更新口径最终闭环：本机LTX-Video 2B Distilled经正式API串行生成3镜，每镜65帧/2.708秒/704×1216/24fps/H.264，仅视频流，总长8.125秒；首中尾9帧无黑屏、结构崩坏或主体消失，三个job均精确登记provider并completed，Comfy队列与任务资源归零。关联`169 passed`；完整unit的8项失败来自用户并行前端改动及既有文本测试隔离，不属于本次视频链。
 - BUG061最终闭环：嵌套3D媒体URL在受控根内安全解析，穿越/绝对路径失败关闭；正式H3已越过原文件不存在点并进入真实`h3_rv2v`。直接关联31项、完整599项及9个子测试无失败无跳过。
 - 后续正式推理登记BUG062：当前H3 INT8 ConvRot在Darwin/MPS静默落入`_int_mm_cpu`，70分钟仍为0/20；任务已按取消协议收敛且Comfy队列归零，当前整改提供方设备/量化算子兼容门禁与`model_blocked`状态。

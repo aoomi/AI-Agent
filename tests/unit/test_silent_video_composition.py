@@ -21,3 +21,8 @@ def test_video_only_normalization_maps_no_audio_stream():
     block = BACKEND[BACKEND.index("def _normalize_shot_media"):BACKEND.index("def _subtitle_timestamp")]
     assert "if not include_audio:" in block
     assert '"-map", "0:v:0", "-an"' in block
+
+
+def test_silent_composition_keeps_authoritative_media_package_gate():
+    begin = BACKEND[BACKEND.index("def _begin_production_request"):BACKEND.index("class Handler")]
+    assert "_validated_composition_media_packages(records)" in begin

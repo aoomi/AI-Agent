@@ -2991,8 +2991,23 @@
 - 下一状态：已关闭。
 ### BUG-20260812-069：本地三镜仅有分段产物尚无权威静音合片证据
 
-- 状态：主线开发中
+- 状态：已关闭（最终只读稽查通过）
 - 关联任务：M9.198；承接已关闭BUG057，遵守用户本轮不验证人声/BGM的范围。
 - 正式事实：三个LTX镜头已分别通过正式视频任务生成并持久completed，但尚未通过正式合片入口形成同一项目的权威composition产物，也没有验证合片总时长、仅视频流、顺序、可播放性与台账版本绑定。
 - 风险：分镜文件分别可播放不能证明合片阶段会按现行镜头顺序读取正确版本；错误排序、旧文件混入、时长漂移或音轨意外注入仍可能在composition阶段出现。
 - 下一状态：使用现有三个已验收镜头执行正式静音合片，验证物理媒体、任务/台账、资源终态和重载恢复；完成关联回归后进入独立测试与只读稽查。
+- 首个错误事实：现有composition固定为每镜注入AAC静音、生成BGM并混音，即使用户明确只验视频也无法产出无音轨母版；同时合片权威门禁仍正确要求video/audio/subtitle同一媒体批次，`not_applicable`必须作为明确台账事实而不是绕过阶段。
+- 框架整改：composition新增显式`audio_mode=none|full_mix`；video-only模式逐镜只映射视频流并`-an`标准化，concat继续`-an`，不调用BGM、混音或字幕烧录，返回`ffmpeg-concat-video-only-v1`证据。默认`full_mix`行为保持不变，非法模式失败关闭；权威媒体包门禁仍要求video/audio/subtitle同批次，其中用户不验证的audio/subtitle以`not_applicable`事实登记并确认。
+- 正式验收：通过正式`/api/production/run-stage`重新执行3镜video generation 2，三个LTX任务串行完成；视频、audio-not-applicable、subtitle-not-applicable均以同一`ltx-video-3shot-20260812`批次登记并确认。composition generation 2生成`episode_1_master.mp4`，物理媒体8.1秒、243帧、704×1216、30fps、H.264且唯一stream为video；六个镜头边界帧顺序为1→2→3，无旧文件混入。episode scope确认后Graph的video/audio/subtitle/composition均completed；服务重启后状态和HTTP 200媒体恢复，Comfy队列0/0。
+- 独立软件测试：通过。冻结实现关联composition、provider、生产控制及阶段作用域`129 passed`，Python编译、文档状态与diff门禁通过；PyAV独立验证母版仅H.264视频流、8.1秒、243帧、30fps。
+- 最终只读稽查：通过。静音是显式业务模式，不影响默认完整混音；无音频路径在标准化、concat和结果证据三处一致，且没有放宽ProductionLedger同批次、确认、generation或LangGraph前序门禁。正式运行、重启恢复、媒体读取和资源归零证据一致。
+- 关闭时间：2026-08-12（Asia/Shanghai）。下一状态：已关闭；继续整改正式验证中发现的生产端点派发早于门禁问题BUG070。
+
+### BUG-20260812-070：普通生产端点在权威门禁前派发导致worker旁路
+
+- 状态：主线开发中
+- 关联任务：M9.198正式三镜合片；不修改用户并行前端现场。
+- 正式复现：在video Graph仍为paused且台账没有video/audio/subtitle记录时，直接请求`/api/videos/merge`仍被gateway派发到本机worker并成功生成母版；worker因`X-Production-Dispatched=1`跳过`_begin_production_request`。随后使用`/api/production/run-stage`才按权威前序正确阻断。
+- 首个事实：Handler在取得body后先执行`_forward_production_request`并立即返回，`PRODUCTION_ENDPOINT_STAGES`门禁位于派发之后；dispatched worker又明确跳过门禁，导致普通生产端点从未在任何一侧执行权威阶段校验。
+- 风险：任意可派发的outline/image/video/composition/review_export普通端点可在前序未完成、旧代或暂停状态下产生物理副作用，绕过台账与LangGraph准入。
+- 下一状态：将普通生产端点门禁置于派发之前且只由gateway执行一次；worker仅接受带已验证派发证据的请求。动态覆盖合片前序阻断、合法派发单次门禁、伪造dispatched头拒绝和run-stage内部调用不重复begin。
