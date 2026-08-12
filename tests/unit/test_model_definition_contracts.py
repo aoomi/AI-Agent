@@ -28,5 +28,11 @@ class ModelDefinitionContractTest(unittest.TestCase):
             with self.subTest(settings=settings),self.assertRaisesRegex(ModelRegistryError,"standard JSON"):
                 self._create(settings=settings)
 
+    def test_settings_are_deeply_immutable_from_caller_mutation(self) -> None:
+        settings={"routing":{"regions":["local"]}}
+        model=self._create(settings=settings)
+        settings["routing"]["regions"][0]="forged"
+        self.assertEqual(model.settings["routing"]["regions"][0],"local")
+
 
 if __name__=="__main__":unittest.main()

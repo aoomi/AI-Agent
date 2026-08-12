@@ -72,14 +72,14 @@ class ModelDefinition:
             return False
         if settings is not None and not isinstance(settings,Mapping):raise ModelRegistryError("model settings must be a mapping")
         if contains_secret(settings or {}):raise ModelRegistryError("model settings cannot contain secrets")
-        try:json.dumps(dict(settings or {}),allow_nan=False)
+        try:canonical_settings=json.dumps(dict(settings or {}),allow_nan=False)
         except (TypeError,ValueError) as error:raise ModelRegistryError("model settings must be standard JSON") from error
         return cls(
             **values,
             capabilities=normalized,
             enabled=enabled,
             context_window=context_window,
-            settings=MappingProxyType(dict(settings or {})),
+            settings=MappingProxyType(json.loads(canonical_settings)),
         )
 
 

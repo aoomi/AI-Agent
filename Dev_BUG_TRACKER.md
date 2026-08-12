@@ -3546,3 +3546,5 @@
 - 第二百六十四项自动测试与稽查：注册定义后调用方篡改嵌套region动态隔离；Provider适配、热插拔与生产集成关联回归、Python编译与diff门禁通过。
 - 第二百六十五项稽查首败与整改：ProviderService配置同样只冻结settings顶层，注册后外部引用可绕过replace与健康检查inflight保护篡改嵌套配置。现以标准JSON规范化结果建立独立深快照。
 - 第二百六十五项自动测试与稽查：服务注册后调用方篡改嵌套region动态隔离；Provider配置、健康检查与热插拔关联回归、Python编译与diff门禁通过。
+- 第二百六十六项稽查首败与整改：ModelDefinition与AgentConfiguration也只冻结settings顶层，注册后调用方可改写嵌套模型路由或智能体审批配置而绕过版本历史。现两者均以标准JSON规范化结果建立独立深快照。
+- 第二百六十六项自动测试与稽查：模型region与智能体approval嵌套引用在注册后篡改均被隔离；模型注册、Agent配置与管理API关联回归、Python编译及diff门禁通过。

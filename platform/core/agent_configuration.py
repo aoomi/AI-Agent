@@ -178,7 +178,7 @@ class AgentConfigurationStore:
             raise AgentConfigurationError("updated_by_identity_id is required")
         if AgentConfigurationStore._contains_sensitive_key(settings):
             raise AgentConfigurationError("agent settings contain sensitive fields")
-        try:json.dumps(dict(settings),allow_nan=False)
+        try:canonical_settings=json.dumps(dict(settings),allow_nan=False)
         except (TypeError,ValueError) as error:raise AgentConfigurationError("agent settings must be standard JSON") from error
         role = skill.metadata["agent_role"]
         permissions = skill.metadata["permissions"]
@@ -190,7 +190,7 @@ class AgentConfigurationStore:
             role=role,
             model_id=model.model_id,
             system_prompt_version=skill.metadata.get("system_prompt_version", "1.0").strip(),
-            settings=MappingProxyType(dict(settings)),
+            settings=MappingProxyType(json.loads(canonical_settings)),
             writable=role == "developer" and "workspace.write" in permissions,
             updated_by_identity_id=identity_id,
             updated_at=datetime.now(timezone.utc).isoformat(),

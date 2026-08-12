@@ -1266,3 +1266,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百六十三项：QueuedTask payload已由标准JSON规范化结果生成独立深快照，入队后调用方不能篡改嵌套任务输入或幂等事实。
 - BUG072第二百六十四项：ProviderAdapterDefinition settings已由标准JSON规范化结果生成独立深快照，注册后不能绕过replace/inflight保护篡改嵌套路由配置。
 - BUG072第二百六十五项：ProviderService settings已由标准JSON规范化结果生成独立深快照，注册后不能绕过replace/health inflight保护篡改嵌套配置。
+- BUG072第二百六十六项：ModelDefinition与AgentConfiguration settings已由标准JSON规范化结果生成独立深快照，注册后不能绕过模型注册或智能体版本历史篡改嵌套配置。
