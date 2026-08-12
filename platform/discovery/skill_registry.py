@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from types import MappingProxyType
 from threading import RLock
@@ -77,6 +78,8 @@ class SkillRegistry:
         plugin_id = resolved.parents[2].name
         metadata = {key: value for key, value in raw.items() if key not in values}
         if self._contains_sensitive_key(metadata):raise SkillRegistryError("Skill metadata contain sensitive fields")
+        try:json.dumps(metadata,allow_nan=False)
+        except (TypeError,ValueError) as error:raise SkillRegistryError("Skill metadata must be standard JSON") from error
         return SkillDefinition(
             **values,
             plugin_id=plugin_id,

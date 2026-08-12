@@ -55,6 +55,13 @@ class SkillRegistryTest(unittest.TestCase):
         with self.assertRaises(SkillRegistryError):SkillRegistry(str(self.root))
         with self.assertRaises(SkillRegistryError):SkillRegistry(self.root).get(1)
 
+    def test_non_standard_json_metadata_is_rejected(self) -> None:
+        self.write_skill("plugin_a", "writer", "writer")
+        manifest = self.root / "plugin_a/skills/writer/manifest.yaml"
+        manifest.write_text(manifest.read_text(encoding="utf-8") + "score: .nan\n", encoding="utf-8")
+        with self.assertRaisesRegex(SkillRegistryError, "standard JSON"):
+            SkillRegistry(self.root).scan()
+
 
 if __name__ == "__main__":
     unittest.main()

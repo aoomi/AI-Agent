@@ -3536,3 +3536,5 @@
 - 第二百五十九项自动测试与稽查：任意对象payload动态拒绝且不存在父目录；NaN旧文件不替换、前缀安全与生产控制关联回归、Python编译及diff门禁通过。
 - 第二百六十项稽查首败与整改：JSONL与Prometheus持久导出器接受已存在目录作为输出路径，直到首条记录才泄漏底层文件异常。现注册导出器时即失败关闭目录目标。
 - 第二百六十项自动测试与稽查：两类目录目标构造动态拒绝；JSONL、Prometheus、脱敏和指标关联回归、Python编译及diff门禁通过。
+- 第二百六十一项稽查首败与整改：Skill manifest metadata只做敏感字段过滤，YAML `.nan`可进入共享SkillDefinition并在API/持久边界产生非标准JSON。现注册前同时强制标准JSON。
+- 第二百六十一项自动测试与稽查：YAML NaN metadata动态拒绝；Skill发现、系统智能体与安全关联回归、Python编译及diff门禁通过。
