@@ -3568,3 +3568,5 @@
 - 第二百七十五项自动测试与稽查：恶意节点改写嵌套region后原请求保持不变；LangGraph串并行、分支、恢复与行业工作流关联回归、Python编译及diff门禁通过。
 - 第二百七十六项稽查首败与整改：IndustryWorkflowService把原inputs引用交给可替换orchestrator，并把其result浅拷贝返回；编排器可污染调用方输入或事后改写管理API结果。现输入输出均以标准JSON建立独立深快照。
 - 第二百七十六项自动测试与稽查：恶意编排器改写嵌套输入且返回后改写嵌套结果均被隔离；行业工作流、会话提案与LangGraph关联回归、Python编译及diff门禁通过。
+- 第二百七十七项稽查首败与整改：OpenAI兼容客户端验证structured result后直接返回transport解析对象；自定义transport可持有并事后改写嵌套响应。现校验通过后从标准JSON规范化结果返回独立深快照。
+- 第二百七十七项自动测试与稽查：transport原响应在complete后改写嵌套steps不影响返回值；请求schema、响应验证和取消关联回归、Python编译及diff门禁通过。

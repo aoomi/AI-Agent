@@ -45,5 +45,10 @@ class OpenAICompatibleClientTest(unittest.TestCase):
         response=Transport(OpenAITransportResponse(200,b'{"choices":[{"message":{"content":{"reply":NaN}}}]}'))
         client=OpenAICompatibleClient(endpoint="https://example.com",api_key="x",transport=response)
         with self.assertRaisesRegex(OpenAIResponseError,"standard JSON"):client.complete(self.model,[],{"type":"object"})
+    def test_transport_response_is_deeply_snapshotted(self):
+        body={"choices":[{"message":{"content":{"result":{"steps":["completed"]}}}}]}
+        transport=Transport(OpenAITransportResponse(200,json.dumps(body).encode()));client=OpenAICompatibleClient(endpoint="https://example.com",api_key="x",transport=transport)
+        result=client.complete(self.model,[],{"type":"object"});body["choices"][0]["message"]["content"]["result"]["steps"][0]="forged"
+        self.assertEqual(result["result"]["steps"][0],"completed")
 
 if __name__=="__main__":unittest.main()

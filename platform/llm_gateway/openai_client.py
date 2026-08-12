@@ -67,10 +67,10 @@ class OpenAICompatibleClient:
             result=json.loads(content) if isinstance(content,str) else content
         except (ValueError,KeyError,IndexError,TypeError,json.JSONDecodeError) as error: raise OpenAIResponseError("model provider response is invalid") from error
         if not isinstance(result,Mapping): raise OpenAIResponseError("structured model response must be an object")
-        try:json.dumps(dict(result),allow_nan=False)
+        try:canonical_result=json.dumps(dict(result),allow_nan=False)
         except (TypeError,ValueError) as error:raise OpenAIResponseError("structured model response must be standard JSON") from error
         self._validate(result,response_schema)
-        return result
+        return json.loads(canonical_result)
 
     @classmethod
     def _validate(cls,value:Any,schema:Mapping[str,Any],path:str="$")->None:

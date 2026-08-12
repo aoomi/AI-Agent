@@ -1277,3 +1277,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百七十四项：Provider韧性调用inputs已在限流/熔断前生成标准JSON深快照，失败重试或fallback提供方不能污染调用方原请求。
 - BUG072第二百七十五项：通用LangGraph invoke inputs已由标准JSON规范化结果生成独立深快照，节点执行不能反向污染调用方或改变检查点重放输入。
 - BUG072第二百七十六项：IndustryWorkflowService输入输出已由标准JSON规范化结果生成独立深快照，可替换编排器不能污染调用方请求或事后改写管理API结果。
+- BUG072第二百七十七项：OpenAI兼容structured result已由标准JSON规范化结果生成独立深快照，自定义transport不能事后改写上层模型响应。
