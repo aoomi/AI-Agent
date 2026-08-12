@@ -3406,3 +3406,5 @@
 - 第一百九十四项自动测试与稽查：六类数字生命周期身份动态失败关闭；插件关联`8 passed`（另`8 subtests passed`），Python编译与diff门禁通过。
 - 第一百九十五项稽查首败与整改：OpenAICompatibleClient直接对endpoint/key调用字符串方法，timeout允许NaN/Infinity，complete信任模型、消息对象和transport响应静态类型。现请求与响应结构均在对应副作用边界严格失败关闭。
 - 第一百九十五项自动测试与稽查：数字endpoint、NaN timeout、坏model/message/transport response动态拒绝；LLM关联`5 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
+- 第一百九十六项稽查首败与整改：AgentMapper.bind直接访问任意Skill/Agent属性，读取又直接strip运行时ID；坏模型或数字身份会泄漏AttributeError。现绑定与双向读取在共享索引访问前完整验证。
+- 第一百九十六项自动测试与稽查：坏Skill/Agent模型及数字双向ID动态失败关闭；映射与注册关联`9 passed`（另`4 subtests passed`），Python编译与diff门禁通过。

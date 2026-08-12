@@ -38,6 +38,11 @@ class AgentMapperTest(unittest.TestCase):
         ):
             with self.assertRaisesRegex(AgentMappingError,"required"):operation()
 
+    def test_runtime_model_and_identity_types_are_rejected(self) -> None:
+        mapper=AgentMapper()
+        for operation in (lambda:mapper.bind(object(),AgentInstance("agent","writer","Writer")),lambda:mapper.bind(skill(),object()),lambda:mapper.agent_for(1),lambda:mapper.skill_for(1)):
+            with self.subTest(operation=operation),self.assertRaises(AgentMappingError):operation()
+
 
 if __name__ == "__main__":
     unittest.main()
