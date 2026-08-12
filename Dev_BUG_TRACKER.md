@@ -3418,3 +3418,5 @@
 - 第二百项自动测试与稽查：坏依赖/context、数字task及字符串progress动态拒绝且任务保持running；任务、队列与集成关联`24 passed`（另`23 subtests passed`），Python编译与diff门禁通过。
 - 第二百零一项稽查首败与整改：AgentRegistry的scoped注册用`str(...)`接受任意Skill/数字scope，register/sync/get/status也依赖静态类型，畸形对象会污染索引或泄漏属性异常。现全部注册与读取边界完整验证。
 - 第二百零一项自动测试与稽查：坏Skill、数字scope/ID/status及列表sync动态失败关闭；注册映射关联`10 passed`（另`12 subtests passed`），Python编译与diff门禁通过。
+- 第二百零二项稽查首败与整改：IndustrySkillRegistry对root直接resolve并以`str(...)`接受数字industry/manifest字段，get也直接strip；同时AgentRegistry严格化后遗漏合法IndustrySkillDefinition。现行业模型与通用Skill模型均按显式契约注册。
+- 第二百零二项自动测试与稽查：字符串root、数字industry/field/query动态失败关闭，11个行业机器人注册集成保持通过；行业与注册关联`9 passed`（另`12 subtests passed`），Python编译与diff门禁通过。

@@ -15,5 +15,12 @@ class IndustrySkillManifestContractTest(unittest.TestCase):
             with self.subTest(raw=raw),self.assertRaisesRegex(IndustrySkillRegistryError,"fields are invalid"):
                 IndustrySkillRegistry._parse("industry",raw,Path("manifest.yaml"))
 
+    def test_registry_and_manifest_runtime_types_are_rejected(self) -> None:
+        with self.assertRaises(IndustrySkillRegistryError):IndustrySkillRegistry("plugins")
+        with self.assertRaises(IndustrySkillRegistryError):IndustrySkillRegistry(Path("plugins")).get(1)
+        base={"skill_id":1,"name":"Skill","process_id":"process","entrypoint":"main.py","required_capabilities":["chat"]}
+        with self.assertRaises(IndustrySkillRegistryError):IndustrySkillRegistry._parse("industry",base,Path("manifest.yaml"))
+        with self.assertRaises(IndustrySkillRegistryError):IndustrySkillRegistry._parse(1,{},Path("manifest.yaml"))
+
 
 if __name__=="__main__":unittest.main()

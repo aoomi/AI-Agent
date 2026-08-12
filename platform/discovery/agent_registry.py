@@ -35,7 +35,8 @@ class AgentRegistry:
         self._lock = RLock()
 
     def register_scoped(self, skill: object, tenant_id: str, project_id: str) -> tuple[ProcessRobotInstance,bool]:
-        if not isinstance(skill,SkillDefinition) or any(not isinstance(value,str) for value in (tenant_id,project_id)):raise AgentRegistryError("tenant, project and Skill are required")
+        from .industry_skill_registry import IndustrySkillDefinition
+        if not isinstance(skill,(SkillDefinition,IndustrySkillDefinition)) or any(not isinstance(value,str) for value in (tenant_id,project_id)):raise AgentRegistryError("tenant, project and Skill are required")
         skill_id=skill.skill_id;name=skill.name;scope=(tenant_id.strip(),project_id.strip(),skill_id.strip())
         if not all(scope): raise AgentRegistryError("tenant, project and Skill are required")
         with self._lock:
