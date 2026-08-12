@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from threading import RLock
+import re
 
 
 TRANSITIONS = frozenset({
@@ -27,7 +28,10 @@ class PluginRecord:
     status: str = "discovered"
 
     def __post_init__(self) -> None:
-        if not self.plugin_id.strip() or not self.version.strip():
+        if (not self.plugin_id.strip() or not self.version.strip()
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,254}", self.plugin_id.strip())
+                or not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?", self.version.strip())
+                or self.status not in {"discovered","validated","installed","enabled","disabled","failed","uninstalled"}):
             raise PluginLifecycleError("plugin_id and version are required")
 
 

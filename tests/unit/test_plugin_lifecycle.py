@@ -6,6 +6,10 @@ from ai_agent_discovery import PluginLifecycleError, PluginRegistry
 
 
 class PluginRegistryTest(unittest.TestCase):
+    def test_record_identity_version_and_status_contracts_are_rejected(self) -> None:
+        registry=PluginRegistry()
+        for plugin_id,version in (("../escape","1.0.0"),("plugin","1.0")):
+            with self.subTest(plugin_id=plugin_id,version=version),self.assertRaises(PluginLifecycleError):registry.discover(plugin_id,version)
     def test_complete_enable_disable_uninstall_flow(self) -> None:
         registry = PluginRegistry()
         self.assertEqual(registry.discover("plugin-a", "1.0.0").status, "discovered")

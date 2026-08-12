@@ -1139,3 +1139,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百三十六项：ProviderService注册已拒绝字符串伪能力集合、重复能力、HTTPS userinfo、布尔timeout和非Mapping settings；畸形提供方不会进入配置/健康双表。动态`1 passed`、`5 subtests passed`。
 - BUG072第一百三十七项：ProviderAdapterDefinition已验证能力元素、timeout、enabled及settings运行时类型，invoke同步强制Mapping输入；坏适配器请求不会解析secret或执行提供方。关联`12 passed`、`9 subtests passed`。
 - BUG072第一百三十八项：通用LangGraph已验证checkpointer协议、executors/inputs Mapping、max_attempts真实整数及approval严格布尔；畸形Graph控制不会编译或执行线程。关联`6 passed`、`4 subtests passed`。
+- BUG072第一百三十九项：插件生命周期记录已强制安全plugin_id、语义化三段version及封闭status集合，路径式身份或模糊版本不能进入安装历史。插件/API关联`10 passed`、`2 subtests passed`。

@@ -3292,3 +3292,5 @@
 - 第一百三十七项自动测试与稽查：空能力、布尔timeout、整数enabled、列表settings和列表inputs动态拒绝；Provider与短剧绑定关联`12 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
 - 第一百三十八项稽查首败与整改：LangGraphOrchestrator未验证checkpointer协议，compile max_attempts/require_approval、invoke inputs及resume approved接受伪类型，错误会延迟到Graph构建或执行。现构造、编译和线程控制在副作用前完整失败关闭。
 - 第一百三十八项自动测试与稽查：坏checkpointer、布尔attempts、整数approval、列表inputs动态拒绝；Graph关联`6 passed`（另`4 subtests passed`），Python编译与diff门禁通过。
+- 第一百三十九项稽查首败与整改：PluginRecord只验证plugin_id/version非空，路径穿越式ID、非三段版本和模型直接构造的未知status均可进入生命周期历史。现记录边界强制安全标识、SemVer形态及封闭状态集合。
+- 第一百三十九项自动测试与稽查：路径式plugin ID和两段version动态拒绝；插件生命周期与管理API关联`10 passed`（另`2 subtests passed`），Python编译与diff门禁通过。
