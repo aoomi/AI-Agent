@@ -37,8 +37,16 @@ class QueuedTask:
 
     def __post_init__(self) -> None:
         for field_name in ("task_id", "project_id", "operation_key", "task_type"):
-            if not getattr(self, field_name).strip():
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
                 raise QueueConflictError(f"{field_name} must not be empty")
+            object.__setattr__(self, field_name, value.strip())
+        if not isinstance(self.context, IdentityContext):
+            raise QueueConflictError("context must be an IdentityContext")
+        if not isinstance(self.payload, Mapping):
+            raise QueueConflictError("payload must be a mapping")
+        if not isinstance(self.status, str) or self.status not in {"queued", "running", "waiting_human", "paused", "completed", "failed", "cancelled"}:
+            raise QueueConflictError("task status is invalid")
         if self._contains_sensitive_key(self.payload):
             raise QueueConflictError("task payload contains sensitive fields")
         object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
@@ -60,6 +68,8 @@ class InMemoryTaskQueue:
         self._operation_keys: dict[tuple[str, str, str, str], str] = {}
 
     def enqueue(self, task: QueuedTask) -> tuple[QueuedTask, bool]:
+        if not isinstance(task, QueuedTask):
+            raise QueueConflictError("task must be a QueuedTask")
         scope_key = (
             task.context.tenant_id, task.context.identity_id, task.project_id, task.operation_key
         )
@@ -97,7 +107,7 @@ class InMemoryTaskQueue:
 
     def finish(self, task_id: str, status: Literal["completed", "failed"]) -> QueuedTask:
         task_id = self._required_scope("task_id", task_id)
-        if status not in {"completed", "failed"}:
+        if not isinstance(status, str) or status not in {"completed", "failed"}:
             raise QueueConflictError("finish status must be completed or failed")
         with self._lock:
             task = self._require(task_id)
@@ -185,7 +195,7 @@ class InMemoryTaskQueue:
         tenant_id = self._required_scope("tenant_id", tenant_id)
         identity_id = self._required_scope("identity_id", identity_id)
         project_id = self._required_scope("project_id", project_id)
-        if status not in {"queued", "running", "waiting_human", "paused", "completed", "failed", "cancelled"}:
+        if not isinstance(status, str) or status not in {"queued", "running", "waiting_human", "paused", "completed", "failed", "cancelled"}:
             raise QueueConflictError("task status is invalid")
         with self._lock:
             task = self._require(task_id)
@@ -210,6 +220,8 @@ class InMemoryTaskQueue:
 
     @staticmethod
     def _required_scope(field_name: str, value: str) -> str:
+        if not isinstance(value, str):
+            raise QueueConflictError(f"{field_name} must be a string")
         normalized = value.strip()
         if not normalized:
             raise QueueConflictError(f"{field_name} must not be empty")

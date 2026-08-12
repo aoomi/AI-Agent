@@ -3386,3 +3386,5 @@
 - 第一百八十四项自动测试与稽查：十一类坏TTL/clock/identity/generation动态失败关闭；租约专项回归、Python编译与diff门禁通过。
 - 第一百八十五项稽查首败与整改：DurableTaskRepository广泛用`str(...)`接受数字job/task/owner/query，projection lock又允许NaN/Infinity TTL，可能形成含混所有者或永久锁。现任务持久化与投影控制入口严格验证运行时类型。
 - 第一百八十五项自动测试与稽查：十四类坏身份/批量/query/lock控制动态失败关闭；专项回归、Python编译与diff门禁通过。
+- 第一百八十六项稽查首败与整改：QueuedTask直接对身份调用strip并假定context/payload结构，enqueue也接受任意对象；数字身份、列表payload或坏任务会泄漏底层异常。现任务模型和入队控制在共享索引副作用前完整验证运行时契约。
+- 第一百八十六项自动测试与稽查：坏身份/context/payload/status/task及公开控制动态失败关闭；队列与任务服务关联`20 passed`（另`19 subtests passed`），Python编译与diff门禁通过。

@@ -139,6 +139,30 @@ class InMemoryTaskQueueTest(unittest.TestCase):
             queue.apply_status_event("task-1", "tenant-a", "identity-1", "project-1", "paused", True)  # type: ignore[arg-type]
         self.assertEqual(queue.get("task-1", "tenant-a").status, "running")
 
+    def test_runtime_types_are_rejected_before_queue_mutation(self) -> None:
+        invalid_tasks = (
+            lambda: QueuedTask(1, "project", "operation", "type", task().context, {}),  # type: ignore[arg-type]
+            lambda: QueuedTask("task", "project", "operation", "type", object(), {}),  # type: ignore[arg-type]
+            lambda: QueuedTask("task", "project", "operation", "type", task().context, []),  # type: ignore[arg-type]
+            lambda: QueuedTask("task", "project", "operation", "type", task().context, {}, status=[]),  # type: ignore[arg-type]
+        )
+        for build in invalid_tasks:
+            with self.subTest(build=build), self.assertRaises(QueueConflictError):
+                build()
+
+        queue = InMemoryTaskQueue()
+        with self.assertRaisesRegex(QueueConflictError, "QueuedTask"):
+            queue.enqueue(object())  # type: ignore[arg-type]
+        queue.enqueue(task())
+        with self.assertRaisesRegex(QueueConflictError, "must be a string"):
+            queue.claim(1)  # type: ignore[arg-type]
+        queue.claim("tenant-a")
+        with self.assertRaisesRegex(QueueConflictError, "finish status"):
+            queue.finish("task-1", [])  # type: ignore[arg-type]
+        with self.assertRaisesRegex(QueueConflictError, "status is invalid"):
+            queue.apply_status_event("task-1", "tenant-a", "identity-1", "project-1", [], 1)  # type: ignore[arg-type]
+        self.assertEqual(queue.get("task-1", "tenant-a").status, "running")
+
 
 if __name__ == "__main__":
     unittest.main()
