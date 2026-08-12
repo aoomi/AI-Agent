@@ -1221,3 +1221,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百一十八项：内存worker路由已验证字符串endpoint，并要求同generation不得改变service/resource/capacity/endpoint拓扑；节点配置变更必须显式提升代际。发现关联`7 passed`、`39 subtests passed`。
 - BUG072第二百一十九项：SQLite WorkerRegistry已同步Path库、字符串service/endpoint及同generation拓扑不变契约，跨实例发现与内存路由使用相同代际围栏。发现关联`8 passed`、`40 subtests passed`。
 - BUG072第二百二十项：插件签名验证器返回值已强制真实布尔，整数1等真值不能冒充密码学验签成功。安全关联`5 passed`、`9 subtests passed`。
+- BUG072第二百二十一项：Skill工具输出脱敏已强制非空字符串键、有限数值和受支持JSON类型，数字键/Infinity/任意对象不能经redact后进入日志或调用方。安全关联`3 passed`、`9 subtests passed`。

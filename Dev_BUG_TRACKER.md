@@ -3456,3 +3456,5 @@
 - 第二百一十九项自动测试与稽查：字符串database、数字service/endpoint及同代endpoint变更动态拒绝，升代变更成功；跨实例发现关联`8 passed`（另`40 subtests passed`），Python编译与diff门禁通过。
 - 第二百二十项稽查首败与整改：PluginInstallVerifier仅以真值判断SignatureVerifier结果，整数1或任意truthy对象可被当成签名有效。现密码学验证边界只接受显式`True`。
 - 第二百二十项自动测试与稽查：整数验签结果动态失败关闭；插件签名与完整性关联`5 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
+- 第二百二十一项稽查首败与整改：SkillToolGuard.redact以`str(key)`改写数字输出键，并原样放行NaN/Infinity和任意对象，脱敏后输出仍可能不可序列化或身份含混。现输出递归边界与输入消毒保持一致失败关闭。
+- 第二百二十一项自动测试与稽查：数字键、Infinity及任意对象输出动态拒绝；安全关联`3 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
