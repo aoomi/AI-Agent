@@ -23,6 +23,9 @@ class ProviderAdapterDefinition:
     enabled:bool=True
     settings:Mapping[str,Any]=None  # type: ignore[assignment]
     def __post_init__(self)->None:
+        if any(not isinstance(value,str) for value in (self.provider_id,self.kind,self.secret_reference)):
+            raise ProviderAdapterError("provider definition fields must be strings")
+        if not isinstance(self.capabilities,frozenset):raise ProviderAdapterError("provider capabilities must be a frozenset")
         if self.kind not in {"model","text","image","video","audio"}: raise ProviderAdapterError("provider kind is invalid")
         if not self.provider_id.strip() or not self.capabilities or any(not isinstance(value,str) or not value.strip() for value in self.capabilities): raise ProviderAdapterError("provider id and capabilities are required")
         if not self.secret_reference.startswith(("env://","vault://","secret://")): raise ProviderAdapterError("provider requires an external secret reference")
@@ -49,6 +52,7 @@ class ProviderAdapterRegistry:
         if not callable(getattr(secret_resolver,"resolve",None)):raise ProviderAdapterError("secret resolver contract is invalid")
         self._resolver=secret_resolver;self._providers:dict[str,tuple[ProviderAdapterDefinition,ProviderExecutor]]={};self._lock=RLock();self._inflight:dict[str,int]={}
     def register(self,definition:ProviderAdapterDefinition,executor:ProviderExecutor)->tuple[ProviderAdapterDefinition,bool]:
+        if not isinstance(definition,ProviderAdapterDefinition):raise ProviderAdapterError("provider definition contract is invalid")
         if not callable(getattr(executor,"execute",None)):raise ProviderAdapterError("provider executor contract is invalid")
         with self._lock:
             existing=self._providers.get(definition.provider_id)
@@ -57,6 +61,7 @@ class ProviderAdapterRegistry:
                 return definition,True
             self._providers[definition.provider_id]=(definition,executor);return definition,False
     def get(self,provider_id:str)->ProviderAdapterDefinition:
+        if not isinstance(provider_id,str):raise ProviderAdapterError("provider id is required")
         provider_id=provider_id.strip()
         if not provider_id:raise ProviderAdapterError("provider id is required")
         with self._lock:
@@ -66,6 +71,7 @@ class ProviderAdapterRegistry:
         if kind is not None and kind not in {"model","text","image","video","audio"}:raise ProviderAdapterError("provider kind is invalid")
         with self._lock:return tuple(sorted((d for d,_ in self._providers.values() if kind is None or d.kind==kind),key=lambda d:d.provider_id))
     def invoke(self,provider_id:str,capability:str,inputs:Mapping[str,Any])->ProviderInvocation:
+        if not isinstance(provider_id,str) or not isinstance(capability,str):raise ProviderAdapterError("provider, capability and mapping inputs are required")
         provider_id,capability=provider_id.strip(),capability.strip()
         if not provider_id or not capability or not isinstance(inputs,Mapping):raise ProviderAdapterError("provider, capability and mapping inputs are required")
         with self._lock:

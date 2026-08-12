@@ -3330,3 +3330,5 @@
 - 第一百五十六项自动测试与稽查：列表配置、列表serialized pool和坏锁动态失败关闭；专项关联回归、Python编译与diff门禁通过。
 - 第一百五十七项稽查首败与整改：AgentContext/CollaborationContext直接对身份和引用调用strip，数字运行时输入会泄漏AttributeError而非在作用域门禁失败关闭。现身份与引用在规范化前逐项验证字符串类型。
 - 第一百五十七项自动测试与稽查：数字tenant/session/reference动态拒绝且合法上下文保持可用；上下文关联回归、Python编译与diff门禁通过。
+- 第一百五十八项稽查首败与整改：ProviderAdapterDefinition及registry信任静态类型，数字身份、tuple能力或任意definition对象会在strip/属性访问泄漏底层异常。现模型与全部公开入口在注册或secret解析前完整验证。
+- 第一百五十八项自动测试与稽查：数字provider/capability、tuple能力及坏definition动态失败关闭；Provider关联回归、Python编译与diff门禁通过。

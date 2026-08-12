@@ -10,7 +10,7 @@ class Executor:
 
 class ProviderAdapterRegistryTest(unittest.TestCase):
     def test_definition_and_invoke_runtime_contracts_are_rejected(self):
-        for kwargs in ({"capabilities":frozenset({" "})},{"timeout_seconds":True},{"enabled":1},{"settings":[]}):
+        for kwargs in ({"capabilities":frozenset({" "})},{"capabilities":("generate.image",)},{"provider_id":1},{"timeout_seconds":True},{"enabled":1},{"settings":[]}):
             values=dict(provider_id="p",kind="image",capabilities=frozenset({"generate.image"}),secret_reference="vault://text",timeout_seconds=30);values.update(kwargs)
             with self.subTest(kwargs=kwargs),self.assertRaises(ProviderAdapterError):ProviderAdapterDefinition(**values)
         registry=ProviderAdapterRegistry(Secrets());registry.register(ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30),Executor())
@@ -34,8 +34,9 @@ class ProviderAdapterRegistryTest(unittest.TestCase):
     def test_registry_rejects_invalid_provider_control_contracts(self):
         with self.assertRaisesRegex(ProviderAdapterError,"resolver contract"):ProviderAdapterRegistry(object())
         registry=ProviderAdapterRegistry(Secrets());definition=ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30)
+        with self.assertRaisesRegex(ProviderAdapterError,"definition contract"):registry.register(object(),Executor())
         with self.assertRaisesRegex(ProviderAdapterError,"executor contract"):registry.register(definition,object())
-        for operation in (lambda:registry.get(""),lambda:registry.list(kind="unknown"),lambda:registry.invoke("","generate.image",{}),lambda:registry.invoke("p","",{})):
+        for operation in (lambda:registry.get(""),lambda:registry.get(1),lambda:registry.list(kind="unknown"),lambda:registry.invoke("","generate.image",{}),lambda:registry.invoke("p",1,{})):
             with self.assertRaises(ProviderAdapterError):operation()
 
 if __name__=="__main__":unittest.main()
