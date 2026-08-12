@@ -25,7 +25,7 @@ class TaskProgress:
 
 
 class TaskProgressProjection:
-    STATUSES = frozenset({"queued","running","waiting_human","paused","completed","failed","cancelled"})
+    STATUSES = frozenset({"queued","waiting_memory","running","waiting_human","paused","completed","failed","cancelled"})
     def __init__(self, events: EventBus) -> None:
         if not callable(getattr(events,"subscribe",None)):raise TaskProjectionError("event bus contract is invalid")
         self._items: dict[tuple[str, str, str], TaskProgress] = {}

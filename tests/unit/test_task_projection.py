@@ -43,6 +43,11 @@ class TaskProgressProjectionTest(unittest.TestCase):
         events.publish(PublishedEvent("event-2","TASK_STATUS_CHANGED","project-a",context(),{"task_id":" task-a ","current_status":"running","progress_percent":1}))
         self.assertEqual(projection.get(context(),"project-a","task-a").task_id,"task-a")
 
+    def test_waiting_memory_is_preserved_in_task_projection(self) -> None:
+        events=EventBus();projection=TaskProgressProjection(events)
+        events.publish(PublishedEvent("event-1","TASK_STATUS_CHANGED","project-a",context(),{"task_id":"task-a","current_status":"waiting_memory","progress_percent":0}))
+        self.assertEqual(projection.get(context(),"project-a","task-a").status,"waiting_memory")
+
     def test_invalid_projection_contracts_are_rejected(self) -> None:
         with self.assertRaisesRegex(TaskProjectionError,"event bus contract"):TaskProgressProjection(object())
         projection=TaskProgressProjection(EventBus())

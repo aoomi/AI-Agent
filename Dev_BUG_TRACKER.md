@@ -3516,3 +3516,5 @@
 - 第二百四十九项自动测试与稽查：NaN、布尔及任意对象label动态拒绝；可观测性关联回归、Python编译与diff门禁通过。
 - 第二百五十项稽查首败与整改：TaskProgressProjection对status只判非空，任意同义/未知状态可进入投影；task_id校验后又以未规范化原值建键。现状态与内存队列统一，身份在写入前strip。
 - 第二百五十项自动测试与稽查：未知status动态拒绝且无投影副作用，空白task_id规范化后可查询；任务投影与集成关联回归、Python编译与diff门禁通过。
+- 第二百五十一项稽查首败与整改：架构统一生命周期明确包含`waiting_memory`，但通用QueuedTask与TaskProgressProjection仍拒绝该状态，同一资源等待任务在不同队列/投影实现间语义分叉。现两层统一接受并限定合法转移。
+- 第二百五十一项自动测试与稽查：queued↔waiting_memory与投影保真动态验证；内存队列、任务服务与投影集成关联回归、Python编译与diff门禁通过。

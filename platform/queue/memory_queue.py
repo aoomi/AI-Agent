@@ -12,12 +12,13 @@ import json
 from ai_agent_tenant import IdentityContext, IdentityContextError
 
 
-TaskStatus = Literal["queued", "running", "waiting_human", "paused", "completed", "failed", "cancelled"]
+TaskStatus = Literal["queued", "waiting_memory", "running", "waiting_human", "paused", "completed", "failed", "cancelled"]
 TERMINAL_STATUSES = frozenset({"completed", "cancelled"})
 STATUS_TRANSITIONS = frozenset({
     ("queued", "running"), ("queued", "cancelled"), ("running", "waiting_human"),
     ("running", "paused"), ("running", "completed"), ("running", "failed"),
     ("running", "cancelled"), ("waiting_human", "running"), ("waiting_human", "cancelled"),
+    ("queued", "waiting_memory"), ("waiting_memory", "queued"), ("waiting_memory", "cancelled"),
     ("paused", "queued"), ("paused", "cancelled"), ("failed", "queued"), ("failed", "cancelled"),
 })
 
@@ -46,7 +47,7 @@ class QueuedTask:
             raise QueueConflictError("context must be an IdentityContext")
         if not isinstance(self.payload, Mapping):
             raise QueueConflictError("payload must be a mapping")
-        if not isinstance(self.status, str) or self.status not in {"queued", "running", "waiting_human", "paused", "completed", "failed", "cancelled"}:
+        if not isinstance(self.status, str) or self.status not in {"queued", "waiting_memory", "running", "waiting_human", "paused", "completed", "failed", "cancelled"}:
             raise QueueConflictError("task status is invalid")
         if self._contains_sensitive_key(self.payload):
             raise QueueConflictError("task payload contains sensitive fields")
@@ -198,7 +199,7 @@ class InMemoryTaskQueue:
         tenant_id = self._required_scope("tenant_id", tenant_id)
         identity_id = self._required_scope("identity_id", identity_id)
         project_id = self._required_scope("project_id", project_id)
-        if not isinstance(status, str) or status not in {"queued", "running", "waiting_human", "paused", "completed", "failed", "cancelled"}:
+        if not isinstance(status, str) or status not in {"queued", "waiting_memory", "running", "waiting_human", "paused", "completed", "failed", "cancelled"}:
             raise QueueConflictError("task status is invalid")
         with self._lock:
             task = self._require(task_id)
