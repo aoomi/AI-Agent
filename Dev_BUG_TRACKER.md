@@ -3356,3 +3356,5 @@
 - 第一百六十九项自动测试与稽查：NaN写入不覆盖旧文件，非法target/prefix动态拒绝；专项回归、Python编译与diff门禁通过。
 - 第一百七十项稽查首败与整改：IndustryWorkflowService广泛使用`str(...)`接受数字workflow/robot/owner/operation，并把任意Iterable转成robot tuple，产生含混共享身份。现所有工作流控制字段均按声明类型严格验证和规范化。
 - 第一百七十项自动测试与稽查：数字身份/操作/机器人及列表robot集合动态失败关闭；专项回归、Python编译与diff门禁通过。
+- 第一百七十一项稽查首败与整改：ProductionCapability register/register_once/_required_id直接strip身份，数字capability/provider会泄漏AttributeError。现注册、读取、健康、启停、调用和卸载共用字符串身份门禁。
+- 第一百七十一项自动测试与稽查：五类数字capability/provider控制动态失败关闭；专项回归、Python编译与diff门禁通过。

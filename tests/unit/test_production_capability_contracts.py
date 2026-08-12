@@ -10,6 +10,8 @@ class ProductionCapabilityContractTest(unittest.TestCase):
         registry=ProductionCapabilityRegistry()
         for kwargs in ({"enabled":1},{"healthy":0},{"replace":1},{"priority":True},{"metadata":[]}):
             with self.subTest(kwargs=kwargs),self.assertRaises(ProductionCapabilityError):registry.register("video","local",lambda:1,**kwargs)
+        for operation in (lambda:registry.register(1,"local",lambda:1),lambda:registry.register_once("video",1,lambda:1)):
+            with self.subTest(operation=operation),self.assertRaises(ProductionCapabilityError):operation()
     def test_controls_reject_empty_identifiers(self) -> None:
         registry = ProductionCapabilityRegistry()
         registry.register("video.generate", "local", lambda: {"ok": True})
@@ -22,6 +24,8 @@ class ProductionCapabilityContractTest(unittest.TestCase):
         for call in calls:
             with self.subTest(call=call), self.assertRaisesRegex(ProductionCapabilityError, "required"):
                 call()
+        for call in (lambda:registry.get(1),lambda:registry.invoke(1),lambda:registry.health("video.generate",1,True)):
+            with self.subTest(call=call),self.assertRaisesRegex(ProductionCapabilityError,"required"):call()
 
     def test_runtime_boolean_controls_are_strict(self) -> None:
         registry = ProductionCapabilityRegistry()

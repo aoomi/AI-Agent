@@ -60,6 +60,7 @@ class ProductionCapabilityRegistry:
     def register(self, capability: str, provider_id: str, handler: CapabilityHandler, *, enabled: bool = True,
                  metadata: Mapping[str, Any] | None = None, priority: int = 100, healthy: bool = True,
                  replace: bool = False, replace_provider: bool = False) -> ProductionCapability:
+        if not isinstance(capability,str) or not isinstance(provider_id,str):raise ProductionCapabilityError("capability, provider and handler are required")
         capability, provider_id = capability.strip(), provider_id.strip()
         if not capability or not provider_id or not callable(handler):
             raise ProductionCapabilityError("capability, provider and handler are required")
@@ -92,6 +93,7 @@ class ProductionCapabilityRegistry:
         module. Reusing the existing provider is configuration discovery, not a
         provider replacement, and must remain safe while that provider is busy.
         """
+        if not isinstance(capability,str) or not isinstance(provider_id,str):raise ProductionCapabilityError("capability, provider and handler are required")
         capability, provider_id = capability.strip(), provider_id.strip()
         if not capability or not provider_id or not callable(handler):
             raise ProductionCapabilityError("capability, provider and handler are required")
@@ -223,6 +225,7 @@ class ProductionCapabilityRegistry:
 
     @staticmethod
     def _required_id(field_name: str, value: str) -> str:
+        if not isinstance(value,str):raise ProductionCapabilityError(f"{field_name} is required")
         normalized = value.strip()
         if not normalized:
             raise ProductionCapabilityError(f"{field_name} is required")
