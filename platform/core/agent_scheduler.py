@@ -120,7 +120,10 @@ class AgentScheduler:
         tenant_id, project_id = tenant_id.strip(), project_id.strip()
         if not tenant_id or not project_id:raise SchedulerError("pipeline tenant_id and project_id are required")
         if mode not in {"serial", "parallel"}: raise SchedulerError("scheduler mode must be serial or parallel")
-        if not 0 <= max_retries <= 10: raise SchedulerError("max_retries must be between 0 and 10")
+        if any(not isinstance(agent_id,str) or not agent_id.strip() for agent_id in agent_ids):raise SchedulerError("pipeline agent_ids are required")
+        if not isinstance(values,Mapping):raise SchedulerError("pipeline values must be a mapping")
+        if isinstance(max_retries,bool) or not isinstance(max_retries,int) or not 0 <= max_retries <= 10: raise SchedulerError("max_retries must be between 0 and 10")
+        if not isinstance(auto_run,bool):raise SchedulerError("auto_run must be boolean")
         for agent_id in agent_ids:
             self.contexts.create(tenant_id, project_id, agent_id)
         targets = agent_ids if mode == "parallel" else agent_ids[:1]
