@@ -41,17 +41,17 @@ class AgentConversationServiceTest(unittest.TestCase):
         client = ModelClient({"reply": "请确认配置", "proposal": {"proposal_type": "configuration_change", "requested_changes": {"settings": {"approval": "strict"}}}})
         service = AgentConversationService(self.models, self.configurations, client); service.bind(agent, skill)
         session = service.open_session(agent.agent_id, "owner")
-        _, proposal = service.send(session.session_id, "将审批改为严格")
+        _, proposal = service.send(session.session_id, "将审批改为严格", "owner")
         self.assertIsNotNone(proposal); self.assertEqual(self.configurations.get(agent.agent_id).configuration_version, 1)
         applied = service.confirm(proposal.proposal_id, "owner")
         self.assertEqual(applied.status, "applied"); self.assertEqual(self.configurations.get(agent.agent_id).configuration_version, 2)
-        self.assertEqual(len(service.messages(session.session_id)), 3)
+        self.assertEqual(len(service.messages(session.session_id, "owner")), 3)
 
     def test_complex_task_executes_only_after_confirmation(self) -> None:
         skill, agent = self.configured(); executor = TaskExecutor()
         client = ModelClient({"reply": "任务已规划", "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "实现复杂功能"}}})
         service = AgentConversationService(self.models, self.configurations, client, executor); service.bind(agent, skill)
-        _, proposal = service.send(service.open_session(agent.agent_id, "owner").session_id, "执行复杂任务")
+        _, proposal = service.send(service.open_session(agent.agent_id, "owner").session_id, "执行复杂任务", "owner")
         self.assertEqual(executor.calls, [])
         applied = service.confirm(proposal.proposal_id, "owner")
         self.assertEqual(applied.applied_result["task_id"], "task-1"); self.assertEqual(len(executor.calls), 1)
@@ -61,20 +61,20 @@ class AgentConversationServiceTest(unittest.TestCase):
         client = ModelClient({"reply": "提案", "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "修改代码"}}})
         service = AgentConversationService(self.models, self.configurations, client); service.bind(agent, skill)
         with self.assertRaisesRegex(ConversationError, "read-only"):
-            service.send(service.open_session(agent.agent_id, "owner").session_id, "修改代码")
+            service.send(service.open_session(agent.agent_id, "owner").session_id, "修改代码", "owner")
 
     def test_missing_real_model_client_fails_explicitly(self) -> None:
         skill, agent = self.configured()
         service = AgentConversationService(self.models, self.configurations, None); service.bind(agent, skill)
         with self.assertRaisesRegex(ConversationError, "not configured"):
-            service.send(service.open_session(agent.agent_id, "owner").session_id, "你好")
+            service.send(service.open_session(agent.agent_id, "owner").session_id, "你好", "owner")
 
     def test_rejected_proposal_cannot_be_confirmed(self) -> None:
         skill, agent = self.configured()
         client = ModelClient({"reply": "提案", "proposal": {"proposal_type": "configuration_change", "requested_changes": {"settings": {"x": 1}}}})
         service = AgentConversationService(self.models, self.configurations, client); service.bind(agent, skill)
-        _, proposal = service.send(service.open_session(agent.agent_id, "owner").session_id, "更改")
-        service.reject(proposal.proposal_id)
+        _, proposal = service.send(service.open_session(agent.agent_id, "owner").session_id, "更改", "owner")
+        service.reject(proposal.proposal_id, "owner")
         with self.assertRaisesRegex(ConversationError, "not pending"):
             service.confirm(proposal.proposal_id, "owner")
 
@@ -83,9 +83,9 @@ class AgentConversationServiceTest(unittest.TestCase):
         client = ModelClient({"reply": "已记住", "memory_updates": {"answer_style": "精简", "goal": "完成视频工作流"}})
         service = AgentConversationService(self.models, self.configurations, client); service.bind(agent, skill)
         first = service.open_session(agent.agent_id, "owner", {"project_id": "project-1", "task_id": "task-1"})
-        service.send(first.session_id, "以后回答精简")
+        service.send(first.session_id, "以后回答精简", "owner")
         second = service.open_session(agent.agent_id, "owner", {"project_id": "project-1"})
-        system = service.messages(second.session_id)[0].content
+        system = service.messages(second.session_id, "owner")[0].content
         self.assertIn("skill_id=system_main_developer", system)
         self.assertIn("完成视频工作流", system)
         self.assertEqual(second.context["project_id"], "project-1")
@@ -102,14 +102,32 @@ class AgentConversationServiceTest(unittest.TestCase):
         client = ModelClient({"reply": "需要确认目标平台", "needs_clarification": True, "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "执行"}}})
         service = AgentConversationService(self.models, self.configurations, client); service.bind(agent, skill)
         with self.assertRaisesRegex(ConversationError, "clarification response"):
-            service.send(service.open_session(agent.agent_id, "owner").session_id, "开始")
+            service.send(service.open_session(agent.agent_id, "owner").session_id, "开始", "owner")
 
     def test_selected_skill_and_plan_are_enforced(self) -> None:
         skill, agent = self.configured(); executor = TaskExecutor()
         client = ModelClient({"reply": "计划待确认", "selected_skill_id": skill.skill_id, "plan": ["读取上下文", "执行任务"], "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "执行"}}})
         service = AgentConversationService(self.models, self.configurations, client, executor); service.bind(agent, skill)
-        _, proposal = service.send(service.open_session(agent.agent_id, "owner").session_id, "开始")
+        _, proposal = service.send(service.open_session(agent.agent_id, "owner").session_id, "开始", "owner")
         self.assertEqual(proposal.requested_changes["plan"], ["读取上下文", "执行任务"])
+
+    def test_conversation_lifecycle_is_owner_scoped(self) -> None:
+        skill, agent = self.configured()
+        client = ModelClient({"reply": "待确认", "proposal": {"proposal_type": "configuration_change", "requested_changes": {"settings": {"x": 1}}}})
+        service = AgentConversationService(self.models, self.configurations, client); service.bind(agent, skill)
+        session = service.open_session(agent.agent_id, "owner")
+        with self.assertRaisesRegex(ConversationError, "not owned"):
+            service.send(session.session_id, "越权消息", "other")
+        _, proposal = service.send(session.session_id, "更改", "owner")
+        for operation in (
+            lambda: service.messages(session.session_id, "other"),
+            lambda: service.proposals(session.session_id, "other"),
+            lambda: service.confirm(proposal.proposal_id, "other"),
+            lambda: service.reject(proposal.proposal_id, "other"),
+        ):
+            with self.assertRaisesRegex(ConversationError, "not owned"):
+                operation()
+        self.assertEqual(service.confirm(proposal.proposal_id, "owner").status, "applied")
 
 
 if __name__ == "__main__": unittest.main()

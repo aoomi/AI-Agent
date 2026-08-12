@@ -75,11 +75,11 @@ class PlatformRequestHandler(BaseHTTPRequestHandler):
         conversation_prefix = "/api/v1/agent-conversations/"
         if path.startswith(conversation_prefix) and "/" not in path[len(conversation_prefix):]:
             try:
-                self._identity_context(); session_id = path[len(conversation_prefix):]
+                context = self._identity_context(); session_id = path[len(conversation_prefix):]
                 service = self.server.agent_conversations  # type: ignore[attr-defined]
                 self._write_json(HTTPStatus.OK, {
-                    "messages": [self._message_payload(item) for item in service.messages(session_id)],
-                    "proposals": [self._proposal_payload(item) for item in service.proposals(session_id)],
+                    "messages": [self._message_payload(item) for item in service.messages(session_id, context.identity_id)],
+                    "proposals": [self._proposal_payload(item) for item in service.proposals(session_id, context.identity_id)],
                 }); return
             except IdentityContextError:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_identity_context"}); return
@@ -244,13 +244,13 @@ class PlatformRequestHandler(BaseHTTPRequestHandler):
             conversation_prefix = "/api/v1/agent-conversations/"
             if path.startswith(conversation_prefix) and path.endswith("/messages"):
                 session_id = path[len(conversation_prefix):-9]
-                message, proposal = self.server.agent_conversations.send(session_id, body["content"])  # type: ignore[attr-defined]
+                message, proposal = self.server.agent_conversations.send(session_id, body["content"], context.identity_id)  # type: ignore[attr-defined]
                 self._write_json(HTTPStatus.OK, {"message": self._message_payload(message), "proposal": self._proposal_payload(proposal) if proposal else None}); return True
             proposal_prefix = "/api/v1/agent-proposals/"
             if path.startswith(proposal_prefix) and path.endswith(("/confirm", "/reject")):
                 tail = path[len(proposal_prefix):]; proposal_id, action = tail.rsplit("/", 1)
                 service = self.server.agent_conversations  # type: ignore[attr-defined]
-                proposal = service.confirm(proposal_id, context.identity_id) if action == "confirm" else service.reject(proposal_id)
+                proposal = service.confirm(proposal_id, context.identity_id) if action == "confirm" else service.reject(proposal_id, context.identity_id)
                 self._write_json(HTTPStatus.OK, self._proposal_payload(proposal)); return True
             self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"}); return True
         except IdentityContextError:

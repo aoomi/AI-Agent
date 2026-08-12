@@ -139,8 +139,8 @@ class AgentConversationService:
         self._messages[session.session_id] = [self._message(session, "system", self._system_prompt(configuration, agent, skill, safe_context, memory))]
         return session
 
-    def send(self, session_id: str, content: str) -> tuple[ConversationMessage, ConversationProposal | None]:
-        session = self._session(session_id)
+    def send(self, session_id: str, content: str, identity_id: str) -> tuple[ConversationMessage, ConversationProposal | None]:
+        session = self._owned_session(session_id, identity_id)
         text = content.strip()
         if not text: raise ConversationError("conversation content is required")
         if self.model_client is None: raise ConversationError("real conversation model client is not configured")
@@ -190,9 +190,10 @@ class AgentConversationService:
 
     def confirm(self, proposal_id: str, confirmed_by_identity_id: str) -> ConversationProposal:
         proposal = self._proposal(proposal_id)
-        if proposal.status != "pending_confirmation": raise ConversationError("proposal is not pending confirmation")
         identity_id = confirmed_by_identity_id.strip()
         if not identity_id: raise ConversationError("confirmed_by_identity_id is required")
+        self._owned_session(proposal.session_id, identity_id)
+        if proposal.status != "pending_confirmation": raise ConversationError("proposal is not pending confirmation")
         configuration = self.configurations.get(proposal.agent_id)
         try:
             if proposal.proposal_type == "configuration_change":
@@ -216,16 +217,24 @@ class AgentConversationService:
         self._proposals[proposal_id] = applied
         return applied
 
-    def reject(self, proposal_id: str) -> ConversationProposal:
+    def reject(self, proposal_id: str, rejected_by_identity_id: str) -> ConversationProposal:
         proposal = self._proposal(proposal_id)
+        self._owned_session(proposal.session_id, rejected_by_identity_id)
         if proposal.status != "pending_confirmation": raise ConversationError("proposal is not pending confirmation")
         rejected = replace(proposal, status="rejected"); self._proposals[proposal_id] = rejected; return rejected
 
-    def messages(self, session_id: str) -> tuple[ConversationMessage, ...]:
-        self._session(session_id); return tuple(self._messages[session_id])
+    def messages(self, session_id: str, identity_id: str) -> tuple[ConversationMessage, ...]:
+        self._owned_session(session_id, identity_id); return tuple(self._messages[session_id])
 
-    def proposals(self, session_id: str) -> tuple[ConversationProposal, ...]:
-        self._session(session_id); return tuple(item for item in self._proposals.values() if item.session_id == session_id)
+    def proposals(self, session_id: str, identity_id: str) -> tuple[ConversationProposal, ...]:
+        self._owned_session(session_id, identity_id); return tuple(item for item in self._proposals.values() if item.session_id == session_id)
+
+    def _owned_session(self, session_id: str, identity_id: str) -> ConversationSession:
+        owner = identity_id.strip()
+        if not owner: raise ConversationError("identity_id is required")
+        session = self._session(session_id)
+        if session.created_by_identity_id != owner: raise ConversationError("conversation session is not owned by identity")
+        return session
 
     def _proposal_from_model(self, session: ConversationSession, configuration: AgentConfiguration, raw: Any, plan: tuple[str, ...] = ()) -> ConversationProposal | None:
         if raw is None: return None

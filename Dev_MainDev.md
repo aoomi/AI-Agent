@@ -1025,3 +1025,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - 第二轮退回整改完成：正代际按stage accepted-event存在性识别revision序列，因此新代首个0可接管、第二个重复/缺失0严格拒绝、1正常推进；无stage事件的真旧checkpoint允许一次迁移。run-stage成功/失败、确认、协调提交及恢复入口全部显式递增revision。专项`9 passed`、完整unit`543 passed, 1 skipped, 9 subtests passed`，编译/typecheck/83模块构建通过，待独立复测。
 - 最新独立软件复测通过：事件围栏、阶段取消、authority原子提交、项目恢复与文档状态关联`132 passed`；完整unit`554 passed, 1 skipped, 9 subtests passed`，Node运行时补充后对应动态文件`23 passed`；关键Python编译、Vue typecheck及83模块生产构建通过。BUG043待只读稽查。
 - 最终只读稽查通过：generation优先、同代revision单调、revision0唯一首事件、legacy一次迁移、拒绝事件恢复与正式调用方revision推进均成立；BUG-20260811-043已关闭。
+- BUG072第二十六项：平台智能体会话的消息、提案及确认/拒绝全生命周期已绑定创建者identity；异身份即使获得session/proposal UUID也无法读取、注入或执行。专项及平台关联`24 passed`、`3 subtests passed`，只读稽查通过。
