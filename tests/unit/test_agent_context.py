@@ -47,6 +47,8 @@ class AgentContextStoreTest(unittest.TestCase):
             with self.subTest(values=values),self.assertRaisesRegex(AgentContextError,"sensitive fields"):store.update("tenant-a","project-a","agent-a",values)
         for values in ({"value":float("nan")},{"value":object()}):
             with self.subTest(values=values),self.assertRaisesRegex(AgentContextError,"standard JSON"):store.update("tenant-a","project-a","agent-a",values)
+        for values in ({"nested":{1:"value"}},{"nested":{" ":"value"}}):
+            with self.subTest(values=values),self.assertRaisesRegex(AgentContextError,"sensitive fields"):store.update("tenant-a","project-a","agent-a",values)
 
     def test_context_identifiers_and_references_require_strings(self) -> None:
         store=AgentContextStore()

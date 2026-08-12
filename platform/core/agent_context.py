@@ -63,7 +63,7 @@ class AgentContextStore:
     @staticmethod
     def _contains_sensitive_key(value: Any) -> bool:
         forbidden=("secret","token","password","api_key","authorization","credential")
-        if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or AgentContextStore._contains_sensitive_key(item) for key,item in value.items())
+        if isinstance(value,Mapping):return any(not isinstance(key,str) or not key.strip() or any(word in key.lower() for word in forbidden) or AgentContextStore._contains_sensitive_key(item) for key,item in value.items())
         if isinstance(value,(list,tuple,set,frozenset)):return any(AgentContextStore._contains_sensitive_key(item) for item in value)
         return False
 
