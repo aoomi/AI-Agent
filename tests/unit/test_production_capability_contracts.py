@@ -6,6 +6,11 @@ from ai_agent_adapters import ProductionCapabilityError, ProductionCapabilityReg
 
 
 class ProductionCapabilityContractTest(unittest.TestCase):
+    def test_metadata_is_deeply_immutable_from_caller_mutation(self) -> None:
+        metadata={"routing":{"regions":["local"]}}
+        item=ProductionCapabilityRegistry().register("video","local",lambda:1,metadata=metadata)
+        metadata["routing"]["regions"][0]="forged"
+        self.assertEqual(item.metadata["routing"]["regions"][0],"local")
     def test_registration_rejects_runtime_pseudo_controls(self) -> None:
         registry=ProductionCapabilityRegistry()
         for kwargs in ({"enabled":1},{"healthy":0},{"replace":1},{"priority":True},{"metadata":[]}):

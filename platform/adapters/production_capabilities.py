@@ -49,7 +49,7 @@ class ProductionCapabilityRegistry:
         return False
 
     @classmethod
-    def _validate_metadata(cls, metadata: Mapping[str, Any]) -> None:
+    def _validate_metadata(cls, metadata: Mapping[str, Any]) -> dict[str, Any]:
         if cls._contains_sensitive_key(metadata):
             raise ProductionCapabilityError("provider metadata contain sensitive fields")
         concurrency = metadata.get("max_concurrency")
@@ -57,8 +57,9 @@ class ProductionCapabilityRegistry:
             isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency <= 0
         ):
             raise ProductionCapabilityError("provider max_concurrency must be a positive integer")
-        try:json.dumps(dict(metadata),allow_nan=False)
+        try:canonical=json.dumps(dict(metadata),allow_nan=False)
         except (TypeError,ValueError) as error:raise ProductionCapabilityError("provider metadata must be standard JSON") from error
+        return json.loads(canonical)
 
     def register(self, capability: str, provider_id: str, handler: CapabilityHandler, *, enabled: bool = True,
                  metadata: Mapping[str, Any] | None = None, priority: int = 100, healthy: bool = True,
@@ -72,8 +73,8 @@ class ProductionCapabilityRegistry:
         if metadata is not None and not isinstance(metadata,Mapping):raise ProductionCapabilityError("provider metadata must be a mapping")
         if isinstance(priority,bool) or not isinstance(priority,int) or priority < 0:
             raise ProductionCapabilityError("provider priority must be non-negative")
-        self._validate_metadata(metadata or {})
-        definition = ProductionCapability(capability, provider_id, enabled, MappingProxyType(dict(metadata or {})), priority, healthy)
+        metadata_snapshot = self._validate_metadata(metadata or {})
+        definition = ProductionCapability(capability, provider_id, enabled, MappingProxyType(metadata_snapshot), priority, healthy)
         key = (capability, provider_id)
         with self._lock:
             if replace and any(count for key, count in self._inflight.items() if key[0] == capability):

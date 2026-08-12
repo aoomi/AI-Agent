@@ -6,6 +6,11 @@ from ai_agent_adapters import ProductionExtensionError, ProductionExtensionRegis
 
 
 class ProductionExtensionContractTest(unittest.TestCase):
+    def test_metadata_is_deeply_immutable_from_caller_mutation(self) -> None:
+        metadata={"routing":{"regions":["local"]}}
+        item=ProductionExtensionRegistry().register("storage","local",lambda:object(),metadata=metadata)
+        metadata["routing"]["regions"][0]="forged"
+        self.assertEqual(item.metadata["routing"]["regions"][0],"local")
     def test_registration_rejects_runtime_pseudo_controls(self) -> None:
         with self.assertRaisesRegex(ProductionExtensionError,"trusted builtin"):ProductionExtensionRegistry(trusted_builtin_providers={("point","")})
         registry=ProductionExtensionRegistry()

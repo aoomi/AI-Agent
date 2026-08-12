@@ -89,8 +89,9 @@ class ProductionExtensionRegistry:
             raise ProductionExtensionError(f"invalid required_methods contract: {point}/{provider}")
         if any(not isinstance(name,str) or not name.strip() for name in required_value):raise ProductionExtensionError(f"invalid required_methods contract: {point}/{provider}")
         serializable_metadata={key:value for key,value in metadata_values.items() if key!="implementation_type"}
-        try:json.dumps(serializable_metadata,allow_nan=False)
+        try:canonical_metadata=json.dumps(serializable_metadata,allow_nan=False)
         except (TypeError,ValueError) as error:raise ProductionExtensionError("extension metadata must be standard JSON") from error
+        metadata_snapshot=json.loads(canonical_metadata)
         required = tuple(dict.fromkeys(name.strip() for name in required_value))
         with self._lock:
             point_required = self._point_required_methods.get(point, ())
@@ -161,6 +162,9 @@ class ProductionExtensionRegistry:
                 self._active.pop(point, None)
             elif key in self._extensions and not replace_provider:
                 raise ProductionExtensionError(f"extension provider already registered: {point}/{provider}")
+            for metadata_key, value in metadata_snapshot.items():
+                if metadata_key not in {"implementation_type", "probe_configuration"}:
+                    metadata_values[metadata_key] = value
             definition = ProductionExtension(point, provider, enabled, MappingProxyType(metadata_values), should_activate)
             self._extensions[key] = (definition, factory)
             if contract is None:
