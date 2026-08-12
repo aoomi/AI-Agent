@@ -3588,3 +3588,4 @@
 - 第二百八十五项自动测试与稽查：scheduler完成后执行器原values改写嵌套steps不影响上下文；串并行调度、暂停恢复与人工接管关联回归、Python编译及diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第二百八十六项（已关闭，2026-08-12）：短剧ProductionOrchestrator虽然对暂态ConnectionError重试，但两次把由同一调用方嵌套引用浅拷贝出的inputs交给可替换stage executor；首个失败执行器可污染第二次尝试及原请求，破坏生产节点重放事实。现执行前强制标准JSON并固定权威快照，每次attempt独立重建深副本；动态测试证明首尝试篡改region后第二次仍收到local且调用方对象不变。关联`117 passed, 19 subtests passed`，Python编译、文档状态及diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第二百八十七项（已关闭，2026-08-12）：短剧ProductionOrchestrator把stage executor输出浅拷贝进持久证据与公共返回，执行器仍持有的嵌套对象可在发布后改写结果。现输出在状态提交前强制标准JSON并固定权威深快照，持久证据与公共返回分别重建；动态测试证明执行后篡改原region不影响两份已发布事实。关联`118 passed, 19 subtests passed`，Python编译、文档状态及diff门禁通过。
+- BUG072 / M9.198 / 架构横向稽查第二百八十八项（已关闭，2026-08-12）：ProductionExtension第三方factory探测虽隔离调用方配置，却复用注册表内部嵌套引用，首次恶意探测可污染后续替换探测。现每次probe均从权威标准JSON重建独立深副本；重复探测动态证明两次均收到local。关联`18 passed, 23 subtests passed`，Python编译、文档状态及diff门禁通过。

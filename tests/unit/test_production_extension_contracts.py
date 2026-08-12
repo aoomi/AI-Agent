@@ -13,6 +13,16 @@ class ProductionExtensionContractTest(unittest.TestCase):
         def factory(**values):values["routing"]["regions"][0]="factory";return Provider()
         ProductionExtensionRegistry().register("storage","local",factory,metadata={"required_methods":["acquire"],"implementation_type":Provider,"probe_configuration":original})
         self.assertEqual(original["routing"]["regions"][0],"local")
+    def test_repeated_probe_receives_pristine_nested_configuration(self) -> None:
+        class Provider:
+            def acquire(self):pass
+        seen=[]
+        def factory(**values):
+            seen.append(values["routing"]["regions"][0]);values["routing"]["regions"][0]="factory";return Provider()
+        registry=ProductionExtensionRegistry()
+        registry.register("storage","local",factory,metadata={"required_methods":["acquire"],"implementation_type":Provider,"probe_configuration":{"routing":{"regions":["local"]}}})
+        registry.register("storage","local",factory,metadata={"required_methods":["acquire"],"implementation_type":Provider,"probe_configuration":{"routing":{"regions":["local"]}}},replace_provider=True)
+        self.assertEqual(seen,["local","local"])
     def test_create_configuration_is_deeply_isolated_from_factory_mutation(self) -> None:
         def factory(**values):values["routing"]["regions"][0]="factory";return object()
         values={"routing":{"regions":["local"]}};registry=ProductionExtensionRegistry();registry.register("storage","local",factory);registry.create("storage",**values)

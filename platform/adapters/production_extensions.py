@@ -360,7 +360,7 @@ class ProductionExtensionRegistry:
             return
         candidate: Any = None
         try:
-            candidate = factory(**dict(contract.probe_configuration))
+            candidate = factory(**json.loads(json.dumps(dict(contract.probe_configuration), allow_nan=False)))
             if candidate is None:
                 raise ProductionExtensionError(f"extension returned no instance: {extension_point}/{provider_id}")
             cls._validate_instance(extension_point, provider_id, candidate, contract)
