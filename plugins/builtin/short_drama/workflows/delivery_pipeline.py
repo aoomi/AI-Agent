@@ -54,6 +54,8 @@ class DeliveryPipeline:
         if composition.node_type != "composition" or not composition.content:
             raise DeliveryPipelineError("review requires composition artifact")
         decision = self.provider.review(composition.content, composition.media_type)
+        if not isinstance(decision,ReviewDecision) or not isinstance(decision.approved,bool) or not isinstance(decision.confirmed,bool) or not isinstance(decision.issues,tuple) or any(not isinstance(issue,str) or not issue.strip() for issue in decision.issues):
+            raise DeliveryPipelineError("review provider returned invalid decision")
         if decision.approved and decision.issues:
             raise DeliveryPipelineError("approved review cannot contain issues")
         if not decision.approved and not decision.issues:
@@ -80,6 +82,6 @@ class DeliveryPipeline:
 
     @staticmethod
     def _artifact(node: str, output: DeliveryOutput) -> DeliveryArtifact:
-        if not output.content or not output.media_type.strip():
+        if not isinstance(output,DeliveryOutput) or not isinstance(output.content,bytes) or not isinstance(output.media_type,str) or not output.content or not output.media_type.strip():
             raise DeliveryPipelineError(f"{node} provider returned invalid output")
         return DeliveryArtifact(node, output.content, output.media_type, sha256(output.content).hexdigest())

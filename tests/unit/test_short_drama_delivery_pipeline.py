@@ -42,5 +42,16 @@ class DeliveryPipelineTest(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.DeliveryPipelineError, "requires"):
             MODULE.DeliveryPipeline(Provider()).composition([], [b"a"], [b"s"])
 
+    def test_provider_runtime_contract_rejects_pseudo_outputs(self) -> None:
+        class Invalid(Provider):
+            def __init__(self,output=None,decision=None):self.output=output;self.decision=decision
+            def compose(self,inputs):return self.output
+            def review(self,*_):return self.decision
+        for output in (object(),MODULE.DeliveryOutput("text","video/mp4")):
+            with self.subTest(output=output),self.assertRaises(MODULE.DeliveryPipelineError):MODULE.DeliveryPipeline(Invalid(output=output)).composition([b"v"],[b"a"],[b"s"])
+        composition=MODULE.DeliveryArtifact("composition",b"v","video/mp4","a"*64)
+        for decision in (object(),MODULE.ReviewDecision(True,(1,))):
+            with self.subTest(decision=decision),self.assertRaises(MODULE.DeliveryPipelineError):MODULE.DeliveryPipeline(Invalid(decision=decision)).review(composition)
+
 
 if __name__ == "__main__": unittest.main()
