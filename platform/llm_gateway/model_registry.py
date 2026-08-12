@@ -40,7 +40,15 @@ class ModelDefinition:
         context_window: int,
         settings: Mapping[str, Any] | None = None,
     ) -> "ModelDefinition":
-        normalized = frozenset(capabilities)
+        if isinstance(capabilities, str):
+            raise ModelRegistryError("capabilities must be a collection of capability names")
+        try:
+            raw_capabilities = tuple(capabilities)
+        except TypeError as error:
+            raise ModelRegistryError("capabilities must be iterable") from error
+        if any(not isinstance(value, str) or not value.strip() for value in raw_capabilities):
+            raise ModelRegistryError("capabilities must contain non-empty strings")
+        normalized = frozenset(value.strip() for value in raw_capabilities)
         values = {
             "model_id": model_id.strip(),
             "provider_id": provider_id.strip(),
@@ -51,7 +59,9 @@ class ModelDefinition:
         unknown = normalized - MODEL_CAPABILITIES
         if not normalized or unknown:
             raise ModelRegistryError(f"invalid model capabilities: {sorted(unknown)}")
-        if context_window < 1:
+        if isinstance(enabled, bool) is False:
+            raise ModelRegistryError("enabled must be boolean")
+        if isinstance(context_window, bool) or not isinstance(context_window, int) or context_window < 1:
             raise ModelRegistryError("context_window must be positive")
         forbidden=("secret","token","password","api_key","authorization","credential")
         def contains_secret(value:Any)->bool:
@@ -75,11 +85,15 @@ class ModelRequirements:
     provider_id: str | None = None
 
     def __post_init__(self) -> None:
+        if not self.capabilities:
+            raise ModelRegistryError("required capabilities must not be empty")
         unknown = self.capabilities - MODEL_CAPABILITIES
         if unknown:
             raise ModelRegistryError(f"invalid required capabilities: {sorted(unknown)}")
-        if self.minimum_context_window < 1:
+        if isinstance(self.minimum_context_window, bool) or not isinstance(self.minimum_context_window, int) or self.minimum_context_window < 1:
             raise ModelRegistryError("minimum_context_window must be positive")
+        if self.provider_id is not None and not self.provider_id.strip():
+            raise ModelRegistryError("provider_id is required when supplied")
 
 
 class ModelRegistry:
