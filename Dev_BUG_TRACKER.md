@@ -3234,3 +3234,5 @@
 - 第一百零八项自动测试与稽查：坏resolver/executor、空provider/capability和非法kind动态拒绝；Provider注册、生产集成与短剧backend关联`10 passed`，Python编译与diff门禁通过。
 - 第一百零九项稽查首败与整改：ProviderService接受坏health checker、空provider/display、空capability、非正timeout及整数enabled，错误会污染配置/健康表或延迟到探针；get也把空ID伪装未找到。现构造、注册和读取三层在共享状态前严格验证。
 - 第一百零九项自动测试与稽查：坏checker及五类畸形注册和空读取动态拒绝；Provider生产集成与Agent管理API关联`8 passed`（另`5 subtests passed`），Python编译与diff门禁通过。
+- 第一百一十项稽查首败与整改：TaskProgressProjection构造不验证events协议，事件task/status接受空白字符串，get/list也把空project/task伪装scope不存在。现订阅、投影写入及两类读取在共享状态访问前严格验证。
+- 第一百一十项自动测试与稽查：坏EventBus、空project/task及空列表scope动态拒绝；任务投影、TaskService和HTTP追踪关联`12 passed`，Python编译与diff门禁通过。

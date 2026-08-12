@@ -34,5 +34,11 @@ class TaskProgressProjectionTest(unittest.TestCase):
         with self.assertRaises(TaskProjectionError):
             events.publish(PublishedEvent("event-1", "TASK_STATUS_CHANGED", "project-a", context(), {"task_id": "task-a", "current_status": "running", "progress_percent": 101}))
 
+    def test_invalid_projection_contracts_are_rejected(self) -> None:
+        with self.assertRaisesRegex(TaskProjectionError,"event bus contract"):TaskProgressProjection(object())
+        projection=TaskProgressProjection(EventBus())
+        for operation in (lambda:projection.get(context(),"","task"),lambda:projection.get(context(),"project",""),lambda:projection.list(context(),"")):
+            with self.assertRaisesRegex(TaskProjectionError,"required"):operation()
+
 
 if __name__ == "__main__": unittest.main()
