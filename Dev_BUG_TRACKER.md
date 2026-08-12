@@ -3486,3 +3486,5 @@
 - 第二百三十四项自动测试与稽查：NaN及任意对象payload动态拒绝；事件、任务投影与集成关联回归、Python编译与diff门禁通过。
 - 第二百三十五项稽查首败与整改：内存QueuedTask仅验证payload Mapping与敏感键，可接受持久DurableTaskRepository明确拒绝的NaN和任意对象，导致队列后端切换语义不一致。现两类队列边界统一失败关闭。
 - 第二百三十五项自动测试与稽查：NaN及任意对象task payload动态拒绝；内存队列、任务服务与集成关联回归、Python编译与diff门禁通过。
+- 第二百三十六项稽查首败与整改：AgentContext values与CollaborationEvidence metadata只屏蔽敏感键，NaN或任意对象可进入共享状态和稽查报告。现两条跨智能体边界均在共享写入前强制标准JSON。
+- 第二百三十六项自动测试与稽查：上下文与证据metadata的NaN/任意对象动态拒绝；Agent上下文与协作关联回归、Python编译与diff门禁通过。

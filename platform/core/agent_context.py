@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from threading import RLock
 from typing import Any, Mapping
+import json
 
 
 class AgentContextError(ValueError):
@@ -36,6 +37,8 @@ class AgentContextStore:
         if not isinstance(values,Mapping):raise AgentContextError("agent context values must be a mapping")
         if any(not isinstance(name,str) or not name.strip() for name in values):raise AgentContextError("agent context keys must be non-empty strings")
         if self._contains_sensitive_key(values):raise AgentContextError("agent context contains sensitive fields")
+        try:json.dumps(dict(values),allow_nan=False)
+        except (TypeError,ValueError) as error:raise AgentContextError("agent context must be standard JSON") from error
         with self._lock:
             try: context = self._contexts[key]
             except KeyError as error: raise AgentContextError("agent context does not exist in this scope") from error

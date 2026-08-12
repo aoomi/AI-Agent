@@ -106,6 +106,12 @@ class AgentCollaborationServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(AgentCollaborationError, "real inspection executor"):
             service.run_inspection(handoff.handoff_id)
 
+    def test_inspection_evidence_metadata_requires_standard_json(self) -> None:
+        for value in (float("nan"),object()):
+            executor=InspectionExecutor({"read_only":True,"verdict":"passed","issues":[],"evidence":[{"evidence_id":"evidence-1","kind":"test","reference":"results/test.xml","metadata":{"value":value}}]})
+            service,session=self.open(executor);handoff=service.submit_for_inspection(session.session_id,task_id="task",context_reference="context.json")
+            with self.subTest(value=value),self.assertRaisesRegex(AgentCollaborationError,"standard JSON"):service.run_inspection(handoff.handoff_id)
+
     def test_issues_become_developer_remediation_on_original_task(self) -> None:
         scheduler = RemediationScheduler()
         executor = InspectionExecutor({"read_only": True, "verdict": "changes_required", "issues": [{"issue_id": "issue-1", "code": "X", "title": "X", "description": "X", "severity": "high", "evidence_ids": []}], "evidence": []})
