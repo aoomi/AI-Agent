@@ -3562,3 +3562,5 @@
 - 第二百七十二项自动测试与稽查：确认后执行器原结果嵌套steps篡改动态隔离；会话提案、执行失败与配置确认关联回归、Python编译及diff门禁通过。
 - 第二百七十三项稽查首败与整改：ProviderAdapter invoke仅冻结inputs顶层，真实executor可改写嵌套输入并反向污染调用方请求对象。现网络/密钥副作用前以标准JSON建立独立调用快照。
 - 第二百七十三项自动测试与稽查：恶意executor改写嵌套region后原请求保持不变；Provider适配、韧性调用与生产集成关联回归、Python编译及diff门禁通过。
+- 第二百七十四项稽查首败与整改：ResilientProviderInvoker将同一嵌套inputs引用传给重试和fallback提供方，任一失败提供方可污染后续尝试及调用方。现限流/熔断副作用前建立唯一标准JSON深快照供整条调用链使用。
+- 第二百七十四项自动测试与稽查：恶意提供方改写嵌套region后原请求保持不变；重试、fallback、限流与熔断关联回归、Python编译及diff门禁通过。

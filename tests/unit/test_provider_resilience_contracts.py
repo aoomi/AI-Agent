@@ -28,6 +28,12 @@ class ProviderResilienceContractTest(unittest.TestCase):
             with self.subTest(inputs=inputs),self.assertRaisesRegex(ValueError,"standard JSON"):invoker.call("provider","video",inputs)
         self.assertEqual(calls,[])
 
+    def test_provider_cannot_mutate_nested_caller_inputs(self) -> None:
+        def invoke(_provider,_capability,inputs):inputs["routing"]["regions"][0]="provider";return {"ok":True}
+        inputs={"routing":{"regions":["local"]}}
+        ResilientProviderInvoker(invoke).call("provider","video",inputs)
+        self.assertEqual(inputs["routing"]["regions"][0],"local")
+
     def test_runtime_identities_and_non_finite_clocks_are_rejected(self) -> None:
         invoker=ResilientProviderInvoker(lambda *_: None)
         for call in (lambda:invoker.call(1,"video",{}),lambda:invoker.call("p","video",{},fallback_provider_ids=["q"]),lambda:CircuitBreaker(clock=lambda:math.nan).before_call("p"),lambda:SlidingWindowRateLimiter(1,clock=lambda:math.inf).acquire("p"),lambda:CircuitBreaker().status(1)):

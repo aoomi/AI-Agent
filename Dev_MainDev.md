@@ -1274,3 +1274,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百七十一项：TraceSpan attributes已在计时前由标准JSON规范化结果生成独立深快照，业务执行期间不能改写最终持久观测事实。
 - BUG072第二百七十二项：提案executor applied_result已由标准JSON规范化结果生成独立深快照，确认落终态后执行器不能篡改嵌套结果。
 - BUG072第二百七十三项：ProviderAdapter invoke inputs已由标准JSON规范化结果生成独立调用快照，真实executor不能反向污染调用方嵌套请求对象。
+- BUG072第二百七十四项：Provider韧性调用inputs已在限流/熔断前生成标准JSON深快照，失败重试或fallback提供方不能污染调用方原请求。

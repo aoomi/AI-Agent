@@ -75,13 +75,14 @@ class ResilientProviderInvoker:
                 or not provider_id.strip() or not capability.strip() or any(not isinstance(target,str) or not target.strip() for target in targets)):raise ValueError("provider and capability are required")
         if len(set(targets))!=len(targets):raise ValueError("provider fallback chain must be unique")
         if not isinstance(inputs,Mapping):raise ValueError("provider inputs must be a mapping")
-        try:json.dumps(dict(inputs),allow_nan=False)
+        try:canonical_inputs=json.dumps(dict(inputs),allow_nan=False)
         except (TypeError,ValueError) as error:raise ValueError("provider inputs must be standard JSON") from error
+        input_snapshot=json.loads(canonical_inputs)
         last=None
         for target in targets:
             with self._lock:limiter=self.limiters.setdefault(target,SlidingWindowRateLimiter(self.rate_limit,self.clock))
             for attempt in range(self.max_retries+1):
-                try:self.breaker.before_call(target);limiter.acquire(target);result=self.invoke(target,capability,inputs);self.breaker.success(target);return result
+                try:self.breaker.before_call(target);limiter.acquire(target);result=self.invoke(target,capability,input_snapshot);self.breaker.success(target);return result
                 except Exception as raw:
                     last=normalize_provider_error(raw,target);self.breaker.failure(target)
                     if not last.retryable or attempt>=self.max_retries:break
