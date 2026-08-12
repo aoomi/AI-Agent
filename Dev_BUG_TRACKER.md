@@ -3554,3 +3554,5 @@
 - 第二百六十八项自动测试与稽查：AgentContext嵌套state在更新后篡改动态隔离；上下文、协作与会话关联回归、Python编译及diff门禁通过。
 - 第二百六十九项稽查首败与整改：会话proposal requested_changes虽冻结顶层，模型返回对象仍可在提案持久后改写嵌套审批内容。现proposal也使用已验证标准JSON的独立深快照，并补证会话context隔离。
 - 第二百六十九项自动测试与稽查：调用方context及模型proposal嵌套steps在发布后篡改均被隔离；Agent会话、配置确认与记忆关联回归、Python编译及diff门禁通过。
+- 第二百七十项稽查首败与整改：SQLiteDurableQueue虽持久化标准JSON快照，却在enqueue返回的DurableQueueItem继续引用调用方原payload，进程内事实可与SQLite立即分叉。现返回项与持久行共用同一规范化深快照。
+- 第二百七十项自动测试与稽查：enqueue后调用方篡改嵌套steps动态隔离；持久队列重开、claim及私有部署韧性关联回归、Python编译与diff门禁通过。

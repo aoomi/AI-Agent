@@ -60,7 +60,7 @@ class SQLiteDurableQueue:
   if contains_sensitive(payload):raise PersistenceError("queue payload contains sensitive fields")
   try:encoded=json.dumps(payload,allow_nan=False)
   except (TypeError,ValueError) as error:raise PersistenceError("queue payload must be JSON serializable") from error
-  item=DurableQueueItem(f"queue-{uuid4().hex}",tenant,payload,"pending")
+  payload_snapshot=json.loads(encoded);item=DurableQueueItem(f"queue-{uuid4().hex}",tenant,payload_snapshot,"pending")
   with self._lock:self.db.execute("INSERT INTO queue VALUES(?,?,?,?)",(item.item_id,tenant,encoded,item.status));self.db.commit()
   return item
  def claim(self,tenant):
