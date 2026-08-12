@@ -12,6 +12,8 @@ class ProviderServiceRuntimeContractTest(unittest.TestCase):
   base=dict(provider_id="provider",display_name="Provider",kind="video",endpoint="https://example.com",secret_reference="env://KEY",capabilities=("video",))
   for settings in ({"value":float("nan")},{"value":object()}):
    with self.subTest(settings=settings),self.assertRaisesRegex(ProviderServiceError,"standard JSON"):ProviderService().register(**base,settings=settings)
+  for settings in ({1:"value"},{"nested":{1:"value"}},{" ":"value"}):
+   with self.subTest(settings=settings),self.assertRaisesRegex(ProviderServiceError,"secrets"):ProviderService().register(**base,settings=settings)
  def test_registration_rejects_ambiguous_runtime_values(self):
   base=dict(provider_id="provider",display_name="Provider",kind="video",endpoint="https://example.com",secret_reference="env://KEY",capabilities=("video",))
   for changes in ({"provider_id":1},{"capabilities":"video"},{"capabilities":("video","video")},{"endpoint":"https://user:pass@example.com"},{"timeout_seconds":True},{"settings":[]}):

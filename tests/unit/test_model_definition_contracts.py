@@ -27,6 +27,9 @@ class ModelDefinitionContractTest(unittest.TestCase):
         for settings in ({"value":float("nan")},{"value":object()}):
             with self.subTest(settings=settings),self.assertRaisesRegex(ModelRegistryError,"standard JSON"):
                 self._create(settings=settings)
+        for settings in ({1:"value"},{"nested":{1:"value"}},{" ":"value"}):
+            with self.subTest(settings=settings),self.assertRaisesRegex(ModelRegistryError,"secrets"):
+                self._create(settings=settings)
 
     def test_settings_are_deeply_immutable_from_caller_mutation(self) -> None:
         settings={"routing":{"regions":["local"]}}

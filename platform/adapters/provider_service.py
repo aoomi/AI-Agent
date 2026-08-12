@@ -32,7 +32,7 @@ class ProviderService:
             or not isinstance(enabled,bool) or not isinstance(replace,bool) or settings is not None and not isinstance(settings,Mapping)):raise ProviderServiceError("provider configuration is invalid")
         forbidden=("secret","token","password","api_key","authorization","credential")
         def contains_secret(value:Any)->bool:
-            if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
+            if isinstance(value,Mapping):return any(not isinstance(key,str) or not key.strip() or any(word in key.lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
             if isinstance(value,(list,tuple)):return any(contains_secret(item) for item in value)
             return False
         if contains_secret(settings or {}):raise ProviderServiceError("provider settings cannot contain secrets")

@@ -67,7 +67,7 @@ class ModelDefinition:
             raise ModelRegistryError("context_window must be positive")
         forbidden=("secret","token","password","api_key","authorization","credential")
         def contains_secret(value:Any)->bool:
-            if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
+            if isinstance(value,Mapping):return any(not isinstance(key,str) or not key.strip() or any(word in key.lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
             if isinstance(value,(list,tuple)):return any(contains_secret(item) for item in value)
             return False
         if settings is not None and not isinstance(settings,Mapping):raise ModelRegistryError("model settings must be a mapping")
