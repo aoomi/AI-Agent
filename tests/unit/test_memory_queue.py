@@ -163,6 +163,11 @@ class InMemoryTaskQueueTest(unittest.TestCase):
             queue.apply_status_event("task-1", "tenant-a", "identity-1", "project-1", [], 1)  # type: ignore[arg-type]
         self.assertEqual(queue.get("task-1", "tenant-a").status, "running")
 
+    def test_task_payload_requires_standard_json(self) -> None:
+        for payload in ({"value":float("nan")},{"value":object()}):
+            with self.subTest(payload=payload),self.assertRaisesRegex(QueueConflictError,"standard JSON"):
+                QueuedTask("task","project","operation","type",task().context,payload)
+
 
 if __name__ == "__main__":
     unittest.main()

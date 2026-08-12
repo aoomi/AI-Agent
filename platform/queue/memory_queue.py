@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from threading import Lock
 from types import MappingProxyType
 from typing import Any, Literal, Mapping
+import json
 
 from ai_agent_tenant import IdentityContext, IdentityContextError
 
@@ -49,6 +50,8 @@ class QueuedTask:
             raise QueueConflictError("task status is invalid")
         if self._contains_sensitive_key(self.payload):
             raise QueueConflictError("task payload contains sensitive fields")
+        try:json.dumps(dict(self.payload),allow_nan=False)
+        except (TypeError,ValueError) as error:raise QueueConflictError("task payload must be standard JSON") from error
         object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
 
     @staticmethod

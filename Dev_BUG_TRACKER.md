@@ -3484,3 +3484,5 @@
 - 第二百三十三项自动测试与稽查：NaN及任意对象settings动态拒绝；Agent配置与管理API关联回归、Python编译与diff门禁通过。
 - 第二百三十四项稽查首败与整改：PublishedEvent只验证payload Mapping和敏感键，NaN或任意对象可发布至不同消费者，导致投影与持久行为分叉。现发布模型构造阶段即强制标准JSON。
 - 第二百三十四项自动测试与稽查：NaN及任意对象payload动态拒绝；事件、任务投影与集成关联回归、Python编译与diff门禁通过。
+- 第二百三十五项稽查首败与整改：内存QueuedTask仅验证payload Mapping与敏感键，可接受持久DurableTaskRepository明确拒绝的NaN和任意对象，导致队列后端切换语义不一致。现两类队列边界统一失败关闭。
+- 第二百三十五项自动测试与稽查：NaN及任意对象task payload动态拒绝；内存队列、任务服务与集成关联回归、Python编译与diff门禁通过。
