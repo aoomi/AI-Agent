@@ -3054,3 +3054,5 @@
 - 第六项自动测试与稽查：持久waiter重启动态证明状态保持waiting_memory/queued且prompt核销函数零调用；视频、H3与生产控制关联`122 passed`，diff门禁通过。只读确认重启不把waiter冒充running，也不会绕过释放窗口直接启动线程。
 - 第七项稽查首败与整改：base母版导出仍允许历史composition记录没有production/audit evidence，并在manifest中伪造`legacy_base_scope`的not_available/not_applicable默认值；这会把缺证据伪装成明确业务事实。现base与enhanced统一要求台账存在非空规范生产证据和审核/不适用证据，缺失即在任何导出副作用前失败关闭；删除所有legacy默认合成。
 - 第七项自动测试与稽查：历史无证base和projection伪证均拒绝，正式`commit_stage_authorities`生成的base证据、enhanced证据及多集零副作用门禁通过；review/export/原子台账/静音合片关联`56 passed`。只读确认正式BUG071母版已有服务端证据不受影响，旧数据不迁移、不删除，只禁止冒充可导出权威版本。
+- 第八项稽查首败与整改：架构要求`generation + revision` CAS，但通用`ProductionLedger.upsert()`及非upscale projection忽略调用方`expected_revision`，只有upscale projection具备修订号冲突门禁；并发旧快照仍可覆盖新revision。现所有upsert和两类projection在读出当前行后、任何字段合并前统一校验expected_revision；缺省保持现有内部兼容，非法类型及旧revision失败关闭。
+- 第八项自动测试与稽查：通用权威写、非upscale projection分别动态证明正确revision成功、旧revision拒绝且当前记录不变；生产控制、upscale、阶段权威与作用域关联`164 passed`。只读确认CAS发生在同一SQLite事务读取之后，没有TOCTOU窗口，原generation/fingerprint/batch围栏保持。
