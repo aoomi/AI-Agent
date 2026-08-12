@@ -16,7 +16,7 @@ class TaskService:
     def _apply_event(self, event: PublishedEvent) -> None:
         payload = event.payload
         self.queue.apply_status_event(
-            str(payload.get("task_id", "")), event.context.tenant_id, event.project_id,
+            str(payload.get("task_id", "")), event.context.tenant_id, event.context.identity_id, event.project_id,
             str(payload.get("current_status", "")), int(payload.get("progress_percent", -1)),  # type: ignore[arg-type]
         )
 

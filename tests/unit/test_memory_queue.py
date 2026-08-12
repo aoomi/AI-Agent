@@ -65,6 +65,12 @@ class InMemoryTaskQueueTest(unittest.TestCase):
         self.assertEqual(queue.claim("tenant-a", "identity-2").task_id, "task-2")
         self.assertEqual(queue.claim("tenant-a", "identity-1").task_id, "task-1")
 
+    def test_status_event_is_identity_scoped(self) -> None:
+        queue = InMemoryTaskQueue(); queue.enqueue(task()); queue.claim("tenant-a", "identity-1")
+        with self.assertRaises(IdentityContextError):
+            queue.apply_status_event("task-1", "tenant-a", "identity-2", "project-1", "paused", 20)
+        self.assertEqual(queue.get("task-1", "tenant-a", "identity-1").status, "running")
+
     def test_terminal_task_cannot_be_cancelled(self) -> None:
         queue = InMemoryTaskQueue()
         queue.enqueue(task())

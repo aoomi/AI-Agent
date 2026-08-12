@@ -3104,3 +3104,5 @@
 - 第三十一项自动测试与稽查：新增同tenant异identity相同operation_key均独立入队动态测试，队列与TaskService关联`11 passed`；Python编译与diff门禁通过。
 - 第三十二项稽查首败与整改：短剧pipeline入队后调用`claim(tenant)`，会领取同租户队首的另一identity任务，却继续执行当前checkpoint；造成他人任务被误标running而本任务仍queued，后续等待状态写入冲突。现queue claim支持可选identity精确筛选，pipeline强制声明owner并校验领取task_id。
 - 第三十二项自动测试与稽查：动态证明同租户交错队列按指定identity领取且其余顺序保留，pipeline/backend及队列关联`19 passed`；Python编译与diff门禁通过。
+- 第三十三项稽查首败与整改：TASK_STATUS_CHANGED投影到权威队列时只校验tenant/project，忽略事件identity；同租户异身份事件若知道task_id可改写他人任务状态和进度。现TaskService透传事件identity，队列在任何状态转换前执行tenant+identity+project完整门禁。
+- 第三十三项自动测试与稽查：动态证明异identity状态事件拒绝且原running任务不变，任务队列、服务及HTTP追踪关联`16 passed`；Python编译与diff门禁通过。

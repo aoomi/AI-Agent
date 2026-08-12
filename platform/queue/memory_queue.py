@@ -152,10 +152,12 @@ class InMemoryTaskQueue:
                          and (identity_id is None or task.context.identity_id == identity_id.strip())
                          and (project_id is None or task.project_id == project_id))
 
-    def apply_status_event(self, task_id: str, tenant_id: str, project_id: str, status: TaskStatus, progress_percent: int) -> QueuedTask:
+    def apply_status_event(self, task_id: str, tenant_id: str, identity_id: str, project_id: str, status: TaskStatus, progress_percent: int) -> QueuedTask:
         with self._lock:
             task = self._require(task_id)
             task.context.require_tenant(tenant_id)
+            if task.context.identity_id != identity_id.strip():
+                raise IdentityContextError("identity scope mismatch")
             if task.project_id != project_id:
                 raise QueueConflictError("project scope mismatch")
             if task.status != status and (task.status, status) not in STATUS_TRANSITIONS:
