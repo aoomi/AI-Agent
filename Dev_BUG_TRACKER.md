@@ -3048,3 +3048,5 @@
 - 第三项自动测试与稽查：注册前logger与JSONL/Prometheus最终exporter均动态拒绝敏感键及中性值，失败后文件不存在；正常日志保留。观测专项`7 passed`，diff门禁通过。只读确认同一递归函数覆盖记录、指标标签、快照与持久导出四层，不对运行数据执行迁移或删除。
 - 第四项稽查首败与整改：视频`waiting_memory`看门狗原只检查本进程ACTIVE_VIDEO_JOBS/资源池和内存，未查询Comfy真实queue；外部或残留prompt仍在running/pending时可把等待任务改成generating。新增唯一准入函数，要求本地无视频、accelerator无占用且Comfy `queue_running`和`queue_pending`同时为空；Comfy不可达失败关闭。初次请求与持久等待恢复共用该门禁，任务状态继续持久为`waiting_memory`并仅投影Graph `queued`。
 - 第四项自动测试与稽查：运行队列、待执行队列、本地活动、Comfy离线四种情况均拒绝，只有全空时放行；视频/H3/生产控制关联`120 passed`，Python编译与diff门禁通过。只读确认门禁发生在状态切换与线程创建之前，非释放窗口没有模型副作用。
+- 第五项稽查首败与整改：LangGraph阶段执行器是另一类provider，但原`execute()`取出executor后即释放锁，运行中仍可replace、disable或unregister，与架构热插拔保护不一致。现按规范stage维护活动执行计数；替换、禁用和卸载在inflight非零时统一失败关闭，执行成功、provider异常和重试异常均在`finally`释放。
+- 第五项自动测试与稽查：慢阶段执行器并发动态证明三种热变更均拒绝，自然终态后替换成功且原结果未被污染；生产控制、事件围栏和原子台账关联`101 passed`，Python编译与diff门禁通过。只读确认用户executor在锁外执行，计数只保护注册变更，不扩大锁范围或形成死锁。
