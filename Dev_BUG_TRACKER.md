@@ -3098,3 +3098,5 @@
 - 第二十八项自动测试与稽查：新增同tenant异identity读取、确认、取消全部拒绝矩阵；短剧pipeline与backend关联`7 passed`，Python编译及diff门禁通过。只读确认门禁在Graph读取和队列状态修改前执行。
 - 第二十九项稽查首败与整改：独立短剧pipeline检查点直接`write_text`覆盖正式JSON，进程崩溃或磁盘中断可留下截断文件，重启无法恢复且与项目统一原子持久化规范不一致。现复用共享`atomic_write_json`执行同目录临时文件、fsync、JSON回读校验及原子替换。
 - 第二十九项自动测试与稽查：短剧pipeline/backend恢复关联`7 passed`；Python编译及diff门禁通过。只读确认不删除旧检查点且替换前临时文件不会暴露为权威状态。
+- 第三十项稽查首败与整改：行业机器人工作流全局按workflow_id存储，创建可静默覆盖同ID，connect/modify/run不验证确认者；异身份可覆盖拓扑或执行已知工作流。现工作流持久记录创建identity，重复创建失败关闭，所有后续操作在编译或执行副作用前精确验权。
+- 第三十项自动测试与稽查：新增重复创建及异身份connect/modify/run拒绝矩阵，行业工作流集成`2 passed`；Python编译与diff门禁通过。
