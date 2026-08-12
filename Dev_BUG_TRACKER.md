@@ -3175,3 +3175,4 @@
 - 第七十七项稽查首败与整改：AgentRegistry.update_status接受任意字符串，外部或新调用点可把全局/项目机器人写入生命周期不存在的状态，后续调度无法转换。现注册表边界以统一状态集合失败关闭非法值，两个索引均只保存合法生命周期状态。
 - 第七十八项稽查首败与整改：provider韧性层未校验熔断threshold/recovery，零阈值或非正恢复窗会形成异常状态；fallback还允许重复provider，导致同一失败提供方被重复调用并扭曲限流/熔断计数。现构造与调用边界拒绝非法参数、空能力及重复fallback链。
 - 第七十九项稽查首败与整改：通用LangGraph编排接受空name/thread、非法retry次数、非callable executor及指向不存在节点的branch/terminal，错误会延迟到编译或执行并污染调用语义。现两类compile在发布前完整校验拓扑与执行器，invoke/resume拒绝空线程身份。
+- 第八十项稽查首败与整改：AgentContext允许空字符串字段名，CollaborationContext允许空task_id进入状态表；此类匿名键会覆盖、无法可靠引用且破坏可追溯证据。现两类上下文在读改写前拒绝空键/任务标识，合法快照行为不变。

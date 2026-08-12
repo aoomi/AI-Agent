@@ -26,6 +26,7 @@ class AgentContextStoreTest(unittest.TestCase):
         store.create("tenant-a", "project-a", "agent-a")
         with self.assertRaisesRegex(AgentContextError, "already exists"):
             store.create("tenant-a", "project-a", "agent-a")
+        with self.assertRaisesRegex(AgentContextError,"keys"):store.update("tenant-a","project-a","agent-a",{" ":1})
 
 
 if __name__ == "__main__":

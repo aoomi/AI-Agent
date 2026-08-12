@@ -33,6 +33,7 @@ class AgentContextStore:
 
     def update(self, tenant_id: str, project_id: str, agent_id: str, values: Mapping[str, Any]) -> AgentContext:
         key = self._key(tenant_id, project_id, agent_id)
+        if any(not str(name).strip() for name in values):raise AgentContextError("agent context keys must not be empty")
         with self._lock:
             try: context = self._contexts[key]
             except KeyError as error: raise AgentContextError("agent context does not exist in this scope") from error
@@ -87,6 +88,7 @@ class CollaborationContextStore:
             context = self._raw(key)
             if agent_id != context["developer_agent_id"]: raise AgentContextError("only the developer agent may mutate collaboration context")
             if task_states:
+                if any(not str(task_id).strip() for task_id in task_states):raise AgentContextError("collaboration task identifiers are required")
                 allowed = {"pending", "running", "waiting_inspection", "waiting_remediation", "waiting_human", "completed", "failed", "cancelled"}
                 if any(state not in allowed for state in task_states.values()): raise AgentContextError("collaboration task state is invalid")
                 context["task_states"].update(dict(task_states))

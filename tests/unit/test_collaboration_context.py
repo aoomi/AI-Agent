@@ -29,6 +29,8 @@ class CollaborationContextStoreTest(unittest.TestCase):
             self.store.update("tenant-1", "project-1", "session-1", agent_id="developer-1", file_references=("../../secret",))
         with self.assertRaisesRegex(AgentContextError, "task state"):
             self.store.update("tenant-1", "project-1", "session-1", agent_id="developer-1", task_states={"task": "unknown"})
+        with self.assertRaisesRegex(AgentContextError,"identifiers"):
+            self.store.update("tenant-1","project-1","session-1",agent_id="developer-1",task_states={" ":"running"})
 
 
 if __name__ == "__main__": unittest.main()
