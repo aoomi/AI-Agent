@@ -239,6 +239,9 @@ class AgentScheduler:
 
     def resume(self, run_id: str, values: Mapping[str, Any]) -> PipelineRun:
         if not isinstance(values,Mapping):raise SchedulerError("pipeline resume values must be a mapping")
+        if any(not isinstance(key,str) or not key.strip() for key in values):raise SchedulerError("pipeline resume value keys must be non-empty strings")
+        try:json.dumps(dict(values),allow_nan=False)
+        except (TypeError,ValueError) as error:raise SchedulerError("pipeline resume values must be standard JSON") from error
         with self._lock:
             run = self._get(run_id)
             if run_id in self._active_runs: raise SchedulerError("pipeline run is already active")

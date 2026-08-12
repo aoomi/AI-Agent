@@ -3502,3 +3502,5 @@
 - 第二百四十二项自动测试与稽查：NaN/任意对象inputs动态拒绝；Provider适配与生产集成关联回归、Python编译与diff门禁通过。
 - 第二百四十三项稽查首败与整改：ResilientProviderInvoker只验证inputs Mapping，NaN或任意对象会先消耗限流/熔断状态再在下游失败。现在任何韧性状态副作用前强制标准JSON。
 - 第二百四十三项自动测试与稽查：NaN/任意对象inputs动态拒绝且提供方未被调用；韧性层关联回归、Python编译与diff门禁通过。
+- 第二百四十四项稽查首败与整改：AgentScheduler.resume依赖AgentContext.update逐个验证values，parallel run中坏值可在部分上下文更新后失败。现完整恢复输入在首个写入前失败关闭。
+- 第二百四十四项自动测试与稽查：NaN/任意对象resume values动态拒绝且原上下文不变；调度控制关联回归、Python编译与diff门禁通过。

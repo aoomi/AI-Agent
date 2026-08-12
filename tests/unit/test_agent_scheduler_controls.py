@@ -45,6 +45,15 @@ class AgentSchedulerControlsTest(unittest.TestCase):
         with self.assertRaisesRegex(SchedulerError, "terminal"):
             self.scheduler.manual_takeover(run.run_id)
 
+    def test_resume_rejects_non_standard_values_without_context_mutation(self) -> None:
+        self.scheduler.add_executor(self.first.agent_id,lambda _context:ExecutionResult("completed",{}))
+        run=self.scheduler.start("tenant","project",(self.first.agent_id,),{"original":True},auto_run=False)
+        run=self.scheduler.pause(run.run_id)
+        for values in ({"value":float("nan")},{"value":object()}):
+            with self.subTest(values=values),self.assertRaisesRegex(SchedulerError,"standard JSON"):
+                self.scheduler.resume(run.run_id,values)
+        self.assertEqual(dict(self.scheduler.contexts.get("tenant","project",self.first.agent_id).values),{"original":True})
+
     def test_manual_takeover_and_retry_limit(self) -> None:
         self.scheduler.add_executor(self.first.agent_id, lambda context: ExecutionResult("failed", {}))
         run = self.scheduler.start("tenant", "project", (self.first.agent_id,), {}, max_retries=0)
