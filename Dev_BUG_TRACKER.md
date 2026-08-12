@@ -3444,3 +3444,5 @@
 - 第二百一十三项自动测试与稽查：坏path、数字stage、布尔pid、任意payload、数字task_class/ack动态失败关闭；持久任务专项`3 passed`（另`18 subtests passed`），Python编译与diff门禁通过。
 - 第二百一十四项稽查首败与整改：ProviderAdapterRegistry.list仅靠集合比较处理kind，invoke只判resolver结果真值，数字密钥可进入executor的secret参数。现提供方分类和外部密钥解析结果均保持字符串契约。
 - 第二百一十四项自动测试与稽查：数字kind与数字secret动态失败关闭；Provider单元与生产集成关联`12 passed`（另`11 subtests passed`），Python编译与diff门禁通过。
+- 第二百一十五项稽查首败与整改：ProviderService.test_connection直接解包并持久化checker任意结果，列表、布尔/负latency或数字/空error可泄漏异常或污染权威健康状态。现探活结果在CAS写回前完整验证。
+- 第二百一十五项自动测试与稽查：四类坏health结果动态失败关闭；Provider配置与生产集成关联`9 passed`（另`17 subtests passed`），Python编译与diff门禁通过。

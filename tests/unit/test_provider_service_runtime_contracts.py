@@ -20,4 +20,11 @@ class ProviderServiceRuntimeContractTest(unittest.TestCase):
   with self.assertRaisesRegex(ProviderServiceError,"in-flight"):service.register(**base,replace=True)
   with self.assertRaisesRegex(ProviderServiceError,"in-flight"):service.unregister("provider")
   release.set();thread.join();self.assertTrue(service.unregister("provider"))
+ def test_health_checker_result_contract_is_enforced(self):
+  base=dict(provider_id="provider",display_name="Provider",kind="video",endpoint="https://example.com",secret_reference="env://KEY",capabilities=("video",))
+  for result in ([],(True,None),(1,1),(1,"")):
+   class Checker:
+    def check(self,_provider):return result
+   service=ProviderService(Checker());service.register(**base)
+   with self.subTest(result=result),self.assertRaisesRegex(ProviderServiceError,"health"):service.test_connection("provider")
 if __name__=="__main__":unittest.main()

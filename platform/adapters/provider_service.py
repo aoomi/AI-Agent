@@ -66,7 +66,12 @@ class ProviderService:
             if not provider.enabled:item=ProviderHealth(provider_id,"disabled",self._now(),None,None,previous.consecutive_failures)
             elif self.checker is None:raise ProviderServiceError("real provider health checker is not configured")
             else:
-                latency,error=self.checker.check(provider);failures=previous.consecutive_failures+1 if error else 0;item=ProviderHealth(provider_id,"healthy" if not error else "degraded" if failures<3 else "unhealthy",self._now(),latency,error,failures)
+                result=self.checker.check(provider)
+                if not isinstance(result,tuple) or len(result)!=2:raise ProviderServiceError("provider health result is invalid")
+                latency,error=result
+                if latency is not None and (isinstance(latency,bool) or not isinstance(latency,int) or latency<0):raise ProviderServiceError("provider health latency is invalid")
+                if error is not None and (not isinstance(error,str) or not error.strip()):raise ProviderServiceError("provider health error is invalid")
+                failures=previous.consecutive_failures+1 if error else 0;item=ProviderHealth(provider_id,"healthy" if not error else "degraded" if failures<3 else "unhealthy",self._now(),latency,error,failures)
             with self._lock:
                 current=self.health[provider_id]
                 if current is not previous:raise ProviderServiceError("provider health changed concurrently; retry")
