@@ -19,8 +19,12 @@ class ProviderAuditLedger:
         if not all(str(value).strip() for value in (tenant_id,user_id,project_id)):raise ProviderAuditError("audit owner scope is required")
         if status not in {"completed","failed","cancelled"}:raise ProviderAuditError("audit status is invalid")
         if any(value<0 for value in (input_tokens,output_tokens,duration_ms,cost_microunits)):raise ProviderAuditError("audit metrics cannot be negative")
-        forbidden={"api_key","secret","token","password","credential"}
-        if any(any(word in key.lower() for word in forbidden) for key in request):raise ProviderAuditError("audit request contains secret fields")
+        forbidden={"api_key","secret","token","password","credential","authorization"}
+        def contains_secret(value:Any)->bool:
+            if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
+            if isinstance(value,(list,tuple)):return any(contains_secret(item) for item in value)
+            return False
+        if contains_secret(request):raise ProviderAuditError("audit request contains secret fields")
         digest=sha256(json.dumps(dict(request),sort_keys=True,separators=(",",":"),default=str).encode()).hexdigest()
         record=ProviderAuditRecord(f"audit-{uuid4().hex}",tenant_id,user_id,project_id,provider_id,capability,digest,input_tokens,output_tokens,duration_ms,cost_microunits,artifact_ids,artifact_checksums,status,error_code,datetime.now(timezone.utc).isoformat())
         with self._lock:self._records.append(record)

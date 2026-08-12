@@ -3159,3 +3159,4 @@
 - 第六十一项稽查首败与整改：SecurityAuditLedger并发append以无锁“读末尾hash→追加”构链，多线程可生成共享previous_hash分叉并使审计链不可验证；export/verify/entries也读取可变列表。现RLock覆盖原子构链和快照读取，并拒绝空审计身份/动作字段。
 - 第六十二项稽查首败与整改：AgentScheduler虽有run single-flight集合，但run状态写回及pause/retry/takeover/resume读改写仍部分绕过锁；外部控制可在executor运行中改状态，随后被晚到结果覆盖。现所有run状态提交均加锁，四种控制先在同一临界区拒绝active run，再执行合法状态转换。
 - 第六十三项稽查首败与整改：IndustryWorkflow把活动workflow_id与robot_id混存在同一set；若两类外部ID同名，运行一个工作流会误判无关机器人executor正在执行，反向也可能误判workflow active。现拆分活动工作流与活动机器人两个命名空间，热替换和single-flight各查对应集合。
+- 第六十四项稽查首败与整改：ProviderAuditLedger敏感字段门禁只扫描request顶层键，嵌套metadata/messages内的token、authorization等可被哈希前处理链意外接纳，违背快照/导出深层过滤。现递归扫描任意Mapping及序列并扩展authorization关键词，嵌套凭据失败关闭。

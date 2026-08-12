@@ -7,5 +7,6 @@ class ProviderAuditLedgerTest(unittest.TestCase):
     def test_secrets_and_negative_metrics_are_rejected(self):
         ledger=ProviderAuditLedger()
         with self.assertRaisesRegex(ProviderAuditError,"secret"):ledger.record(tenant_id="t",user_id="u",project_id="p",provider_id="x",capability="x",request={"api_key":"x"},input_tokens=0,output_tokens=0,duration_ms=0,cost_microunits=0)
+        with self.assertRaisesRegex(ProviderAuditError,"secret"):ledger.record(tenant_id="t",user_id="u",project_id="p",provider_id="x",capability="x",request={"messages":[{"metadata":{"authorization":"Bearer hidden"}}]},input_tokens=0,output_tokens=0,duration_ms=0,cost_microunits=0)
         with self.assertRaisesRegex(ProviderAuditError,"negative"):ledger.record(tenant_id="t",user_id="u",project_id="p",provider_id="x",capability="x",request={},input_tokens=-1,output_tokens=0,duration_ms=0,cost_microunits=0)
 if __name__=="__main__":unittest.main()

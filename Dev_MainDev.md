@@ -1064,3 +1064,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第六十一项：安全审计哈希链已并发安全，append原子串行且export/verify/entries读取一致快照；8线程动态链验证通过。
 - BUG072第六十二项：AgentScheduler运行状态写回与pause/retry/takeover/resume已统一并发围栏，活动executor期间禁止外部状态覆盖；调度与Graph关联`10 passed`。
 - BUG072第六十三项：行业工作流活动workflow/robot ID命名空间已拆分，消除同名ID导致的虚假热替换或single-flight冲突。
+- BUG072第六十四项：Provider审计请求敏感字段门禁已递归覆盖嵌套对象与数组，补齐authorization等凭据键过滤。
