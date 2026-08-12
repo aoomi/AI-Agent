@@ -170,8 +170,7 @@ class ProductionControlTests(unittest.TestCase):
         stale = WorkerSnapshot("node", "scope", ("video",), 2, 0, 0, 100, 100, generation=3)
         router = WorkloadRouter(heartbeat_timeout=30)
         router.heartbeat(current)
-        with self.assertRaisesRegex(WorkloadRoutingError, "stale worker heartbeat"):
-            router.heartbeat(stale)
+        self.assertEqual(router.heartbeat(stale), current)
         self.assertEqual(router.route("video", now=115), current)
         with TemporaryDirectory() as temporary:
             registry = WorkerRegistry(Path(temporary) / "workers.sqlite")
