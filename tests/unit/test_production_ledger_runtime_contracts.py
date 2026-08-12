@@ -46,5 +46,18 @@ class ProductionLedgerRuntimeContractsTest(unittest.TestCase):
             for changes in ({"generation":True,"content_fingerprint":"f","audit_batch_id":"a"},{"generation":1,"content_fingerprint":1,"audit_batch_id":"a"},{"generation":1,"content_fingerprint":"f","audit_batch_id":1}):
                 with self.subTest(changes=changes),self.assertRaises(ProductionLedgerError):ledger.commit_stage_authorities([{**base,**changes}])
 
+    def test_bulk_replace_validates_every_key_before_deleting(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            ledger=ProductionLedger(Path(directory)/"ledger.sqlite")
+            base={"tenant_id":"t","user_id":"u","project_id":"p","stage":"video","scope_type":"shot","scope_id":"1"}
+            ledger.upsert(base)
+            for operation in (
+                lambda:ledger.upsert_many([{**base,"scope_id":1}],replace=True),
+                lambda:ledger.upsert_many_projection([object()],replace=True),
+                lambda:ledger.upsert_many(None,replace=True),
+            ):
+                with self.subTest(operation=operation),self.assertRaises(ProductionLedgerError):operation()
+                self.assertEqual(len(ledger.list(base)),1)
+
 
 if __name__ == "__main__":unittest.main()

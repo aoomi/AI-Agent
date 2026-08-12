@@ -3613,3 +3613,4 @@
 - BUG072 / M9.198 / 架构横向稽查第三百一十项（已关闭，2026-08-12）：兼容ShortDramaPipeline把任意artifact键值强制字符串化，数字键可碰撞/未知阶段可进入runner；初始与runner输出也在属性访问前缺少NodeOutput门禁。现阶段输入只接受canonical字符串路径，两个输出入口强制非空bytes与媒体类型；伪键值和伪输出动态失败关闭。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百一十一项（已关闭，2026-08-12）：TextPipeline上游只核对TextArtifact节点名，伪造空content、媒体类型或checksum即可把未发布事实送入下一provider。现每阶段重新验证标准JSON内容、固定媒体类型及规范化SHA-256；三类伪artifact动态失败关闭。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百一十二项（已关闭，2026-08-12）：StoryBible把数值身份强制字符串化，未知stage静默当作无分集更新，episodes对象/伪item/bool编号可能被忽略或泄漏异常。现身份只接受非空字符串，写入只接受三法定阶段、数组领域项及真实整数集号；五类伪输入零持久副作用失败关闭。关联回归、Python编译与diff门禁通过。
+- BUG072 / M9.198 / 架构横向稽查第三百一十三项（已关闭，2026-08-12）：ProductionLedger批量replace在完整验证记录键前先删除旧scope，数字scope_id还被`str`转换后参与保留集，后续upsert失败可留下部分删除。现事务前验证可迭代Mapping、统一身份及每个canonical key，replace复用已验证键；三类伪批次动态证明旧记录不变。关联回归、Python编译与diff门禁通过。

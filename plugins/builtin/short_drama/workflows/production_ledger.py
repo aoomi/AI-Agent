@@ -728,16 +728,18 @@ class ProductionLedger:
 
     def upsert_many_projection(self, records: Iterable[Mapping[str, Any]], *, replace: bool = False) -> list[dict[str, Any]]:
         if not isinstance(replace,bool):raise ProductionLedgerError("replace must be boolean")
-        records = list(records)
+        try:records = list(records)
+        except TypeError as error:raise ProductionLedgerError("bulk records must be iterable mappings") from error
         if not records:
             return []
+        if any(not isinstance(item,Mapping) for item in records):raise ProductionLedgerError("bulk records must be iterable mappings")
         identity = self._identity(records[0])
         if any(self._identity(item) != identity for item in records):
             raise ProductionLedgerError("bulk records must share one identity")
+        keys = {self._key(item) for item in records}
         with self._lock, self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             if replace:
-                keys = {(canonical_stage(item.get("stage")), str(item.get("scope_type")), str(item.get("scope_id"))) for item in records}
                 rows = connection.execute("""
                     SELECT stage,scope_type,scope_id,generation,confirmation_json FROM production_scopes
                     WHERE tenant_id=? AND user_id=? AND project_id=?
@@ -753,15 +755,17 @@ class ProductionLedger:
 
     def upsert_many(self, records: Iterable[Mapping[str, Any]], *, replace: bool = False) -> list[dict[str, Any]]:
         if not isinstance(replace,bool):raise ProductionLedgerError("replace must be boolean")
-        records = list(records)
+        try:records = list(records)
+        except TypeError as error:raise ProductionLedgerError("bulk records must be iterable mappings") from error
         if not records:
             return []
+        if any(not isinstance(item,Mapping) for item in records):raise ProductionLedgerError("bulk records must be iterable mappings")
         identity = self._identity(records[0])
         if any(self._identity(item) != identity for item in records):
             raise ProductionLedgerError("bulk records must share one identity")
+        keys = {self._key(item) for item in records}
         with self._lock, self._connection() as connection:
             if replace:
-                keys = {(canonical_stage(item.get("stage")), str(item.get("scope_type")), str(item.get("scope_id"))) for item in records}
                 rows = connection.execute(
                     "SELECT stage,scope_type,scope_id FROM production_scopes WHERE tenant_id=? AND user_id=? AND project_id=?",
                     identity,
