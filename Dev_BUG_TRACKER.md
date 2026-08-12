@@ -3096,3 +3096,5 @@
 - 第二十七项自动测试与稽查：新增跨tenant、同tenant异identity的session/handoff/report拒绝矩阵，平台会话、协作与任务服务关联`25 passed`（另`3 subtests passed`）；所有服务构造点同步新必填身份契约。
 - 第二十八项稽查首败与整改：独立短剧11阶段pipeline检查点路径仅按tenant/project/run隔离，记录也不含user；状态、确认和取消只复核tenant，且ProductionOrchestrator身份硬编码为`user_id=pipeline`。同租户异用户获得run_id即可读取产物清单并推进或取消流程。现检查点持久化真实创建user，load/approve/cancel/resume统一接收IdentityContext并精确验权，Graph权威身份同步真实user。
 - 第二十八项自动测试与稽查：新增同tenant异identity读取、确认、取消全部拒绝矩阵；短剧pipeline与backend关联`7 passed`，Python编译及diff门禁通过。只读确认门禁在Graph读取和队列状态修改前执行。
+- 第二十九项稽查首败与整改：独立短剧pipeline检查点直接`write_text`覆盖正式JSON，进程崩溃或磁盘中断可留下截断文件，重启无法恢复且与项目统一原子持久化规范不一致。现复用共享`atomic_write_json`执行同目录临时文件、fsync、JSON回读校验及原子替换。
+- 第二十九项自动测试与稽查：短剧pipeline/backend恢复关联`7 passed`；Python编译及diff门禁通过。只读确认不删除旧检查点且替换前临时文件不会暴露为权威状态。

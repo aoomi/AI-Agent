@@ -1028,3 +1028,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二十六项：平台智能体会话的消息、提案及确认/拒绝全生命周期已绑定创建者identity；异身份即使获得session/proposal UUID也无法读取、注入或执行。专项及平台关联`24 passed`、`3 subtests passed`，只读稽查通过。
 - BUG072第二十七项：开发→稽查协作会话及其handoff/report已绑定tenant+创建identity，读取与全部状态推进入口在副作用前统一验权。关联`25 passed`、`3 subtests passed`，只读稽查通过。
 - BUG072第二十八项：独立短剧11阶段pipeline检查点、产物清单及Graph权威身份已绑定真实创建user，同租户异用户无法读取、确认或取消。pipeline/backend关联`7 passed`，只读稽查通过。
+- BUG072第二十九项：独立短剧pipeline检查点已由直接覆盖改为共享崩溃安全原子JSON持久化，避免中断写造成恢复文件截断。关联`7 passed`，只读稽查通过。

@@ -10,6 +10,7 @@ from typing import Callable, Mapping
 from uuid import uuid4
 
 from ai_agent_events import EventBus, PublishedEvent
+from ai_agent_core import atomic_write_json
 from ai_agent_queue import InMemoryTaskQueue, QueuedTask
 from ai_agent_tenant import IdentityContext
 from .production_orchestrator import ProductionOrchestrator
@@ -171,8 +172,8 @@ class ShortDramaPipeline:
         return min(len(NODES), completed + (1 if state.get("status") == "waiting_human" else 0))
 
     def _save(self, checkpoint: PipelineCheckpoint) -> None:
-        path = self._checkpoint_path(checkpoint.tenant_id, checkpoint.project_id, checkpoint.run_id); path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(asdict(checkpoint), ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        path = self._checkpoint_path(checkpoint.tenant_id, checkpoint.project_id, checkpoint.run_id)
+        atomic_write_json(path, asdict(checkpoint), prefix="short-drama-checkpoint-")
 
     def _checkpoint_path(self, tenant: str, project: str, run: str) -> Path:
         for value in (tenant, project, run): self._safe(value)
