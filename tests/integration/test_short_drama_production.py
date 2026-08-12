@@ -22,4 +22,11 @@ class ShortDramaProductionTest(unittest.TestCase):
  def test_human_rejection_never_reports_success(self):
   with tempfile.TemporaryDirectory() as d:
    runners,_=self.runners();pipeline=ShortDramaLangGraphPipeline(Path(d),runners);pipeline.start("run-2",NodeOutput(b"r","application/json"));result=pipeline.resume("run-2",False);self.assertEqual(result["status"],"cancelled");self.assertNotIn("review_export",result["artifacts"])
+ def test_artifact_manifest_rejects_non_string_or_unknown_entries(self):
+  with tempfile.TemporaryDirectory() as d:
+   runners,_=self.runners();pipeline=ShortDramaLangGraphPipeline(Path(d),runners);pipeline.start("run-3",NodeOutput(b"r","application/json"))
+   manifest=Path(d)/"run-3"/"artifacts.json"
+   for payload in ('{"requirements":NaN}','{"unknown":"unknown.bin"}','{"requirements":1}'):
+    manifest.write_text(payload,encoding="utf-8")
+    with self.subTest(payload=payload),self.assertRaisesRegex(Exception,"manifest not found or invalid"):pipeline.state("run-3")
 if __name__=="__main__":unittest.main()

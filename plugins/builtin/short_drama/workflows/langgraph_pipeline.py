@@ -69,9 +69,11 @@ class ShortDramaLangGraphPipeline:
         atomic_write_json(self._manifest(run_id), dict(artifacts))
 
     def _load_artifacts(self, run_id: str) -> dict[str, str]:
-        try: raw = json.loads(self._manifest(run_id).read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error: raise ShortDramaPipelineError("artifact manifest not found or invalid") from error
-        return {str(key):str(value) for key, value in raw.items()}
+        try: raw = json.loads(self._manifest(run_id).read_text(encoding="utf-8"), parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+        except (OSError, json.JSONDecodeError, ValueError) as error: raise ShortDramaPipelineError("artifact manifest not found or invalid") from error
+        if not isinstance(raw,dict) or any(key not in NODES or not isinstance(value,str) or not value for key,value in raw.items()):
+            raise ShortDramaPipelineError("artifact manifest not found or invalid")
+        return dict(raw)
 
     @staticmethod
     def _identity(run_id: str) -> dict[str, str]:
