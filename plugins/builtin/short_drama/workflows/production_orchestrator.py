@@ -195,6 +195,11 @@ class ProductionOrchestrator:
                 output = executor(json.loads(canonical_inputs))
             if not isinstance(output, Mapping):
                 raise ValueError("stage executor returned invalid output")
+            try:
+                canonical_output = json.dumps(dict(output), allow_nan=False)
+            except (TypeError, ValueError) as error:
+                raise ValueError("stage executor output must be standard JSON") from error
+            output_snapshot = json.loads(canonical_output)
         except Exception as error:
             failed = self.report(identity, canonical, "failed", error=str(error))
             return {**failed, "output": None, "error": str(error)}
@@ -205,8 +210,8 @@ class ProductionOrchestrator:
                     self._executor_inflight[canonical] = remaining
                 else:
                     self._executor_inflight.pop(canonical, None)
-        waiting = self.report(identity, canonical, "pending_confirmation", evidence=dict(output))
-        return {**waiting, "output": dict(output), "error": ""}
+        waiting = self.report(identity, canonical, "pending_confirmation", evidence=output_snapshot)
+        return {**waiting, "output": json.loads(canonical_output), "error": ""}
 
     def begin(self, identity: Mapping[str, Any], stage: str, *, stage_generation: int = 0) -> dict[str, Any]:
         """Authorize a legacy endpoint through the same dependency gate."""

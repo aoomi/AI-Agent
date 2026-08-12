@@ -46,5 +46,18 @@ class ProductionOrchestratorRuntimeContractsTest(unittest.TestCase):
             self.assertEqual(original,{"routing":{"regions":["local"]}})
             self.assertEqual(result["output"],{"ok":True})
 
+    def test_executor_output_is_snapshotted_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            brain=ProductionOrchestrator(Path(directory)/"graph.sqlite")
+            original={"routing":{"regions":["local"]}}
+            brain.register_stage("requirements",lambda _:original)
+            result=brain.execute(IDENTITY,"requirements",{})
+            original["routing"]["regions"][0]="mutated"
+            self.assertEqual(result["output"],{"routing":{"regions":["local"]}})
+            self.assertEqual(
+                brain.state(IDENTITY)["stage_events"]["requirements"]["evidence"],
+                {"routing":{"regions":["local"]}},
+            )
+
 
 if __name__ == "__main__":unittest.main()
