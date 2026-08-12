@@ -57,4 +57,6 @@ def test_server_stage_commit_wires_composition_audit_and_export_authorities():
     assert '"authority_batch_id":batch_id' in block
     assert 'manifest_payload["authority"]' in block
     assert '"manifest_fingerprint":manifest_fingerprint' in block
-    assert '"export_content_fingerprint":"sha256-" + hashlib.sha256(target.read_bytes()).hexdigest()' in backend
+    assert '"export_content_fingerprint":_media_sha256(target)' in backend
+    helper = backend[backend.index("def _media_sha256"):backend.index("def _has_audio_stream")]
+    assert "stream.read(1024 * 1024)" in helper

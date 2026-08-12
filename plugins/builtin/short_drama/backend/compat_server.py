@@ -448,7 +448,7 @@ def _commit_server_production_stage_result(
                     episode = int(item.get("episode") or 0); path = Path(str(item.get("path") or ""))
                     if episode < 1 or not path.is_file():
                         raise RuntimeError("composition authority requires a physical episode output")
-                    fingerprint = "sha256-" + hashlib.sha256(path.read_bytes()).hexdigest()
+                    fingerprint = _media_sha256(path)
                     production_evidence = {
                         "path":str(path), "size":path.stat().st_size, "duration":_media_duration(path),
                         "audio_mode":item.get("audio_mode"), "provider_evidence":item.get("production_evidence"),
@@ -484,10 +484,10 @@ def _commit_server_production_stage_result(
                 manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
                 manifest_payload["authority"] = {"generation":stage_generation, "audit_batch_id":batch_id}
                 atomic_write_json(manifest_path, manifest_payload)
-                manifest_fingerprint = "sha256-" + hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+                manifest_fingerprint = _media_sha256(manifest_path)
                 for item in result.get("files") or []:
                     episode = int(item.get("episode") or 0); path = _resolve_media_input(item.get("url"))
-                    fingerprint = "sha256-" + hashlib.sha256(path.read_bytes()).hexdigest()
+                    fingerprint = _media_sha256(path)
                     production_evidence = {"path":str(path), "size":path.stat().st_size, "manifest_url":result.get("manifest_url"), "manifest_fingerprint":manifest_fingerprint, "source_version":item.get("source_version")}
                     audit_evidence = declarations.get(episode) or {"status":"not_applicable", "reason":"audit_not_required"}
                     item.update(export_content_fingerprint=fingerprint, export_audit_batch_id=batch_id, generation=stage_generation)
@@ -4405,6 +4405,14 @@ def _media_duration(path: Path) -> float:
     return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
 
 
+def _media_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return "sha256-" + digest.hexdigest()
+
+
 def _has_audio_stream(path: Path) -> bool:
     result = subprocess.run([str(FFMPEG), "-hide_banner", "-i", str(path)], capture_output=True, text=True, timeout=60)
     return bool(re.search(r"Stream #\S+.*Audio:", result.stderr))
@@ -6925,7 +6933,7 @@ def _export_capability(body: dict) -> dict:
     export_id = uuid4().hex[:12]; target_dir = OUTPUT_ROOT / "exports" / export_id; target_dir.mkdir(parents=True, exist_ok=False); files = []
     for item in body.get("items", []):
         source = _resolve_media_input(item.get("path")); filename = f"episode_{int(item.get('episode', 0)):02d}_{body.get('source_version', 'base')}{source.suffix}"; target = target_dir / filename; shutil.copy2(source, target)
-        files.append({"episode":item.get("episode"), "filename":filename, "url":_media_url(target), "size":target.stat().st_size, "source_version":body.get("source_version"), "content_fingerprint":item.get("content_fingerprint"), "audit_batch_id":item.get("audit_batch_id"), "export_content_fingerprint":"sha256-" + hashlib.sha256(target.read_bytes()).hexdigest(), "production_evidence":item.get("production_evidence"), "audit_evidence":item.get("audit_evidence")})
+        files.append({"episode":item.get("episode"), "filename":filename, "url":_media_url(target), "size":target.stat().st_size, "source_version":body.get("source_version"), "content_fingerprint":item.get("content_fingerprint"), "audit_batch_id":item.get("audit_batch_id"), "export_content_fingerprint":_media_sha256(target), "production_evidence":item.get("production_evidence"), "audit_evidence":item.get("audit_evidence")})
     manifest = target_dir / "manifest.json"; atomic_write_json(manifest, {"export_id":export_id, "created_at":datetime.now(UTC).isoformat(), "project_name":body.get("project_name"), "mode":body.get("mode"), "source_version":body.get("source_version"), "production_parameters":body.get("production_parameters"), "audit_results":body.get("audit_results"), "files":files})
     return {"files":files, "manifest_url":_media_url(manifest)}
 
