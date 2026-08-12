@@ -3072,3 +3072,5 @@
 - 第十五项自动测试与稽查：新增同租户跨身份列表为空、详情拒绝动态测试，结合队列状态机和短剧共享任务集成共`12 passed`。只读确认cancel/resume先经同一get门禁，跨租户原行为不变，任务内部worker接口未扩大改动。
 - 第十六项稽查首败与整改：ProductionCapability热插拔围栏仅覆盖替换与卸载；运行中仍可`enable(..., False)`或`health(..., False)`使已选provider失效，违背“不得卸载/替换”的同一自然终态保护语义。现禁用与标记不健康在目标provider inflight非零时统一拒绝，重新启用/恢复健康不受限。
 - 第十六项自动测试与稽查：双provider并发慢调用动态证明卸载、禁用及降健康均被in-flight拒绝，释放后原结果完整；生产控制、通用provider注册与生产集成关联`92 passed`。只读确认检查与状态写在同一RLock内，无竞态且不持锁执行handler。
+- 第十七项稽查首败与整改：系统AI启动端点的request_id幂等检索是全局裸查，且允许缺失project/session身份；另一所有者复用已知request_id可领取原job UUID，随后配合状态接口形成串线。现启动前强制tenant/user/current_project/session完整，并将幂等命中限定为request_id与四字段所有者同时匹配。
+- 第十七项自动测试与稽查：新增身份门禁早于任务读取、四字段参与幂等匹配的契约，结合状态所有者隔离与生产控制关联`89 passed`。只读确认前端`assistantContext`已提供完整四字段，异主同request_id会创建独立任务而非领取旧任务。

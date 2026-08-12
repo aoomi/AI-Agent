@@ -8689,13 +8689,17 @@ class Handler(BaseHTTPRequestHandler):
             agent = str(body.get("agent", "")).strip(); task = str(body.get("task", "")).strip()
             if agent not in {"main_developer", "software_tester", "inspector"}: return self._json(HTTPStatus.BAD_REQUEST, {"error":"不支持的系统 AI"})
             if not task: return self._json(HTTPStatus.BAD_REQUEST, {"error":"任务内容不能为空"})
+            context = body.get("context") if isinstance(body.get("context"), dict) else {}
+            owner = tuple(str(context.get(key) or "").strip() for key in ("tenant_id", "user_id", "current_project", "session_id"))
+            if not all(owner): return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_agent_job_scope"})
             request_id = str(body.get("request_id", "")).strip(); stamp = datetime.now(UTC).isoformat()
             with AGENT_JOB_LOCK:
                 store = _load_agent_jobs()
-                existing = next((item for item in store.get("jobs", {}).values() if request_id and item.get("request_id") == request_id), None)
+                existing = next((item for item in store.get("jobs", {}).values() if request_id and item.get("request_id") == request_id
+                                 and tuple(str((item.get("context") or {}).get(key) or "").strip() for key in ("tenant_id", "user_id", "current_project", "session_id")) == owner), None)
                 if existing: return self._json(HTTPStatus.OK, {key:existing.get(key) for key in ("job_id", "status", "heartbeat_at")})
                 job_id = str(uuid4())
-                job = {"job_id":job_id, "request_id":request_id, "agent":agent, "task":task, "context":body.get("context", {}), "status":"queued", "created_at":stamp, "heartbeat_at":stamp}
+                job = {"job_id":job_id, "request_id":request_id, "agent":agent, "task":task, "context":context, "status":"queued", "created_at":stamp, "heartbeat_at":stamp}
                 store.setdefault("jobs", {})[job_id] = job; _save_agent_jobs(store)
             _start_agent_job(job_id)
             return self._json(HTTPStatus.ACCEPTED, {"job_id":job_id, "status":"queued", "heartbeat_at":stamp})
