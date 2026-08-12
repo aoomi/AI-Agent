@@ -3426,3 +3426,5 @@
 - 第二百零四项自动测试与稽查：数字串行/分支节点及内部graph name动态失败关闭；Graph单元与集成关联`6 passed`（另`11 subtests passed`），Python编译与diff门禁通过。
 - 第二百零五项稽查首败与整改：三类私有部署持久适配器构造直接对运行时path调用parent/resolve，对象路径又在类型验证后冗余字符串化，坏路径会泄漏AttributeError。现构造根统一要求Path并保持声明身份类型。
 - 第二百零五项自动测试与稽查：三类字符串伪path动态失败关闭，重启恢复、敏感字段、租户围栏及非JSON回归保持通过；持久化关联`9 passed`（另`21 subtests passed`），Python编译与diff门禁通过。
+- 第二百零六项稽查首败与整改：AgentContext values及Collaboration task_states以`str(key)`接受数字键，状态值只做集合比较，导致伪任务身份或不可哈希状态泄漏异常。现两类共享上下文的键值契约均严格失败关闭。
+- 第二百零六项自动测试与稽查：数字上下文键、数字任务键及列表状态动态拒绝；上下文与scope隔离关联`7 passed`（另`9 subtests passed`），Python编译与diff门禁通过。

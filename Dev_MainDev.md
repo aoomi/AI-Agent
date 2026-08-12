@@ -1206,3 +1206,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百零三项：模型定义/需求/注册/读取/列表/选择已完整验证字符串身份、Mapping设置、frozenset能力、模型实例及布尔控制，畸形运行时对象不会进入模型源或选择器。模型会话关联`30 passed`、`21 subtests passed`。
 - BUG072第二百零四项：LangGraph串并行与分支节点键已拒绝数字伪ID，内部Graph读取同步验证字符串name；畸形节点不会被隐式字符串化后进入StateGraph。Graph关联`6 passed`、`11 subtests passed`。
 - BUG072第二百零五项：SQLite状态/队列及本地对象存储构造已严格要求Path模型，对象scope路径同步移除冗余`str(...)`转换；字符串伪路径不会泄漏parent/resolve异常。持久化关联`9 passed`、`21 subtests passed`。
+- BUG072第二百零六项：Agent/协作上下文的values与task_states键已强制非空字符串、状态值强制合法字符串；数字任务键或列表状态不能进入跨智能体共享上下文。上下文隔离关联`7 passed`、`9 subtests passed`。

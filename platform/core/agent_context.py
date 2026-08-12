@@ -34,7 +34,7 @@ class AgentContextStore:
     def update(self, tenant_id: str, project_id: str, agent_id: str, values: Mapping[str, Any]) -> AgentContext:
         key = self._key(tenant_id, project_id, agent_id)
         if not isinstance(values,Mapping):raise AgentContextError("agent context values must be a mapping")
-        if any(not str(name).strip() for name in values):raise AgentContextError("agent context keys must not be empty")
+        if any(not isinstance(name,str) or not name.strip() for name in values):raise AgentContextError("agent context keys must be non-empty strings")
         if self._contains_sensitive_key(values):raise AgentContextError("agent context contains sensitive fields")
         with self._lock:
             try: context = self._contexts[key]
@@ -102,9 +102,9 @@ class CollaborationContextStore:
             context = self._raw(key)
             if agent_id != context["developer_agent_id"]: raise AgentContextError("only the developer agent may mutate collaboration context")
             if task_states:
-                if any(not str(task_id).strip() for task_id in task_states):raise AgentContextError("collaboration task identifiers are required")
+                if any(not isinstance(task_id,str) or not task_id.strip() for task_id in task_states):raise AgentContextError("collaboration task identifiers are required")
                 allowed = {"pending", "running", "waiting_inspection", "waiting_remediation", "waiting_human", "completed", "failed", "cancelled"}
-                if any(state not in allowed for state in task_states.values()): raise AgentContextError("collaboration task state is invalid")
+                if any(not isinstance(state,str) or state not in allowed for state in task_states.values()): raise AgentContextError("collaboration task state is invalid")
                 context["task_states"].update(dict(task_states))
             context["evidence_references"].extend(self._references(evidence_references)); context["file_references"].extend(self._references(file_references))
             return self.get(*key, agent_id=agent_id)

@@ -9,6 +9,8 @@ class AgentContextStoreTest(unittest.TestCase):
     def test_update_rejects_non_mapping_values(self) -> None:
         store=AgentContextStore();store.create("tenant","project","agent")
         with self.assertRaisesRegex(AgentContextError,"must be a mapping"):store.update("tenant","project","agent",[])
+        for values in ({1:"value"},):
+            with self.subTest(values=values),self.assertRaises(AgentContextError):store.update("tenant","project","agent",values)
     def test_context_is_scoped_to_tenant_project_and_agent(self) -> None:
         store = AgentContextStore()
         store.create("tenant-a", "project-a", "agent-a")
@@ -44,6 +46,8 @@ class AgentContextStoreTest(unittest.TestCase):
         collaboration.create(tenant_id="tenant",project_id="project",session_id="session",developer_agent_id="dev",inspector_agent_id="audit")
         with self.assertRaises(AgentContextError):
             collaboration.update("tenant","project","session",agent_id="dev",evidence_references=(1,))  # type: ignore[arg-type]
+        for states in ({1:"running"},{"task":[]}):
+            with self.subTest(states=states),self.assertRaises(AgentContextError):collaboration.update("tenant","project","session",agent_id="dev",task_states=states)
 
 
 if __name__ == "__main__":
