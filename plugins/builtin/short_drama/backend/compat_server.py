@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import base64
 import hashlib
+import hmac
 import math
 import mimetypes
 import os
@@ -232,6 +233,7 @@ TASK_LEASES = PRODUCTION_EXTENSIONS.create("storage.task_lease", database=TASK_L
 WORKER_REGISTRY = PRODUCTION_EXTENSIONS.create("discovery.workers", database=WORKER_REGISTRY_FILE)
 WORKER_ID = os.environ.get("SHORT_DRAMA_WORKER_ID", f"{os.uname().nodename}-{os.getpid()}")
 WORKER_SCOPE = os.environ.get("SHORT_DRAMA_WORKER_SCOPE", "local-production")
+INTERNAL_DISPATCH_TOKEN = uuid4().hex
 WORKER_HEARTBEAT_STOP = threading.Event()
 
 
@@ -7075,8 +7077,33 @@ def _forward_production_request(path: str, body: dict, dispatched: bool) -> tupl
         WORKER_REGISTRY.release_reservation(request_id)
 
 
+def _authenticated_dispatched_request(path: str, body: dict, headers: object) -> bool:
+    """Accept dispatch bypass only for this process or an active exact worker reservation."""
+    get_header = getattr(headers, "get", None)
+    if not callable(get_header) or str(get_header("X-Production-Dispatched") or "") != "1":
+        return False
+    internal_token = str(get_header("X-Production-Internal") or "")
+    if internal_token and hmac.compare_digest(internal_token, INTERNAL_DISPATCH_TOKEN):
+        return True
+    reservation_id = str(get_header("X-Production-Reservation") or "").strip()
+    worker_id = str(get_header("X-Production-Worker") or "").strip()
+    resource_class = PRODUCTION_ENDPOINT_RESOURCES.get(path) or ({"outline":"text", "script":"text", "storyboard":"text", "image":"image", "video":"video"}.get(str(body.get("stage"))) if path == "/api/production/run-stage" else None)
+    if not reservation_id or worker_id != WORKER_ID or not resource_class:
+        raise PermissionError("invalid production dispatch proof")
+    valid = any(
+        str(item.get("request_id")) == reservation_id
+        and str(item.get("worker_id")) == worker_id
+        and str(item.get("resource_class")) == resource_class
+        and str(item.get("service_scope")) == WORKER_SCOPE
+        for item in WORKER_REGISTRY.reservation_snapshot()
+    )
+    if not valid:
+        raise PermissionError("production dispatch reservation is missing or expired")
+    return True
+
+
 def _local_api(path: str, body: dict) -> dict:
-    request = Request(f"http://127.0.0.1:{SERVICE_PORT}{path}", data=json.dumps(body, ensure_ascii=False).encode(), method="POST", headers={"Content-Type":"application/json", "X-Production-Dispatched":"1"})
+    request = Request(f"http://127.0.0.1:{SERVICE_PORT}{path}", data=json.dumps(body, ensure_ascii=False).encode(), method="POST", headers={"Content-Type":"application/json", "X-Production-Dispatched":"1", "X-Production-Internal":INTERNAL_DISPATCH_TOKEN})
     try:
         with urlopen(request, timeout=1900) as response: return json.loads(response.read() or b"{}")
     except HTTPError as error:
@@ -8286,7 +8313,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_scene_asset_subject", "detail":"场景资产必须是可复用的纯空地点，不能是人物动作或人物状态"})
         PRODUCTION_REQUEST_SCOPE.identity = _production_identity(body)
         try:
-            forwarded = _forward_production_request(parsed.path, body, self.headers.get("X-Production-Dispatched") == "1")
+            dispatched = _authenticated_dispatched_request(parsed.path, body, self.headers)
+        except PermissionError as error:
+            return self._json(HTTPStatus.FORBIDDEN, {"error":"invalid_production_dispatch", "message":str(error)})
+        production_stage = PRODUCTION_ENDPOINT_STAGES.get(parsed.path)
+        if production_stage and not _is_asset_subtask_request(parsed.path, body) and not dispatched:
+            try:
+                _begin_production_request(body, production_stage)
+            except (ProductionLedgerError, ValueError) as error:
+                return self._json(HTTPStatus.CONFLICT, {"error":"production_gate_blocked", "message":str(error), "stage":production_stage})
+        try:
+            forwarded = _forward_production_request(parsed.path, body, dispatched)
         except Exception as error:
             return self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error":"workload_dispatch_failed", "message":str(error)})
         if forwarded:
@@ -8336,12 +8373,6 @@ class Handler(BaseHTTPRequestHandler):
                         projection_revision=1,
                     )
                 return self._json(HTTPStatus.BAD_GATEWAY, {"error":"production_stage_failed", "message":str(error), "stage":stage})
-        production_stage = PRODUCTION_ENDPOINT_STAGES.get(parsed.path)
-        if production_stage and not _is_asset_subtask_request(parsed.path, body) and self.headers.get("X-Production-Dispatched") != "1":
-            try:
-                _begin_production_request(body, production_stage)
-            except (ProductionLedgerError, ValueError) as error:
-                return self._json(HTTPStatus.CONFLICT, {"error":"production_gate_blocked", "message":str(error), "stage":production_stage})
         if parsed.path in {"/api/outline/plan", "/api/outline/episodes", "/api/script/episode", "/api/storyboard", "/api/storyboard/shot"}:
             try:
                 body["duration"] = _validated_episode_duration(body.get("duration", 60))
