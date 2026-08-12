@@ -3250,3 +3250,5 @@
 - 第一百一十六项自动测试与稽查：三类非法指标、非Mapping请求、错位及空产物证明动态失败关闭；Provider审计关联`5 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
 - 第一百一十七项稽查首败与整改：SecurityAuditLedger保留期只比较小于30，布尔True和浮点可绕过静态整数契约建立账本。现构造边界强制至少30天的真实整数。
 - 第一百一十七项自动测试与稽查：布尔、浮点及不足30天三类值动态失败关闭；安全审计关联测试、Python编译与diff门禁通过。
+- 第一百一十八项稽查首败与整改：WorkloadRouter与WorkerRegistry多项容量/超时参数只做大小比较，布尔值可作为memory、heartbeat、queue或TTL进入路由和跨实例预留。现路由构造/选择及SQLite list/reap/reserve统一强制真实整数或数值类型，并拒绝布尔伪值。
+- 第一百一十八项自动测试与稽查：路由心跳/深度/内存及发现心跳/内存/TTL畸形值动态失败关闭；生产控制关联`100 passed`（另`12 subtests passed`），Python编译与diff门禁通过。

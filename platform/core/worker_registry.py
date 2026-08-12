@@ -53,7 +53,7 @@ class WorkerRegistry:
         return worker
 
     def list(self, *, heartbeat_timeout: float = 30, service_scope: str = "", now: float | None = None) -> list[WorkerSnapshot]:
-        if heartbeat_timeout <= 0: raise WorkloadRoutingError("invalid worker heartbeat timeout")
+        if isinstance(heartbeat_timeout,bool) or not isinstance(heartbeat_timeout,(int,float)) or heartbeat_timeout <= 0: raise WorkloadRoutingError("invalid worker heartbeat timeout")
         moment = time.time() if now is None else now
         with sqlite3.connect(self.database, timeout=30) as connection:
             rows = connection.execute("SELECT payload_json FROM workers WHERE heartbeat_at>=?", (moment - heartbeat_timeout,)).fetchall()
@@ -77,7 +77,10 @@ class WorkerRegistry:
                 now: float | None = None) -> WorkerSnapshot:
         """Atomically reserve one dispatch slot across all registry instances."""
         request_id, resource_class = str(request_id).strip(), str(resource_class).strip()
-        if not request_id or not resource_class or estimated_memory < 0 or heartbeat_timeout <= 0 or reservation_ttl <= 0:
+        if (not request_id or not resource_class
+                or isinstance(estimated_memory,bool) or not isinstance(estimated_memory,int) or estimated_memory < 0
+                or isinstance(heartbeat_timeout,bool) or not isinstance(heartbeat_timeout,(int,float)) or heartbeat_timeout <= 0
+                or isinstance(reservation_ttl,bool) or not isinstance(reservation_ttl,(int,float)) or reservation_ttl <= 0):
             raise WorkloadRoutingError("invalid worker reservation")
         moment = time.time() if now is None else now
         with sqlite3.connect(self.database, timeout=30, isolation_level=None) as connection:
@@ -143,7 +146,7 @@ class WorkerRegistry:
         return [dict(zip(keys, row, strict=True)) for row in rows]
 
     def reap(self, *, heartbeat_timeout: float = 30, now: float | None = None) -> int:
-        if heartbeat_timeout <= 0: raise WorkloadRoutingError("invalid worker heartbeat timeout")
+        if isinstance(heartbeat_timeout,bool) or not isinstance(heartbeat_timeout,(int,float)) or heartbeat_timeout <= 0: raise WorkloadRoutingError("invalid worker heartbeat timeout")
         moment = time.time() if now is None else now
         with sqlite3.connect(self.database, timeout=30) as connection:
             connection.execute("DELETE FROM worker_reservations WHERE expires_at<=? OR worker_id IN (SELECT worker_id FROM workers WHERE heartbeat_at<?)", (moment, moment - heartbeat_timeout))

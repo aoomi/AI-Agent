@@ -30,7 +30,8 @@ class WorkloadRouter:
     """Select the least-loaded healthy worker without binding to discovery storage."""
 
     def __init__(self, *, heartbeat_timeout: float = 30.0, max_queue_depth: int = 32) -> None:
-        if heartbeat_timeout <= 0 or max_queue_depth <= 0:
+        if (isinstance(heartbeat_timeout, bool) or not isinstance(heartbeat_timeout, (int, float)) or heartbeat_timeout <= 0
+                or isinstance(max_queue_depth, bool) or not isinstance(max_queue_depth, int) or max_queue_depth <= 0):
             raise ValueError("heartbeat_timeout and max_queue_depth must be positive")
         self.heartbeat_timeout = heartbeat_timeout
         self.max_queue_depth = max_queue_depth
@@ -73,7 +74,7 @@ class WorkloadRouter:
 
     def route(self, resource_class: str, *, estimated_memory: int = 0, service_scope: str = "", worker_id: str = "", now: float | None = None) -> WorkerSnapshot:
         resource_class, service_scope, worker_id = resource_class.strip(), service_scope.strip(), worker_id.strip()
-        if not resource_class or estimated_memory < 0:
+        if not resource_class or isinstance(estimated_memory, bool) or not isinstance(estimated_memory, int) or estimated_memory < 0:
             raise WorkloadRoutingError("invalid worker route")
         moment = time.time() if now is None else now
         with self._lock:
