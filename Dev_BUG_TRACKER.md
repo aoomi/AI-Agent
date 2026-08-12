@@ -3627,3 +3627,4 @@
 - BUG072 / M9.198 / 架构横向稽查第三百二十四项（已关闭，2026-08-12）：AgentContextStore仅检查顶层键类型，嵌套Mapping整数/空白键仍会被JSON快照静默改写并进入跨智能体共享状态。现递归敏感过滤同时强制每层键为非空字符串；两类嵌套伪键动态失败关闭。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百二十五项（已关闭，2026-08-12）：ProviderAdapterDefinition settings与invoke inputs仍允许JSON把整数/空白Mapping键静默改写，可能改变受inflight保护的配置或真实provider请求。现settings在递归敏感过滤时强制非空字符串键，invoke在密钥解析和副作用前独立验证全部嵌套键；六类伪输入动态失败关闭。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百二十六项（已关闭，2026-08-12）：ProviderService与ModelDefinition settings仍依赖`str(key)`敏感检查并允许JSON键转换，注册后的健康路由或模型设置可与调用方原事实不同。现两注册边界递归强制非空字符串键并同步敏感过滤；六类顶层/嵌套/空白伪键动态失败关闭。关联回归、Python编译与diff门禁通过。
+- BUG072 / M9.198 / 架构横向稽查第三百二十七项（已关闭，2026-08-12）：AgentConfiguration settings与ProductionCapability metadata同样允许嵌套整数/空白键在JSON快照中被改写，可能绕过版本配置或热插拔元数据事实。现两注册边界递归强制非空字符串键并同步敏感过滤；六类伪键动态失败关闭。关联回归、Python编译与diff门禁通过。

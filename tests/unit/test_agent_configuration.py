@@ -109,6 +109,9 @@ class AgentConfigurationStoreTest(unittest.TestCase):
         for settings in ({"value":float("nan")},{"value":object()}):
             with self.subTest(settings=settings),self.assertRaisesRegex(AgentConfigurationError,"standard JSON"):
                 self.store.create(agent=agent,skill=skill,model_id="model-full",updated_by_identity_id="owner",settings=settings)
+        for settings in ({1:"value"},{"nested":{1:"value"}},{" ":"value"}):
+            with self.subTest(settings=settings),self.assertRaisesRegex(AgentConfigurationError,"sensitive fields"):
+                self.store.create(agent=agent,skill=skill,model_id="model-full",updated_by_identity_id="owner",settings=settings)
 
     def test_settings_are_deeply_immutable_from_caller_mutation(self) -> None:
         skill=self.skills["system_main_developer"];agent,_=self.agents.register(skill)

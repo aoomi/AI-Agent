@@ -40,7 +40,7 @@ class ProductionCapabilityRegistry:
         forbidden = ("secret", "token", "password", "api_key", "authorization", "credential")
         if isinstance(value, Mapping):
             return any(
-                any(word in str(key).lower() for word in forbidden)
+                not isinstance(key,str) or not key.strip() or any(word in key.lower() for word in forbidden)
                 or ProductionCapabilityRegistry._contains_sensitive_key(item)
                 for key, item in value.items()
             )
