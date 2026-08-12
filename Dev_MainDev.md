@@ -1246,3 +1246,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百四十三项：Provider韧性调用层inputs已强制标准JSON，非标准值不会进入限流、熔断、重试或回退调用链。
 - BUG072第二百四十四项：AgentScheduler resume values已在更新任何AgentContext前强制非空字符串键与标准JSON，坏恢复输入不再造成部分上下文写入。
 - BUG072第二百四十五项：Agent提案executor result已强制非空Mapping与标准JSON，列表、NaN或任意对象结果不会冒充已应用提案。
+- BUG072第二百四十六项：TraceSpan attributes已在计时与spans写入前强制标准JSON，坏属性不会留下内存或导出分裂记录。

@@ -309,6 +309,8 @@ class TraceRecorder:
         attributes = dict(attributes or {})
         if _contains_secret(attributes):
             raise ObservabilityError("span attributes contain secrets")
+        try:json.dumps(attributes,allow_nan=False)
+        except (TypeError,ValueError) as error:raise ObservabilityError("span attributes must be standard JSON") from error
         start = self.clock()
         if isinstance(start,bool) or not isinstance(start,(int,float)) or not math.isfinite(start):raise ObservabilityError("trace clock must be finite")
         status = "ok"

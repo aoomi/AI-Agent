@@ -15,6 +15,11 @@ class ObservabilityTest(unittest.TestCase):
    with self.subTest(operation=operation),self.assertRaises(ObservabilityError):operation()
   with self.assertRaisesRegex(ObservabilityError,"monotonic"):
    with TraceRecorder(clock=iter((2.0,1.0)).__next__).span("trace","span","name"):pass
+  for attributes in ({"value":float("nan")},{"value":object()}):
+   recorder=TraceRecorder()
+   with self.subTest(attributes=attributes),self.assertRaisesRegex(ObservabilityError,"standard JSON"):
+    with recorder.span("trace","span","name",attributes=attributes):pass
+   self.assertEqual(recorder.spans,[])
  def test_logs_metrics_and_traces(self):
   sink=io.StringIO();self.assertEqual(StructuredLogger(sink).emit("info","task.completed",{"task_id":"x"})["event"],"task.completed");metrics=MetricsRegistry();metrics.increment("tasks",labels=(("status","completed"),));self.assertEqual(next(iter(metrics.snapshot()["counters"].values())),1);traces=TraceRecorder()
   with traces.span("trace","span","task"):pass
