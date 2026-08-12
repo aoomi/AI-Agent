@@ -2,14 +2,16 @@
 from __future__ import annotations
 from dataclasses import dataclass
 import json,sqlite3
+from threading import RLock
 from pathlib import Path
 from uuid import uuid4
 class PersistenceError(ValueError):pass
 class SQLiteStateStore:
- def __init__(self,path:Path):self.path=path;path.parent.mkdir(parents=True,exist_ok=True);self.db=sqlite3.connect(path);self.db.execute("CREATE TABLE IF NOT EXISTS state(tenant TEXT,namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(tenant,namespace,key))");self.db.commit()
- def put(self,tenant,namespace,key,value):self.db.execute("INSERT OR REPLACE INTO state VALUES(?,?,?,?)",(tenant,namespace,key,json.dumps(value,sort_keys=True)));self.db.commit()
+ def __init__(self,path:Path):self.path=path;path.parent.mkdir(parents=True,exist_ok=True);self.db=sqlite3.connect(path,check_same_thread=False);self._lock=RLock();self.db.execute("CREATE TABLE IF NOT EXISTS state(tenant TEXT,namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(tenant,namespace,key))");self.db.commit()
+ def put(self,tenant,namespace,key,value):
+  with self._lock:self.db.execute("INSERT OR REPLACE INTO state VALUES(?,?,?,?)",(tenant,namespace,key,json.dumps(value,sort_keys=True)));self.db.commit()
  def get(self,tenant,namespace,key):
-  row=self.db.execute("SELECT value FROM state WHERE tenant=? AND namespace=? AND key=?",(tenant,namespace,key)).fetchone()
+  with self._lock:row=self.db.execute("SELECT value FROM state WHERE tenant=? AND namespace=? AND key=?",(tenant,namespace,key)).fetchone()
   if row is None:raise PersistenceError("state record not found")
   return json.loads(row[0])
 class LocalObjectStore:
@@ -24,10 +26,13 @@ class LocalObjectStore:
 @dataclass(frozen=True,slots=True)
 class DurableQueueItem:item_id:str;tenant_id:str;payload:dict;status:str
 class SQLiteDurableQueue:
- def __init__(self,path:Path):path.parent.mkdir(parents=True,exist_ok=True);self.db=sqlite3.connect(path);self.db.execute("CREATE TABLE IF NOT EXISTS queue(id TEXT PRIMARY KEY,tenant TEXT,payload TEXT,status TEXT)");self.db.commit()
+ def __init__(self,path:Path):path.parent.mkdir(parents=True,exist_ok=True);self.db=sqlite3.connect(path,check_same_thread=False);self._lock=RLock();self.db.execute("CREATE TABLE IF NOT EXISTS queue(id TEXT PRIMARY KEY,tenant TEXT,payload TEXT,status TEXT)");self.db.commit()
  def enqueue(self,tenant,payload):
-  item=DurableQueueItem(f"queue-{uuid4().hex}",tenant,payload,"pending");self.db.execute("INSERT INTO queue VALUES(?,?,?,?)",(item.item_id,tenant,json.dumps(payload),item.status));self.db.commit();return item
+  item=DurableQueueItem(f"queue-{uuid4().hex}",tenant,payload,"pending")
+  with self._lock:self.db.execute("INSERT INTO queue VALUES(?,?,?,?)",(item.item_id,tenant,json.dumps(payload),item.status));self.db.commit()
+  return item
  def claim(self,tenant):
-  self.db.execute("BEGIN IMMEDIATE");row=self.db.execute("SELECT id,payload FROM queue WHERE tenant=? AND status='pending' ORDER BY rowid LIMIT 1",(tenant,)).fetchone()
-  if row is None:self.db.commit();return None
-  self.db.execute("UPDATE queue SET status='running' WHERE id=?",(row[0],));self.db.commit();return DurableQueueItem(row[0],tenant,json.loads(row[1]),"running")
+  with self._lock:
+   self.db.execute("BEGIN IMMEDIATE");row=self.db.execute("SELECT id,payload FROM queue WHERE tenant=? AND status='pending' ORDER BY rowid LIMIT 1",(tenant,)).fetchone()
+   if row is None:self.db.commit();return None
+   self.db.execute("UPDATE queue SET status='running' WHERE id=?",(row[0],));self.db.commit();return DurableQueueItem(row[0],tenant,json.loads(row[1]),"running")

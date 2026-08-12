@@ -3148,3 +3148,5 @@
 - 第五十三项自动测试与稽查：新增完整owner缺失及跨task_class覆盖拒绝动态契约，连同投影租约/重放关联`4 passed`；Python编译与diff门禁通过。两项旧测试使用无身份伪任务而首败，属于被新失败关闭契约淘汰的fixture，未降低门禁。
 - 第五十四项稽查首败与整改：DurableTaskRepository写入已强制owner，但`get(job_id)`仍全局裸读，`list`还允许部分owner过滤；内部upsert返回也依赖裸读。现get强制tenant/user/project完整精确匹配，list拒绝部分scope；upsert在已验证输入后用精确scope返回，批量返回在同仓储内部直接读取提交集。
 - 第五十四项自动测试与稽查：新增同job异user读取为空及完整scope读取命中动态契约`1 passed`；Python编译与diff门禁通过。生产HTTP runtime list既有完整三字段调用保持兼容。
+- 第五十五项稽查首败与整改：私有部署SQLiteStateStore/SQLiteDurableQueue长期共享默认单线程连接，却会被平台多线程调用；跨线程直接抛ProgrammingError，并发claim也无同实例互斥。现连接显式允许跨线程且每实例RLock覆盖完整事务，claim的BEGIN→SELECT→UPDATE→commit不可交错。
+- 第五十五项自动测试与稽查：持久适配器与私有部署韧性关联`4 passed`；Python编译与diff门禁通过。只读确认对象存储仍保持同目录原子替换和路径穿越门禁。
