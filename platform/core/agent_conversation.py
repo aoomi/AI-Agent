@@ -67,6 +67,7 @@ class ConversationMemoryStore:
     """Tenant-safe conversational facts explicitly returned by the model."""
 
     def __init__(self, storage_path: Path | None = None) -> None:
+        if storage_path is not None and not isinstance(storage_path,Path):raise ConversationError("conversation memory path must be a Path")
         self.storage_path = storage_path
         self._lock = RLock()
         self._items: dict[tuple[str, str], dict[str, Any]] = {}
@@ -85,7 +86,8 @@ class ConversationMemoryStore:
     def update(self, identity_id: str, project_id: str, values: Mapping[str, Any]) -> Mapping[str, Any]:
         if any(not isinstance(value,str) for value in (identity_id,project_id)) or not identity_id.strip() or not project_id.strip(): raise ConversationError("conversation memory identity and project are required")
         if not isinstance(values, Mapping): raise ConversationError("conversation memory values must be a mapping")
-        safe = {str(key): value for key, value in values.items() if str(key).strip() and value is not None}
+        if any(not isinstance(key,str) or not key.strip() for key in values):raise ConversationError("conversation memory keys must be non-empty strings")
+        safe = {key.strip(): value for key, value in values.items() if value is not None}
         with self._lock:
             item_key = (identity_id, project_id)
             current = dict(self._items.get(item_key, {})); current.update(safe)
@@ -119,6 +121,11 @@ class AgentConversationService:
     })
 
     def __init__(self, models: ModelRegistry, configurations: AgentConfigurationStore, model_client: ModelConversationClient | None, task_executor: TaskProposalExecutor | None = None, workflow_executor: TaskProposalExecutor | None = None, memory_store: ConversationMemoryStore | None = None) -> None:
+        if not isinstance(models,ModelRegistry) or not isinstance(configurations,AgentConfigurationStore):raise ConversationError("conversation dependencies are invalid")
+        if model_client is not None and not callable(getattr(model_client,"complete",None)):raise ConversationError("model client contract is invalid")
+        if task_executor is not None and not callable(getattr(task_executor,"execute",None)):raise ConversationError("task executor contract is invalid")
+        if workflow_executor is not None and not callable(getattr(workflow_executor,"execute",None)):raise ConversationError("workflow executor contract is invalid")
+        if memory_store is not None and not isinstance(memory_store,ConversationMemoryStore):raise ConversationError("memory store contract is invalid")
         self.models = models
         self.configurations = configurations
         self.model_client = model_client
@@ -144,11 +151,13 @@ class AgentConversationService:
         configuration = self.configurations.get(agent_id)
         identity_id = created_by_identity_id.strip()
         if not identity_id: raise ConversationError("created_by_identity_id is required")
-        safe_context = MappingProxyType({str(key): value for key, value in (context or {}).items() if str(key).strip() and value is not None})
-        if not str(safe_context.get("project_id") or "").strip(): raise ConversationError("conversation project_id is required")
+        if any(not isinstance(key,str) or not key.strip() for key in (context or {})):raise ConversationError("conversation context keys must be non-empty strings")
+        safe_context = MappingProxyType({key.strip(): value for key, value in (context or {}).items() if value is not None})
+        project_id=safe_context.get("project_id")
+        if not isinstance(project_id,str) or not project_id.strip(): raise ConversationError("conversation project_id is required")
         session = ConversationSession(f"conversation-{uuid4().hex}", agent_id, configuration.configuration_version, identity_id, self._now(), safe_context)
         agent, skill = self._binding(agent_id)
-        memory = self.memory_store.read(identity_id, str(safe_context.get("project_id", "")))
+        memory = self.memory_store.read(identity_id, project_id.strip())
         system = self._message(session, "system", self._system_prompt(configuration, agent, skill, safe_context, memory))
         with self._lock:self._sessions[session.session_id] = session;self._messages[session.session_id] = [system]
         return session
@@ -191,7 +200,7 @@ class AgentConversationService:
         proposal = self._proposal_from_model(session, configuration, raw.get("proposal"), tuple(plan), persist=False)
         assistant = self._message(session, "assistant", reply.strip())
         if memory_updates:
-            self.memory_store.update(session.created_by_identity_id, str(session.context.get("project_id", "")), memory_updates)
+            self.memory_store.update(session.created_by_identity_id, session.context["project_id"], memory_updates)
         with self._lock:
             self._messages[session_id].extend((user_message, assistant))
             if proposal is not None:self._proposals[proposal.proposal_id] = proposal
@@ -289,7 +298,7 @@ class AgentConversationService:
         if plan and "plan" not in requested: requested["plan"] = list(plan)
         if configuration.role in {"tester", "inspector"} and proposal_type == "task_execution" and requested.get("read_only") is not True:
             raise ConversationError(f"{configuration.role} task proposal must be read-only")
-        proposal = ConversationProposal(f"proposal-{uuid4().hex}", session.session_id, session.agent_id, str(proposal_type), "pending_confirmation", MappingProxyType(dict(requested)), True, self._now())
+        proposal = ConversationProposal(f"proposal-{uuid4().hex}", session.session_id, session.agent_id, proposal_type, "pending_confirmation", MappingProxyType(dict(requested)), True, self._now())
         if persist:
             with self._lock:self._proposals[proposal.proposal_id] = proposal
         return proposal

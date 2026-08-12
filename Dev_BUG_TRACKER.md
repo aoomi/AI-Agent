@@ -3432,3 +3432,5 @@
 - 第二百零七项自动测试与稽查：五类数字issue/severity/file/evidence/reference动态失败关闭；协作单元与集成关联`12 passed`（另`20 subtests passed`），Python编译与diff门禁通过。
 - 第二百零八项稽查首败与整改：AgentConfiguration._build以`str(...)`接受数字system_prompt_version；同时此前模型严格化遗漏行业机器人配置的合法显式类型。现通用与行业Agent/Skill模型均列入契约，prompt版本必须非空字符串。
 - 第二百零八项自动测试与稽查：数字/空prompt版本动态拒绝，行业机器人独立模型版本集成保持通过；配置关联`9 passed`（另`5 subtests passed`），Python编译与diff门禁通过。
+- 第二百零九项稽查首败与整改：AgentConversationService不验证六类依赖，以`str(key)`接受数字context/memory键和project，并对proposal_type宽松字符串化；坏依赖或scope可能延迟失败/身份含混。现全链在模型、文件和共享状态副作用前失败关闭。
+- 第二百零九项自动测试与稽查：坏Path/依赖、数字context/memory键及project动态拒绝；会话与管理API关联`19 passed`（另`17 subtests passed`），Python编译与diff门禁通过。

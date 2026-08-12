@@ -48,6 +48,10 @@ class AgentConversationServiceTest(unittest.TestCase):
             with self.subTest(operation=operation),self.assertRaises(ConversationError):operation()
         for operation in (lambda:service.bind(object(),skill),lambda:service.bind(agent,object()),lambda:service.open_session(1,"identity",{"project_id":"project"}),lambda:service.open_session(agent.agent_id,1,{"project_id":"project"})):
             with self.subTest(operation=operation),self.assertRaises(ConversationError):operation()
+        for build in (lambda:ConversationMemoryStore("memory.json"),lambda:AgentConversationService(object(),self.configurations,None),lambda:AgentConversationService(self.models,self.configurations,object()),lambda:AgentConversationService(self.models,self.configurations,None,task_executor=object()),lambda:AgentConversationService(self.models,self.configurations,None,memory_store=object())):
+            with self.subTest(build=build),self.assertRaises(ConversationError):build()
+        for operation in (lambda:service.open_session(agent.agent_id,"identity",{1:"value","project_id":"project"}),lambda:service.open_session(agent.agent_id,"identity",{"project_id":1}),lambda:memory.update("identity","project",{1:"value"})):
+            with self.subTest(operation=operation),self.assertRaises(ConversationError):operation()
     def setUp(self) -> None:
         self.skills = {skill.skill_id: skill for skill in SkillRegistry(ROOT / "plugins/builtin").scan()}
         self.agents = AgentRegistry(); self.models = ModelRegistry()
