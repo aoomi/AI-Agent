@@ -3142,3 +3142,5 @@
 - 第五十项自动测试与稽查：协作单元、管理API和独立集成关联`11 passed`（另`3 subtests passed`）；Python编译与diff门禁通过。只读确认列表均返回锁内快照。
 - 第五十一项稽查首败与整改：IndustryWorkflowService工作流/执行器表无锁，运行中仍可bind替换executor，且同workflow可并发compile/invoke。现创建、拓扑修改、执行器快照与注册原子化；run按workflow及其robot登记活动围栏，运行中禁止重复run、modify/connect和executor替换，finally释放。
 - 第五十一项自动测试与稽查：行业工作流及LangGraph串并行/分支/恢复关联`6 passed`；Python编译与diff门禁通过。只读确认orchestrator外部执行锁外运行且缺executor不泄漏活动标记。
+- 第五十二项稽查首败与整改：ResourceScheduler票据支持tenant/user/project隔离，但`cancel_job(job_id)`仍全局匹配；跨项目相同job_id会被一起撤销。现取消API支持完整owner scope并要求三字段成组，带scope时只取消精确所有者票据；受信内部裸job兼容保留。
+- 第五十二项自动测试与稽查：资源优先级、取消、池并行、容量及分层背压专项`7 passed`；Python编译与diff门禁通过。只读确认作用域过滤在取消标记写入前完成。

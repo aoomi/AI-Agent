@@ -115,9 +115,11 @@ class ResourceScheduler:
                 self._active.pop(ticket.ticket_id, None)
                 self._condition.notify_all()
 
-    def cancel_job(self, job_id: str) -> int:
+    def cancel_job(self, job_id: str, *, tenant_id: str = "", user_id: str = "", project_id: str = "") -> int:
+        scope = tuple(str(value or "").strip() for value in (tenant_id, user_id, project_id))
+        if any(scope) and not all(scope):raise ResourceSchedulerError("tenant_id, user_id and project_id must be supplied together")
         with self._condition:
-            targets = [ticket.ticket_id for ticket in self._queue if ticket.job_id == job_id]
+            targets = [ticket.ticket_id for ticket in self._queue if ticket.job_id == job_id and (not all(scope) or (ticket.tenant_id,ticket.user_id,ticket.project_id)==scope)]
             self._cancelled.update(targets); self._condition.notify_all(); return len(targets)
 
     def snapshot(self) -> dict[str, object]:
