@@ -13,6 +13,11 @@ from ai_agent_core import PlatformConfig
 
 
 class PlatformConfigTest(unittest.TestCase):
+    def test_direct_configuration_rejects_invalid_runtime_values(self) -> None:
+        for kwargs in ({"host":" "},{"environment":" "},{"port":True},{"port":65536}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                PlatformConfig(**kwargs)
+
     def test_environment_configuration_is_validated(self) -> None:
         environment = {
             "AI_AGENT_HOST": "127.0.0.1",

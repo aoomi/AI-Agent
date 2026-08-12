@@ -24,6 +24,15 @@ class PlatformConfig:
     port: int = 8080
     environment: str = "development"
 
+    def __post_init__(self) -> None:
+        host, environment = self.host.strip(), self.environment.strip()
+        if not host or not environment:
+            raise ValueError("platform host and environment must not be empty")
+        if isinstance(self.port, bool) or not isinstance(self.port, int) or not 0 <= self.port <= 65535:
+            raise ValueError("platform port must be between 0 and 65535")
+        object.__setattr__(self, "host", host)
+        object.__setattr__(self, "environment", environment)
+
     @classmethod
     def from_environment(cls) -> "PlatformConfig":
         host = os.environ.get("AI_AGENT_HOST", "127.0.0.1").strip()

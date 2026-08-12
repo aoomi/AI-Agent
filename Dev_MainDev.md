@@ -1131,3 +1131,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百二十八项：行业工作流executor绑定、robot列表及modify模式已完整验证，空/重复机器人、坏executor或未知模式不会污染工作流版本。关联`4 passed`、`4 subtests passed`。
 - BUG072第一百二十九项：开发→稽查协作max_remediation_rounds已强制1—100真实整数，并提前于配置查询失败关闭。协作关联`9 passed`、`8 subtests passed`。
 - BUG072第一百三十项：内存任务队列状态事件progress_percent已排除布尔伪整数，True不能将权威任务从running变更为paused并记录1%。队列关联回归通过。
+- BUG072第一百三十一项：PlatformConfig直接构造已验证并规范化host/environment，port强制0—65535真实整数；非环境变量组合根同样受配置门禁。平台启动关联回归通过。

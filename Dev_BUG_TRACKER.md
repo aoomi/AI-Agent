@@ -3276,3 +3276,5 @@
 - 第一百二十九项自动测试与稽查：布尔及浮点轮次动态失败关闭且零配置访问；协作关联`9 passed`（另`8 subtests passed`），Python编译与diff门禁通过。
 - 第一百三十项稽查首败与整改：TaskProgressProjection已拒绝布尔进度，但其下游InMemoryTaskQueue.apply_status_event仍把True视为1并可同时推进任务生命周期，形成双层契约不一致。现队列权威写入同步强制真实整数。
 - 第一百三十项自动测试与稽查：布尔进度动态失败关闭且任务保持running；队列、服务、投影与隔离关联测试、Python编译与diff门禁通过。
+- 第一百三十一项稽查首败与整改：PlatformConfig.from_environment有输入校验，但dataclass直接构造可接受空host/environment、布尔或越界port；应用组合根和测试均直接使用该路径。现模型边界统一规范化并验证，保留port=0本地临时监听语义。
+- 第一百三十一项自动测试与稽查：空host/environment、布尔及越界port动态拒绝；平台bootstrap/API关联测试、Python编译与diff门禁通过。
