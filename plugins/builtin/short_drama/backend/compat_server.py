@@ -4411,9 +4411,14 @@ def _attach_dialogue_audio(video: Path, audio: Path, target: Path) -> Path:
     ], target)
 
 
-def _normalize_shot_media(video: Path, audio: Path | None, target: Path) -> Path:
+def _normalize_shot_media(video: Path, audio: Path | None, target: Path, *, include_audio: bool = True) -> Path:
     """Produce concat-safe H.264/AAC media while preserving the shot duration."""
     duration = _media_duration(video)
+    if not include_audio:
+        return _run_ffmpeg([
+            "-i", str(video), "-map", "0:v:0", "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+            "-pix_fmt", "yuv420p", "-r", str(PRODUCTION_FRAME_RATE), "-t", f"{duration:.3f}",
+        ], target)
     if audio is not None:
         audio_arguments = ["-i", str(audio), "-filter_complex", f"[1:a]apad,atrim=duration={duration:.3f}[a]", "-map", "0:v:0", "-map", "[a]"]
     else:
@@ -6798,6 +6803,9 @@ def _audio_repair_capability(body: dict) -> dict:
 
 def _composition_capability(body: dict) -> dict:
     episode = max(1, int(body.get("episode", 1))); videos = body.get("videos", [])
+    audio_mode = str(body.get("audio_mode") or "full_mix").strip()
+    if audio_mode not in {"full_mix", "none"}:
+        raise ValueError("audio_mode must be full_mix or none")
     for item in videos:
         if item.get("has_dialogue") and not item.get("voice_ready"): raise ValueError(f"镜头{item.get('shot_number', '')}配音尚未完成")
         if item.get("has_dialogue") and not item.get("lip_sync_ready"): raise ValueError(f"镜头{item.get('shot_number', '')}口型同步尚未完成")
@@ -6811,13 +6819,21 @@ def _composition_capability(body: dict) -> dict:
     with tempfile.TemporaryDirectory(prefix="short-drama-merge-") as temporary:
         normalized: list[Path] = []
         for index, (item, source) in enumerate(zip(videos, sources, strict=True), 1):
-            dialogue_audio = _resolve_media_input(item.get("audio_url")) if item.get("audio_url") else None
-            normalized_target = Path(temporary) / f"shot_{index:04d}.mp4"; _normalize_shot_media(source, dialogue_audio, normalized_target); normalized.append(normalized_target)
+            dialogue_audio = _resolve_media_input(item.get("audio_url")) if audio_mode == "full_mix" and item.get("audio_url") else None
+            normalized_target = Path(temporary) / f"shot_{index:04d}.mp4"; _normalize_shot_media(source, dialogue_audio, normalized_target, include_audio=audio_mode == "full_mix"); normalized.append(normalized_target)
         concat = Path(temporary) / "concat.txt"
         concat.write_text("\n".join(f"file '{str(path).replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'" for path in normalized), encoding="utf-8")
-        _run_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(concat), "-c:v", "copy", "-c:a", "aac", "-ar", "48000", "-b:a", "192k"], clean)
+        concat_arguments = ["-f", "concat", "-safe", "0", "-i", str(concat), "-c:v", "copy"]
+        if audio_mode == "none":
+            concat_arguments.extend(["-an"])
+        else:
+            concat_arguments.extend(["-c:a", "aac", "-ar", "48000", "-b:a", "192k"])
+        _run_ffmpeg(concat_arguments, clean)
+    if audio_mode == "none":
+        shutil.copy2(clean, target)
+        return {"video_url":_media_url(target), "path":str(target), "clean_path":str(clean), "raw_clean_path":str(clean), "audio_mode":"none", "production_evidence":"ffmpeg-concat-video-only-v1"}
     _invoke_production_capability("audio.bgm", duration=_media_duration(clean), target=bgm); _mix_bgm(clean, bgm, mixed, float(body.get("bgm_volume", 0.18))); _burn_subtitles(mixed, subtitles, target)
-    return {"video_url":_media_url(target), "path":str(target), "clean_path":str(mixed), "raw_clean_path":str(clean), "bgm_url":_media_url(bgm), "bgm_path":str(bgm), "bgm_volume":max(0.0, min(1.0, float(body.get("bgm_volume", 0.18)))), "production_evidence":"ffmpeg-concat-bgm-mix-subtitle-v2"}
+    return {"video_url":_media_url(target), "path":str(target), "clean_path":str(mixed), "raw_clean_path":str(clean), "bgm_url":_media_url(bgm), "bgm_path":str(bgm), "bgm_volume":max(0.0, min(1.0, float(body.get("bgm_volume", 0.18)))), "audio_mode":"full_mix", "production_evidence":"ffmpeg-concat-bgm-mix-subtitle-v2"}
 
 
 def _subtitle_reburn_capability(body: dict) -> dict:
