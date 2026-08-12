@@ -25,7 +25,8 @@ class SQLiteStateStore:
   if any(not isinstance(item,str) for item in (tenant,namespace,key)) or not all(item.strip() for item in (tenant,namespace,key)):raise PersistenceError("state owner and key are required")
   with self._lock:row=self.db.execute("SELECT value FROM state WHERE tenant=? AND namespace=? AND key=?",(tenant,namespace,key)).fetchone()
   if row is None:raise PersistenceError("state record not found")
-  return json.loads(row[0])
+  try:return json.loads(row[0],parse_constant=lambda value:(_ for _ in ()).throw(ValueError(value)))
+  except (json.JSONDecodeError,ValueError,TypeError) as error:raise PersistenceError("state record is invalid") from error
 class LocalObjectStore:
  def __init__(self,root:Path):
   if not isinstance(root,Path):raise PersistenceError("object root must be a Path")
@@ -68,4 +69,7 @@ class SQLiteDurableQueue:
   with self._lock:
    self.db.execute("BEGIN IMMEDIATE");row=self.db.execute("SELECT id,payload FROM queue WHERE tenant=? AND status='pending' ORDER BY rowid LIMIT 1",(tenant,)).fetchone()
    if row is None:self.db.commit();return None
-   self.db.execute("UPDATE queue SET status='running' WHERE id=?",(row[0],));self.db.commit();return DurableQueueItem(row[0],tenant,json.loads(row[1]),"running")
+   try:payload=json.loads(row[1],parse_constant=lambda value:(_ for _ in ()).throw(ValueError(value)))
+   except (json.JSONDecodeError,ValueError,TypeError) as error:self.db.rollback();raise PersistenceError("queue record is invalid") from error
+   if not isinstance(payload,dict):self.db.rollback();raise PersistenceError("queue record is invalid")
+   self.db.execute("UPDATE queue SET status='running' WHERE id=?",(row[0],));self.db.commit();return DurableQueueItem(row[0],tenant,payload,"running")

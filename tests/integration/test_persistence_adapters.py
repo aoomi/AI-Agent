@@ -1,4 +1,5 @@
 import tempfile,unittest
+import sqlite3
 from pathlib import Path
 from ai_agent_adapters import LocalObjectStore,PersistenceError,SQLiteDurableQueue,SQLiteStateStore
 class PersistenceAdaptersTest(unittest.TestCase):
@@ -41,4 +42,12 @@ class PersistenceAdaptersTest(unittest.TestCase):
  def test_persistence_constructor_paths_must_be_path_models(self):
   for build in (lambda:SQLiteStateStore("state.db"),lambda:LocalObjectStore("objects"),lambda:SQLiteDurableQueue("queue.db")):
    with self.subTest(build=build),self.assertRaises(PersistenceError):build()
+ def test_corrupt_persisted_json_fails_before_state_or_queue_transition(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);state=SQLiteStateStore(root/"state.db");queue=SQLiteDurableQueue(root/"queue.db")
+   state.db.execute("INSERT INTO state VALUES(?,?,?,?)",("t","n","k","NaN"));state.db.commit()
+   queue.db.execute("INSERT INTO queue VALUES(?,?,?,?)",("q","t","NaN","pending"));queue.db.commit()
+   with self.assertRaisesRegex(PersistenceError,"state record is invalid"):state.get("t","n","k")
+   with self.assertRaisesRegex(PersistenceError,"queue record is invalid"):queue.claim("t")
+   self.assertEqual(queue.db.execute("SELECT status FROM queue WHERE id='q'").fetchone()[0],"pending")
 if __name__=="__main__":unittest.main()
