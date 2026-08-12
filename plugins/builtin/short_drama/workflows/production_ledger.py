@@ -317,6 +317,14 @@ class ProductionLedger:
             created_at = current["created_at"] if current else _now()
             record_id = current["id"] if current else f"scope-{uuid4().hex}"
             current_revision = int(current["revision"] or 0) if current else 0
+            expected_revision = payload.get("expected_revision")
+            if expected_revision is not None:
+                try:
+                    expected_revision = int(expected_revision)
+                except (TypeError, ValueError):
+                    raise ProductionLedgerError("expected_revision must be an integer") from None
+                if expected_revision != current_revision:
+                    raise ProductionLedgerError("production scope CAS conflict")
             progress = json.loads(current["progress_json"]) if current else {"completed": 0, "total": 1}
             progress = {key: value for key, value in progress.items() if key not in UPSCALE_EVIDENCE_FIELDS}
             incoming_progress = payload.get("progress")
@@ -471,6 +479,14 @@ class ProductionLedger:
             created_at = current["created_at"] if current else _now()
             record_id = current["id"] if current else f"scope-{uuid4().hex}"
             current_revision = int(current["revision"] or 0) if current else 0
+            expected_revision = payload.get("expected_revision")
+            if expected_revision is not None:
+                try:
+                    expected_revision = int(expected_revision)
+                except (TypeError, ValueError):
+                    raise ProductionLedgerError("expected_revision must be an integer") from None
+                if expected_revision != current_revision:
+                    raise ProductionLedgerError("production scope CAS conflict")
             confirmation = json.loads(current["confirmation_json"]) if current and current["confirmation_json"] else None
             next_fingerprint = str(payload.get("content_fingerprint", current["content_fingerprint"] if current else ""))
             next_audit_batch_id = str(payload.get("audit_batch_id", current["audit_batch_id"] if current else ""))
@@ -587,6 +603,14 @@ class ProductionLedger:
                     WHERE tenant_id=? AND user_id=? AND project_id=? AND stage=? AND scope_type=? AND scope_id=?
                 """, (tenant_id, user_id, project_id, stage, scope_type, scope_id)).fetchone()
                 projected = dict(payload)
+                expected_revision = projected.pop("expected_revision", None)
+                if expected_revision is not None:
+                    try:
+                        expected_revision = int(expected_revision)
+                    except (TypeError, ValueError):
+                        raise ProductionLedgerError("expected_revision must be an integer") from None
+                    if expected_revision != int(current["revision"] if current else 0):
+                        raise ProductionLedgerError("production scope CAS conflict")
                 for field in ("confirmation", "generation", "production_evidence", "audit_evidence"):
                     projected.pop(field, None)
                 requested_lifecycle = str(projected.get("lifecycle") or "idle").strip()

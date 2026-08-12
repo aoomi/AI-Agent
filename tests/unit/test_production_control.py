@@ -10,7 +10,7 @@ import time
 import unittest
 
 from ai_agent_core import ResourceScheduler, ResourceSchedulerError, WorkerRegistry, WorkerSnapshot, WorkloadRouter, WorkloadRoutingError
-from short_drama_workflows.production_ledger import ProductionLedger
+from short_drama_workflows.production_ledger import ProductionLedger, ProductionLedgerError
 from short_drama_workflows.production_orchestrator import ProductionOrchestrator
 from short_drama_workflows.story_bible import StoryBible, StoryBibleError
 from short_drama_workflows.production_ledger import CANONICAL_STAGES, canonical_stage
@@ -1268,6 +1268,18 @@ class ProductionControlTests(unittest.TestCase):
                 **key, "lifecycle":"completed", "error":"must not survive success",
             })
             self.assertEqual(completed_directly["error"], "")
+
+    def test_all_ledger_upserts_honor_revision_cas(self):
+        with TemporaryDirectory() as temporary:
+            ledger = ProductionLedger(Path(temporary) / "ledger.sqlite")
+            key = {"tenant_id":"t", "user_id":"u", "project_id":"p", "stage":"outline", "scope_type":"project", "scope_id":"all"}
+            first = ledger.upsert({**key, "lifecycle":"queued", "expected_revision":0})
+            with self.assertRaisesRegex(ProductionLedgerError, "CAS conflict"):
+                ledger.upsert({**key, "lifecycle":"failed", "expected_revision":0})
+            projected = ledger.upsert_projection({**key, "lifecycle":"running", "expected_revision":first["revision"]})
+            with self.assertRaisesRegex(ProductionLedgerError, "CAS conflict"):
+                ledger.upsert_projection({**key, "lifecycle":"failed", "expected_revision":first["revision"]})
+            self.assertEqual(ledger.list(key)[0]["revision"], projected["revision"])
 
     def test_langgraph_checkpoint_resumes_project_state(self):
         with TemporaryDirectory() as temporary:
