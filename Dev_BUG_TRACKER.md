@@ -3128,3 +3128,5 @@
 - 第四十三项自动测试与稽查：平台启动、管理API及provider契约关联`10 passed`；Python编译与diff门禁通过。只读确认checker网络调用不持锁。
 - 第四十四项稽查首败与整改：同步EventBus订阅表及TaskProgress投影被HTTP/worker线程并发读写但无锁；订阅/取消可丢更新，projection list遍历期间事件写入可失败或暴露不一致快照。现EventBus在锁内复制handler快照后锁外调用，投影写入及get/list快照统一RLock。
 - 第四十四项自动测试与稽查：EventBus、任务投影、TaskService及HTTP任务追踪关联`15 passed`；Python编译与diff门禁通过。
+- 第四十五项稽查首败与整改：ProviderAuditLedger追加与按owner列表无锁，provider并发完成时list可观察非稳定数组边界。现记录在完成敏感检查与哈希后用RLock原子追加，owner列表同锁生成不可变快照。
+- 第四十五项自动测试与稽查：provider审计与生产集成关联`5 passed`；Python编译与diff门禁通过。

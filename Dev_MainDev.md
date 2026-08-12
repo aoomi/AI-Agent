@@ -1044,3 +1044,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第四十二项：基础ProviderAdapter注册与调用选择已串行化，并对实际调用维护异常安全inflight计数；外部secret/provider执行不持锁。关联`4 passed`，只读稽查通过。
 - BUG072第四十三项：ProviderService配置与健康双表已原子化，慢探针以对象CAS拒绝晚到覆盖，checker保持锁外执行。关联`10 passed`，只读稽查通过。
 - BUG072第四十四项：EventBus订阅表与任务进度投影已并发安全，handler快照锁内复制、回调锁外执行，投影读取不观察撕裂状态。关联`15 passed`，只读稽查通过。
+- BUG072第四十五项：Provider调用审计追加及owner列表快照已并发安全，敏感检查和哈希仍在锁外。关联`5 passed`，只读稽查通过。
