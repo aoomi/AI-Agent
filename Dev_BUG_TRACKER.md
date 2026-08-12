@@ -3510,3 +3510,5 @@
 - 第二百四十六项自动测试与稽查：NaN/任意对象attributes动态拒绝且spans不变；可观测性关联回归、Python编译与diff门禁通过。
 - 第二百四十七项稽查首败与整改：Stage登记表只校验行数、顺序与非空字段，新Stage可复用旧project_storage值仍通过门禁。现前后端强制LangGraph/project storage一对一；frontend continue按存在性验证，允许audio/subtitle共享合片入口。
 - 第二百四十七项自动测试与稽查：11阶段LangGraph/project storage登记唯一性与全部frontend continue入口存在性门禁；Stage登记、前端类型检查、Python编译与diff门禁通过。
+- 第二百四十八项稽查首败与整改：TraceRecorder先append内存spans再调用exporter，持久失败后进程内仍显示成功记录，违反可观测性持久导出一致性。现只在export成功后append。
+- 第二百四十八项自动测试与稽查：注入失败exporter后异常透传且spans保持空；可观测性关联回归、Python编译与diff门禁通过。

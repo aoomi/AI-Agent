@@ -1248,3 +1248,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百四十五项：Agent提案executor result已强制非空Mapping与标准JSON，列表、NaN或任意对象结果不会冒充已应用提案。
 - BUG072第二百四十六项：TraceSpan attributes已在计时与spans写入前强制标准JSON，坏属性不会留下内存或导出分裂记录。
 - BUG072第二百四十七项：阶段登记门禁已同时在后端启动与前端模块加载阶段强制LangGraph与项目存储投影一对一唯一；继续入口保留audio/subtitle合法共享合片入口并仍逐阶段验证存在。
+- BUG072第二百四十八项：TraceRecorder已改为持久export成功后再发布内存span，exporter失败时不再留下伪成功的进程内记录。

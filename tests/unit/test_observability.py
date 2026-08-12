@@ -24,6 +24,13 @@ class ObservabilityTest(unittest.TestCase):
   sink=io.StringIO();self.assertEqual(StructuredLogger(sink).emit("info","task.completed",{"task_id":"x"})["event"],"task.completed");metrics=MetricsRegistry();metrics.increment("tasks",labels=(("status","completed"),));self.assertEqual(next(iter(metrics.snapshot()["counters"].values())),1);traces=TraceRecorder()
   with traces.span("trace","span","task"):pass
   self.assertEqual(traces.spans[0].status,"ok")
+ def test_trace_export_failure_does_not_publish_in_memory_span(self):
+  class FailingExporter:
+   def export(self,*_args):raise OSError("export failed")
+  traces=TraceRecorder(exporter=FailingExporter())
+  with self.assertRaisesRegex(OSError,"export failed"):
+   with traces.span("trace","span","task"):pass
+  self.assertEqual(traces.spans,[])
  def test_secret_log_fields_are_rejected(self):
   with self.assertRaises(ObservabilityError):StructuredLogger(io.StringIO()).emit("info","x",{"api_key":"secret"})
   with self.assertRaises(ObservabilityError):StructuredLogger(io.StringIO()).emit("info","x",{"nested":{"authorization":"secret"}})

@@ -324,8 +324,8 @@ class TraceRecorder:
             if isinstance(end,bool) or not isinstance(end,(int,float)) or not math.isfinite(end) or end < start:raise ObservabilityError("trace clock must be finite and monotonic")
             span = TraceSpan(trace_id, span_id, name, int((end - start) * 1000), status, request_id.strip() if request_id else None, attributes)
             with self._lock:
-                self.spans.append(span)
                 self.exporter.export("span", asdict(span))
+                self.spans.append(span)
 
 
 @dataclass(frozen=True, slots=True)
