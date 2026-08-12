@@ -71,6 +71,9 @@ class AgentConfigurationStore:
         skill: SkillDefinition,
         agent: AgentInstance,
     ) -> AgentConfiguration:
+        agent_id = self._required_id("agent_id", agent_id)
+        if isinstance(expected_version, bool) or not isinstance(expected_version, int) or expected_version <= 0:
+            raise AgentConfigurationError("expected_version must be a positive integer")
         with self._lock:
             current = self.get(agent_id)
             if current.configuration_version != expected_version:
@@ -88,6 +91,9 @@ class AgentConfigurationStore:
             return configuration
 
     def get(self, agent_id: str, version: int | None = None) -> AgentConfiguration:
+        agent_id = self._required_id("agent_id", agent_id)
+        if version is not None and (isinstance(version, bool) or not isinstance(version, int) or version <= 0):
+            raise AgentConfigurationError("version must be a positive integer")
         with self._lock:
             try: history = self._history[agent_id]
             except KeyError as error: raise AgentConfigurationError(f"unknown agent configuration: {agent_id}") from error
@@ -96,9 +102,17 @@ class AgentConfigurationStore:
             except StopIteration as error: raise AgentConfigurationError(f"unknown configuration version: {version}") from error
 
     def history(self, agent_id: str) -> tuple[AgentConfiguration, ...]:
+        agent_id = self._required_id("agent_id", agent_id)
         with self._lock:
             self.get(agent_id)
             return tuple(self._history[agent_id])
+
+    @staticmethod
+    def _required_id(field_name: str, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise AgentConfigurationError(f"{field_name} is required")
+        return normalized
 
     def _resolve_model(self, skill: SkillDefinition, model_id: str) -> ModelDefinition:
         raw_capabilities = skill.metadata.get("required_model_capabilities")

@@ -3242,3 +3242,5 @@
 - 第一百一十二项自动测试与稽查：八类匿名控制及三类伪布尔值动态拒绝，原provider启用与健康状态不变；生产能力控制关联`100 passed`（另`14 subtests passed`），Python编译与diff门禁通过。
 - 第一百一十三项稽查首败与整改：ProductionExtensionRegistry的unregister/enable/has/get/activate/create接受空白扩展点或提供方并伪装未安装，enable还接受整数等伪布尔值。现六类公开控制统一规范化身份并在探针、注册表读取或factory执行前失败关闭。
 - 第一百一十三项自动测试与稽查：八类匿名控制及伪布尔enabled动态拒绝，原扩展仍启用；生产扩展控制关联`100 passed`（另`14 subtests passed`），Python编译与diff门禁通过。
+- 第一百一十四项稽查首败与整改：AgentConfigurationStore的get/history接受空agent并伪装unknown，get版本及update expected_version依赖静态类型而可接受零、负数或布尔值进入查找/CAS。现读写控制在历史表访问前统一验证身份和正整数版本。
+- 第一百一十四项自动测试与稽查：匿名读取/历史及三类非法版本动态失败关闭；Agent配置和会话关联`22 passed`（另`6 subtests passed`），Python编译与diff门禁通过。

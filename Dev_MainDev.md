@@ -1114,3 +1114,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百一十一项：内存任务队列领取、读取、列表及生命周期控制已统一验证task/tenant/identity/project身份，finish与状态事件同步拒绝运行时非法状态；坏控制不再伪装未命中或写入未知生命周期。队列、服务、集成、E2E及隔离关联`23 passed`、`15 subtests passed`，Python编译与只读diff稽查通过。
 - BUG072第一百一十二项：生产能力注册表卸载、探测、读取、启停、健康和调用入口已统一规范化并验证能力/提供方身份，三类布尔控制严格拒绝整数等运行时伪值。生产控制关联`100 passed`、`14 subtests passed`，Python编译与只读diff稽查通过。
 - BUG072第一百一十三项：生产基础设施扩展的卸载、启停、探测、读取、激活和实例创建入口已统一验证扩展点/提供方身份，enabled严格拒绝运行时伪布尔值。生产控制关联`100 passed`、`14 subtests passed`，Python编译与只读diff稽查通过。
+- BUG072第一百一十四项：AgentConfiguration读取、历史和版本更新控制已统一拒绝匿名agent及非正/布尔版本号，坏版本请求不再伪装未知配置或进入CAS。配置与会话关联`22 passed`、`6 subtests passed`，Python编译与只读diff稽查通过。
