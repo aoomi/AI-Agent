@@ -25,6 +25,8 @@ class PlatformConfig:
     environment: str = "development"
 
     def __post_init__(self) -> None:
+        if not isinstance(self.host,str) or not isinstance(self.environment,str):
+            raise ValueError("platform host and environment must be strings")
         host, environment = self.host.strip(), self.environment.strip()
         if not host or not environment:
             raise ValueError("platform host and environment must not be empty")

@@ -14,7 +14,7 @@ from ai_agent_core import PlatformConfig
 
 class PlatformConfigTest(unittest.TestCase):
     def test_direct_configuration_rejects_invalid_runtime_values(self) -> None:
-        for kwargs in ({"host":" "},{"environment":" "},{"port":True},{"port":65536}):
+        for kwargs in ({"host":" "},{"host":1},{"environment":" "},{"environment":1},{"port":True},{"port":65536}):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 PlatformConfig(**kwargs)
 

@@ -3342,3 +3342,5 @@
 - 第一百六十二项自动测试与稽查：数字provider注册/读取/探活动态失败关闭；专项关联回归、Python编译与diff门禁通过。
 - 第一百六十三项稽查首败与整改：ConversationMemoryStore与AgentConversation内部查找直接对身份调用strip，数字session/proposal/owner/project会泄漏AttributeError。现memory与所有权控制在读取共享表前统一验证字符串。
 - 第一百六十三项自动测试与稽查：五类数字memory/session/proposal身份动态失败关闭；会话关联回归、Python编译与diff门禁通过。
+- 第一百六十四项稽查首败与整改：PlatformConfig虽校验空host/environment，但直接对运行时值strip，数字输入泄漏AttributeError。现数据模型边界先验证字符串类型。
+- 第一百六十四项自动测试与稽查：数字host/environment动态失败关闭；平台启动关联回归、Python编译与diff门禁通过。
