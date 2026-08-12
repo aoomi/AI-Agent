@@ -25,6 +25,8 @@ class AgentCollaborationServiceTest(unittest.TestCase):
         service=AgentCollaborationService(self.configurations,None)
         for operation in (lambda:service.get_session(" "),lambda:service.get_handoff(" "),lambda:service.get_report(" "),lambda:service.get_instruction(" ")):
             with self.subTest(operation=operation),self.assertRaises(AgentCollaborationError):operation()
+        for operation in (lambda:service.get_session(1),lambda:service.open_session(tenant_id=1,created_by_identity_id="user",project_id="project",root_task_id="task",developer_agent_id="dev",inspector_agent_id="audit"),lambda:service._safe_reference(1)):
+            with self.subTest(operation=operation),self.assertRaises(AgentCollaborationError):operation()
     def setUp(self) -> None:
         models = ModelRegistry(); models.register(ModelDefinition.create(model_id="model-1", provider_id="provider-1", display_name="Model", capabilities={"chat", "reasoning", "tool_calling", "structured_output"}, context_window=10000))
         configurations = AgentConfigurationStore(models)

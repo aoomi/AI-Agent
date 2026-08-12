@@ -315,6 +315,7 @@ class AgentCollaborationService:
 
     @staticmethod
     def _safe_reference(value: str) -> str:
+        if not isinstance(value,str):raise AgentCollaborationError("collaboration reference must be a safe relative path")
         reference = value.strip()
         if not reference or reference.startswith("/") or "\x00" in reference or ".." in reference.split("/"):
             raise AgentCollaborationError("collaboration reference must be a safe relative path")
@@ -322,6 +323,7 @@ class AgentCollaborationService:
 
     @staticmethod
     def _required(*values: str) -> tuple[str, ...]:
+        if any(not isinstance(value,str) for value in values):raise AgentCollaborationError("required collaboration identifier is missing")
         parsed = tuple(value.strip() for value in values)
         if not all(parsed): raise AgentCollaborationError("required collaboration identifier is missing")
         return parsed
