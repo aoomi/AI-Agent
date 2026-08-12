@@ -31,9 +31,12 @@ class LocalObjectStore:
   target=self._path(tenant,key);target.parent.mkdir(parents=True,exist_ok=True);tmp=target.with_suffix(target.suffix+f".{uuid4().hex}.tmp");tmp.write_bytes(content);tmp.replace(target);return str(target.relative_to(self.root))
  def get(self,tenant,key):return self._path(tenant,key).read_bytes()
  def _path(self,tenant,key):
-  if not str(tenant).strip() or not str(key).strip() or Path(tenant).is_absolute():raise PersistenceError("object owner and key are required")
-  target=(self.root/tenant/key).resolve()
-  if not target.is_relative_to(self.root) or Path(key).is_absolute():raise PersistenceError("object key escapes tenant storage")
+  tenant_path,key_path=Path(str(tenant).strip()),Path(str(key).strip())
+  if (not str(tenant).strip() or not str(key).strip() or tenant_path.is_absolute() or key_path.is_absolute()
+      or len(tenant_path.parts)!=1 or tenant_path.parts[0] in (".","..") or any(part in (".","..") for part in key_path.parts)):
+   raise PersistenceError("object owner and key are required")
+  tenant_root=(self.root/tenant_path).resolve();target=(tenant_root/key_path).resolve()
+  if not target.is_relative_to(tenant_root):raise PersistenceError("object key escapes tenant storage")
   return target
 @dataclass(frozen=True,slots=True)
 class DurableQueueItem:item_id:str;tenant_id:str;payload:dict;status:str

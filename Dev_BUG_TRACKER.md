@@ -3322,3 +3322,5 @@
 - 第一百五十二项自动测试与稽查：NaN/Infinity heartbeat、clock及浮点generation在内存与SQLite入口均动态失败关闭；专项`4 passed`（另`25 subtests passed`），Python编译与只读diff稽查通过。全量单元回归`752 passed, 2 skipped, 29 failed`，失败均落在用户当前未提交的短剧backend/frontend及其测试基线，未纳入本项完成声明。
 - 第一百五十三项稽查首败与整改：ResourceScheduler.claim只验证timeout为正，NaN/Infinity可绕过并形成永不超时或底层等待异常。现等待期限统一要求有限正数。
 - 第一百五十三项自动测试与稽查：NaN/Infinity timeout在入队前动态失败关闭，专项关联回归、Python编译与diff门禁通过。
+- 第一百五十四项稽查首败与整改：LocalObjectStore只围栏全局root，`a/..`租户或`a/../x`键可在resolve后留在root却逃离声明的租户目录。现租户必须为单一安全段，对象键禁止绝对路径和目录折叠，并以解析后的tenant root再次围栏。
+- 第一百五十四项自动测试与稽查：四类跨域/折叠路径动态拒绝，合法嵌套对象仍可跨重启读取；持久化关联回归、Python编译与diff门禁通过。

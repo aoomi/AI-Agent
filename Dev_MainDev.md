@@ -1154,3 +1154,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百五十一项：生产扩展注册已验证trusted builtin集合、enabled/replace/activate布尔、metadata Mapping及required_methods逐项字符串；畸形基础设施不会探针或发布。关联`101 passed`、`19 subtests passed`。
 - BUG072第一百五十二项：内存路由与SQLite worker发现已拒绝NaN/Infinity心跳、时钟、超时和TTL，并强制remove generation为真实正整数；非有限值不能绕过健康窗、长期占用预留或污染权威发现状态。专项`4 passed`、`25 subtests passed`。
 - BUG072第一百五十三项：资源调度等待timeout已拒绝NaN/Infinity，防止非有限截止时间绕过超时契约并令等待线程永久占位。专项关联回归通过。
+- BUG072第一百五十四项：本地对象存储已把租户根作为路径围栏，拒绝多段/折叠租户身份及含`.`/`..`的对象键，防止路径规范化后跨出租户命名空间。持久化关联回归通过。
