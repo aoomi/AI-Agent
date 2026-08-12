@@ -67,6 +67,12 @@ class EventBusTest(unittest.TestCase):
             with self.subTest(payload=payload),self.assertRaisesRegex(EventBusError,"standard JSON"):
                 PublishedEvent("event-1","PROJECT_CREATED","project-1",identity_context(),payload)
 
+    def test_event_payload_is_deeply_immutable_from_caller_mutation(self) -> None:
+        nested = {"items": [{"status": "queued"}]}
+        event = PublishedEvent("event-1", "PROJECT_CREATED", "project-1", identity_context(), nested)
+        nested["items"][0]["status"] = "forged"
+        self.assertEqual(event.payload["items"][0]["status"], "queued")
+
 
 if __name__ == "__main__":
     unittest.main()

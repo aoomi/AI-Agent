@@ -1262,3 +1262,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百五十九项：共享原子JSON写入已在路径解析、建目录和临时文件前完成标准JSON序列化，坏payload实现零文件系统副作用。
 - BUG072第二百六十项：JSONL与Prometheus导出路径已在注册时拒绝目录目标，不再把配置错误延迟至首条可观测记录。
 - BUG072第二百六十一项：Skill manifest metadata已在敏感字段过滤后强制标准JSON，YAML非标准数值不会进入Skill注册表。
+- BUG072第二百六十二项：PublishedEvent payload已由标准JSON规范化结果生成独立深快照，发布后调用方不能篡改嵌套事件事实。

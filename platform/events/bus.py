@@ -55,11 +55,11 @@ class PublishedEvent:
             raise EventBusError("payload must not be empty")
         if _contains_sensitive_key(self.payload):
             raise EventBusError("event payload contains sensitive fields")
-        try:json.dumps(dict(self.payload),allow_nan=False)
+        try:canonical_payload=json.dumps(dict(self.payload),allow_nan=False)
         except (TypeError,ValueError) as error:raise EventBusError("event payload must be standard JSON") from error
         object.__setattr__(self,"event_id",self.event_id.strip())
         object.__setattr__(self,"project_id",self.project_id.strip())
-        object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
+        object.__setattr__(self, "payload", MappingProxyType(json.loads(canonical_payload)))
 
 
 EventHandler = Callable[[PublishedEvent], None]

@@ -3538,3 +3538,5 @@
 - 第二百六十项自动测试与稽查：两类目录目标构造动态拒绝；JSONL、Prometheus、脱敏和指标关联回归、Python编译及diff门禁通过。
 - 第二百六十一项稽查首败与整改：Skill manifest metadata只做敏感字段过滤，YAML `.nan`可进入共享SkillDefinition并在API/持久边界产生非标准JSON。现注册前同时强制标准JSON。
 - 第二百六十一项自动测试与稽查：YAML NaN metadata动态拒绝；Skill发现、系统智能体与安全关联回归、Python编译及diff门禁通过。
+- 第二百六十二项稽查首败与整改：PublishedEvent只冻结payload顶层Mapping，调用方在发布后仍可改写嵌套列表/字典，使不同订阅器看到不同事件事实。现标准JSON验证结果同时作为深拷贝快照来源。
+- 第二百六十二项自动测试与稽查：调用方发布后篡改嵌套状态动态隔离；事件总线、任务投影及集成关联回归、Python编译与diff门禁通过。
