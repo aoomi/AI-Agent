@@ -700,6 +700,7 @@ def _heavy_task_busy() -> bool:
     return any(item.get("pool") == "accelerator" for item in RESOURCE_SCHEDULER.snapshot().get("active_items", []))
 SYSTEM_AGENT_LOCK = threading.Lock()
 AGENT_JOB_LOCK = threading.Lock()
+ASSISTANT_STORE_LOCK = threading.RLock()
 ACTIVE_AGENT_JOBS: set[str] = set()
 IMAGE_JOB_LOCK = threading.Lock()
 ACTIVE_IMAGE_JOBS: set[str] = set()
@@ -8721,21 +8722,26 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": "对话内容不能为空"})
             return self._json(HTTPStatus.OK, _route_system_agent(message, body.get("context", {})))
         if parsed.path == "/api/assistant/history":
-            store = _load_assistant()
-            return self._json(HTTPStatus.OK, {"messages": _conversation_messages(store, body.get("context", {}))})
+            with ASSISTANT_STORE_LOCK:
+                messages = _conversation_messages(_load_assistant(), body.get("context", {}))
+            return self._json(HTTPStatus.OK, {"messages":messages})
         if parsed.path == "/api/assistant/history/save":
-            store = _load_assistant(); key = _conversation_key(body.get("context", {}))
-            store.setdefault("display_history", {})[key] = body.get("messages", []); _save_assistant(store)
+            with ASSISTANT_STORE_LOCK:
+                store = _load_assistant(); key = _conversation_key(body.get("context", {}))
+                store.setdefault("display_history", {})[key] = body.get("messages", []); _save_assistant(store)
             return self._json(HTTPStatus.OK, {"saved": True})
         if parsed.path == "/api/assistant/draft":
-            store = _load_assistant(); key = _conversation_key(body.get("context", {})); action = body.get("action", "read")
-            if action == "save":
-                content = str(body.get("content", "")); store.setdefault("drafts", {})[key] = {"content": content}; _save_assistant(store)
-            return self._json(HTTPStatus.OK, {"draft": store.get("drafts", {}).get(key)})
+            with ASSISTANT_STORE_LOCK:
+                store = _load_assistant(); key = _conversation_key(body.get("context", {})); action = body.get("action", "read")
+                if action == "save":
+                    content = str(body.get("content", "")); store.setdefault("drafts", {})[key] = {"content": content}; _save_assistant(store)
+                draft = store.get("drafts", {}).get(key)
+            return self._json(HTTPStatus.OK, {"draft":draft})
         if parsed.path == "/api/assistant/sessions":
-            store = _load_assistant(); context = body.get("context", {}); session_id = body.get("session_id") or str(uuid4())
-            session = {"session_id": session_id, "tenant_id": context.get("tenant_id", "local-default"), "user_id": context.get("user_id", "aoo"), "title": "新对话", "archived": False, "created_at": int(datetime.now(UTC).timestamp() * 1000), "updated_at": int(datetime.now(UTC).timestamp() * 1000)}
-            store.setdefault("sessions", {})[f"{session['tenant_id']}:{session['user_id']}:{session_id}"] = session; _save_assistant(store)
+            with ASSISTANT_STORE_LOCK:
+                store = _load_assistant(); context = body.get("context", {}); session_id = body.get("session_id") or str(uuid4())
+                session = {"session_id": session_id, "tenant_id": context.get("tenant_id", "local-default"), "user_id": context.get("user_id", "aoo"), "title": "新对话", "archived": False, "created_at": int(datetime.now(UTC).timestamp() * 1000), "updated_at": int(datetime.now(UTC).timestamp() * 1000)}
+                store.setdefault("sessions", {})[f"{session['tenant_id']}:{session['user_id']}:{session_id}"] = session; _save_assistant(store)
             return self._json(HTTPStatus.OK, {"sessions": [session], "session": session})
         if parsed.path == "/api/outline/plan":
             job_id, conflict = _begin_text_job(body, "outline", "plan", OUTLINE_JOB_TIMEOUT_SECONDS, "/api/outline/plan")
