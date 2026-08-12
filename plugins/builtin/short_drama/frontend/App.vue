@@ -2379,7 +2379,7 @@ async function waitForAgentJob(jobId:string, controller:AbortController, label:s
   const deadline = Date.now() + 31 * 60 * 1000;
   while (Date.now() < deadline) {
     if (controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
-    const job = await assistantService.agentStatus<AgentJobResponse>(jobId, controller.signal);
+    const job = await assistantService.agentStatus<AgentJobResponse>(jobId, { ...projectIdentity, project_id:activeProjectRecord.value?.id || "", session_id:assistantSessionId }, controller.signal);
     if (job.status === "completed" && job.result) return job.result;
     if (job.status === "failed") throw new Error(job.error || `${label}执行失败`);
     thinking.value = `${label}正在${job.status === "queued" ? "排队" : "执行"}·心跳正常`;

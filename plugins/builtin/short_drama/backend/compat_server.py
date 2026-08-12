@@ -8190,10 +8190,15 @@ class Handler(BaseHTTPRequestHandler):
                 {"name":TEXT_AUDIT_MODEL, "role":"大纲、剧本与分镜初审终审", "selected":True},
             ], "skills": ["项目对话", "短剧策划", "资源查询", "联网搜索与来源核验"], "web_search":{"available":True,"providers":list(WEB_SEARCH_PROVIDER_DESCRIPTIONS)}})
         if parsed.path == "/api/assistant/agents/status":
-            job_id = parse_qs(parsed.query).get("job_id", [""])[0]
+            query = parse_qs(parsed.query)
+            job_id = query.get("job_id", [""])[0]
+            expected = tuple(query.get(key, [""])[0].strip() for key in ("tenant_id", "user_id", "project_id", "session_id"))
             with AGENT_JOB_LOCK:
                 job = _load_agent_jobs().get("jobs", {}).get(job_id)
-            if not job: return self._json(HTTPStatus.NOT_FOUND, {"error":"agent_job_not_found"})
+            context = job.get("context") if isinstance(job, dict) and isinstance(job.get("context"), dict) else {}
+            actual = tuple(str(context.get(key if key != "project_id" else "current_project") or "").strip() for key in ("tenant_id", "user_id", "project_id", "session_id"))
+            if not all(expected): return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_agent_job_scope"})
+            if not job or actual != expected: return self._json(HTTPStatus.NOT_FOUND, {"error":"agent_job_not_found"})
             payload = {key:value for key, value in job.items() if key not in {"context"}}
             payload["heartbeat_at"] = datetime.now(UTC).isoformat()
             return self._json(HTTPStatus.OK, payload)

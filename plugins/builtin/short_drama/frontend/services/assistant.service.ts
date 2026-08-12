@@ -8,7 +8,7 @@ export const assistantService = {
   understand<T>(body:unknown, signal?:AbortSignal) { return postJson<T>("/api/assistant", body, { signal }, "助手理解失败"); },
   runAgent<T>(body:unknown, signal?:AbortSignal) { return postJson<T>("/api/assistant/agents/run", body, { signal }, "系统 AI 执行失败"); },
   startAgent<T>(body:unknown, signal?:AbortSignal) { return postJson<T>("/api/assistant/agents/start", body, { signal }, "系统 AI 任务启动失败"); },
-  agentStatus<T>(jobId:string, signal?:AbortSignal) { return requestJsonOk<T>(`/api/assistant/agents/status?${new URLSearchParams({ job_id:jobId })}`, { cache:"no-store", signal }, "系统 AI 任务状态读取失败"); },
+  agentStatus<T>(jobId:string, identity:{ tenant_id:string; user_id:string; project_id:string; session_id:string }, signal?:AbortSignal) { return requestJsonOk<T>(`/api/assistant/agents/status?${new URLSearchParams({ job_id:jobId, ...identity })}`, { cache:"no-store", signal }, "系统 AI 任务状态读取失败"); },
   route<T>(body:unknown, signal?:AbortSignal) { return postJson<T>("/api/assistant/route", body, { signal }, "任务路由失败"); },
   history<T>(body:unknown, signal?:AbortSignal) { return postJson<T>("/api/assistant/history", body, { signal }, "对话记录恢复失败"); },
   saveHistory<T>(body:unknown, signal?:AbortSignal) { return postJson<T>("/api/assistant/history/save", body, { signal }, "对话记录保存失败"); },
