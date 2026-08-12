@@ -106,6 +106,8 @@ class ProductionCapabilityRegistry:
             )
 
     def unregister(self, capability: str, provider_id: str | None = None) -> bool:
+        capability = self._required_id("capability", capability)
+        provider_id = self._optional_id("provider", provider_id)
         with self._lock:
             targets = [key for key in self._providers if key[0] == capability and (provider_id is None or key[1] == provider_id)]
             active = [key for key in targets if self._inflight.get(key, 0)]
@@ -115,14 +117,22 @@ class ProductionCapabilityRegistry:
             return bool(targets)
 
     def has(self, capability: str, provider_id: str | None = None) -> bool:
+        capability = self._required_id("capability", capability)
+        provider_id = self._optional_id("provider", provider_id)
         with self._lock:
             return any(key[0] == capability and (provider_id is None or key[1] == provider_id) for key in self._providers)
 
     def get(self, capability: str, provider_id: str | None = None) -> ProductionCapability:
+        capability = self._required_id("capability", capability)
+        provider_id = self._optional_id("provider", provider_id)
         with self._lock:
             return self._entry(capability, provider_id, include_unavailable=provider_id is not None)[0]
 
     def enable(self, capability: str, enabled: bool, provider_id: str | None = None) -> ProductionCapability:
+        capability = self._required_id("capability", capability)
+        provider_id = self._optional_id("provider", provider_id)
+        if not isinstance(enabled, bool):
+            raise ProductionCapabilityError("enabled must be boolean")
         with self._lock:
             targets = [key for key in self._providers if key[0] == capability and (provider_id is None or key[1] == provider_id)]
             if not targets: raise ProductionCapabilityError(f"capability is not installed: {capability}")
@@ -137,6 +147,10 @@ class ProductionCapabilityRegistry:
             return sorted(updated_items, key=lambda item:(item.priority, item.provider_id))[0]
 
     def health(self, capability: str, provider_id: str, healthy: bool) -> ProductionCapability:
+        capability = self._required_id("capability", capability)
+        provider_id = self._required_id("provider", provider_id)
+        if not isinstance(healthy, bool):
+            raise ProductionCapabilityError("healthy must be boolean")
         with self._lock:
             definition, handler = self._entry(capability, provider_id, include_unavailable=True)
             if not healthy and self._inflight.get((capability, provider_id), 0):
@@ -150,6 +164,10 @@ class ProductionCapabilityRegistry:
 
     def invoke_with_provider(self, capability: str, /, *, provider_id: str | None = None, allow_fallback: bool = False, **inputs: Any) -> tuple[ProductionCapability, Any]:
         """Invoke and return the exact selected provider with the result."""
+        capability = self._required_id("capability", capability)
+        provider_id = self._optional_id("provider", provider_id)
+        if not isinstance(allow_fallback, bool):
+            raise ProductionCapabilityError("allow_fallback must be boolean")
         failures = []
         excluded: set[str] = set()
         while True:
@@ -197,6 +215,17 @@ class ProductionCapabilityRegistry:
     def _has_capacity(self, definition: ProductionCapability) -> bool:
         limit = definition.metadata.get("max_concurrency")
         return limit is None or self._inflight.get((definition.capability, definition.provider_id), 0) < limit
+
+    @staticmethod
+    def _required_id(field_name: str, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ProductionCapabilityError(f"{field_name} is required")
+        return normalized
+
+    @classmethod
+    def _optional_id(cls, field_name: str, value: str | None) -> str | None:
+        return None if value is None else cls._required_id(field_name, value)
 
     def _eligible(self, capability: str, provider_id: str | None = None) -> list[tuple[ProductionCapability, CapabilityHandler]]:
         entries = [entry for key, entry in self._providers.items() if key[0] == capability and (provider_id is None or key[1] == provider_id)]
