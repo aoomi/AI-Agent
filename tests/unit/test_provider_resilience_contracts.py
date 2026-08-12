@@ -34,6 +34,15 @@ class ProviderResilienceContractTest(unittest.TestCase):
         ResilientProviderInvoker(invoke).call("provider","video",inputs)
         self.assertEqual(inputs["routing"]["regions"][0],"local")
 
+    def test_retry_receives_pristine_inputs_after_failed_attempt_mutation(self) -> None:
+        seen=[]
+        def invoke(_provider,_capability,inputs):
+            seen.append(inputs["routing"]["regions"][0])
+            if len(seen)==1:inputs["routing"]["regions"][0]="failed";raise ConnectionError("retry")
+            return {"ok":True}
+        ResilientProviderInvoker(invoke,max_retries=1,sleeper=lambda _:None).call("provider","video",{"routing":{"regions":["local"]}})
+        self.assertEqual(seen,["local","local"])
+
     def test_runtime_identities_and_non_finite_clocks_are_rejected(self) -> None:
         invoker=ResilientProviderInvoker(lambda *_: None)
         for call in (lambda:invoker.call(1,"video",{}),lambda:invoker.call("p","video",{},fallback_provider_ids=["q"]),lambda:CircuitBreaker(clock=lambda:math.nan).before_call("p"),lambda:SlidingWindowRateLimiter(1,clock=lambda:math.inf).acquire("p"),lambda:CircuitBreaker().status(1)):

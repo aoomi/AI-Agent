@@ -3582,3 +3582,5 @@
 - 第二百八十二项自动测试与稽查：恶意handler/factory改写嵌套region均不影响原请求；能力fallback、扩展create与inflight保护关联回归、Python编译及diff门禁通过。
 - 第二百八十三项稽查首败与整改：ProductionCapability虽隔离调用方原请求，但同一input_snapshot复用于全部fallback尝试，失败provider仍可污染后续provider。现每次尝试都从权威快照重新构造独立深副本。
 - 第二百八十三项自动测试与稽查：首provider改写嵌套region后失败，backup仍精确收到local；能力fallback、并发容量与热插拔关联回归、Python编译及diff门禁通过。
+- 第二百八十四项稽查首败与整改：ResilientProviderInvoker虽隔离调用方，却把同一input_snapshot复用于重试及fallback；首个失败尝试仍可污染下一次调用。现每次provider attempt均从权威快照重建独立深副本。
+- 第二百八十四项自动测试与稽查：首尝试改写region并抛可重试错误后，第二次仍收到local；重试、fallback、熔断及限流关联回归、Python编译及diff门禁通过。

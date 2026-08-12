@@ -82,7 +82,10 @@ class ResilientProviderInvoker:
         for target in targets:
             with self._lock:limiter=self.limiters.setdefault(target,SlidingWindowRateLimiter(self.rate_limit,self.clock))
             for attempt in range(self.max_retries+1):
-                try:self.breaker.before_call(target);limiter.acquire(target);result=self.invoke(target,capability,input_snapshot);self.breaker.success(target);return result
+                try:
+                    self.breaker.before_call(target);limiter.acquire(target)
+                    attempt_inputs=json.loads(json.dumps(input_snapshot,allow_nan=False))
+                    result=self.invoke(target,capability,attempt_inputs);self.breaker.success(target);return result
                 except Exception as raw:
                     last=normalize_provider_error(raw,target);self.breaker.failure(target)
                     if not last.retryable or attempt>=self.max_retries:break

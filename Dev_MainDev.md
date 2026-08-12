@@ -1284,3 +1284,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百八十一项：ProductionExtension probe_configuration已从标准JSON生成独立深快照，第三方factory探测不能反向污染调用方嵌套配置。
 - BUG072第二百八十二项：ProductionCapability invoke与ProductionExtension create输入已在inflight前强制标准JSON深快照，可替换handler/factory不能反向污染调用方请求。
 - BUG072第二百八十三项：ProductionCapability每个fallback尝试已从权威输入快照重新构造深副本，失败provider不能污染后续provider请求。
+- BUG072第二百八十四项：Provider韧性层每次重试/fallback attempt已从权威输入快照重建深副本，失败尝试不能污染后续调用。
