@@ -3184,3 +3184,5 @@
 - 第八十三项自动测试与稽查：动态证明同identity同operation跨project可分别入队且task_id独立；队列、服务、集成及E2E关联`18 passed`，Python编译与diff门禁通过。
 - 第八十四项稽查首败与整改：ProductionCapability metadata会进入公开能力定义和runtime snapshot，但原边界只校验max_concurrency，可把access_token、嵌套Authorization或数组client_secret注册进长期能力目录。现register与register_once共用递归敏感键门禁，并保留并发限制校验。
 - 第八十四项自动测试与稽查：三类嵌套敏感metadata均在注册前失败关闭；能力热插拔、并发及元数据关联`7 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
+- 第八十五项稽查首败与整改：ProductionExtension metadata和provider probe_configuration会长期保留于扩展契约，但原入口未过滤敏感键，插件可把access_token、Authorization或client_secret带入注册表。现元数据解析后、工厂探针前递归失败关闭六类敏感组合键。
+- 第八十五项自动测试与稽查：顶层、probe嵌套和数组三类凭据均零探针、零注册；基础设施替换与扩展关联`3 passed`（另`3 subtests passed`），Python编译与diff门禁通过。

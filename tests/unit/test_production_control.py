@@ -486,6 +486,18 @@ class ProductionControlTests(unittest.TestCase):
             registry.create("storage.task_repository", database="tasks.db")
         self.assertTrue(registry.unregister("storage.task_repository"))
 
+    def test_extension_metadata_rejects_nested_sensitive_fields(self):
+        registry = ProductionExtensionRegistry()
+        for metadata in (
+            {"access_token": "plaintext"},
+            {"probe_configuration": {"headers": {"Authorization": "Bearer plaintext"}}},
+            {"profiles": [{"client_secret": "plaintext"}]},
+        ):
+            with self.subTest(metadata=metadata), self.assertRaisesRegex(
+                ProductionExtensionError, "sensitive fields"
+            ):
+                registry.register("storage.task_repository", "unsafe", lambda **_: object(), metadata=metadata)
+
     def test_production_extensions_support_install_activate_rollback_and_provider_uninstall(self):
         registry = ProductionExtensionRegistry()
         registry.register("storage.task_repository", "sqlite", lambda **_: {"provider":"sqlite"}, metadata={"hot_swappable":False})

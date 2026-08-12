@@ -47,6 +47,19 @@ class ProductionExtensionRegistry:
         # probe exemption by setting metadata["builtin"] itself.
         self._trusted_builtin_providers = frozenset(trusted_builtin_providers or set())
 
+    @staticmethod
+    def _contains_sensitive_key(value: Any) -> bool:
+        forbidden = ("secret", "token", "password", "api_key", "authorization", "credential")
+        if isinstance(value, Mapping):
+            return any(
+                any(word in str(key).lower() for word in forbidden)
+                or ProductionExtensionRegistry._contains_sensitive_key(item)
+                for key, item in value.items()
+            )
+        if isinstance(value, (list, tuple, set, frozenset)):
+            return any(ProductionExtensionRegistry._contains_sensitive_key(item) for item in value)
+        return False
+
     def register(
         self,
         extension_point: str,
@@ -63,6 +76,8 @@ class ProductionExtensionRegistry:
         if not point or not provider or not callable(factory):
             raise ProductionExtensionError("extension point, provider and factory are required")
         metadata_values = dict(metadata or {})
+        if self._contains_sensitive_key(metadata_values):
+            raise ProductionExtensionError("extension metadata contain sensitive fields")
         required_value = metadata_values.get("required_methods", ())
         if "required_methods" in metadata_values and not isinstance(required_value, (list, tuple, set)):
             raise ProductionExtensionError(f"invalid required_methods contract: {point}/{provider}")
