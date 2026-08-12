@@ -54,6 +54,11 @@ class PluginRegistryTest(unittest.TestCase):
         ):
             with self.assertRaisesRegex(PluginLifecycleError, "required"):operation()
 
+    def test_runtime_identity_types_are_rejected(self) -> None:
+        registry=PluginRegistry()
+        for operation in (lambda:registry.discover(1,"1.0.0"),lambda:registry.discover("plugin",1),lambda:registry.get(1),lambda:registry.transition(1,"enabled"),lambda:registry.upgrade(1,"2.0.0"),lambda:registry.rollback(1)):
+            with self.subTest(operation=operation),self.assertRaises(PluginLifecycleError):operation()
+
 
 if __name__ == "__main__":
     unittest.main()

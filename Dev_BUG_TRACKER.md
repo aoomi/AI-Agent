@@ -3402,3 +3402,5 @@
 - 第一百九十二项自动测试与稽查：数字event/project/type及订阅type动态失败关闭；事件、投影与任务集成关联`14 passed`（另`8 subtests passed`），Python编译与diff门禁通过。
 - 第一百九十三项稽查首败与整改：Provider韧性层对身份直接strip并信任tuple回退链，clock/recovery允许NaN/Infinity进入60秒窗口或熔断恢复计算。现身份、容器与所有时钟结果在状态写入前严格失败关闭。
 - 第一百九十三项自动测试与稽查：数字provider、列表回退链、非有限恢复窗/限流时钟/熔断时钟动态拒绝；韧性关联`7 passed`（另`13 subtests passed`），Python编译与diff门禁通过。
+- 第一百九十四项稽查首败与整改：PluginRecord及PluginRegistry全部生命周期入口直接对运行时身份strip，数字plugin/version/target会泄漏AttributeError。现模型与公开控制共享字符串类型门禁。
+- 第一百九十四项自动测试与稽查：六类数字生命周期身份动态失败关闭；插件关联`8 passed`（另`8 subtests passed`），Python编译与diff门禁通过。

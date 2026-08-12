@@ -28,7 +28,8 @@ class PluginRecord:
     status: str = "discovered"
 
     def __post_init__(self) -> None:
-        if (not self.plugin_id.strip() or not self.version.strip()
+        if (not isinstance(self.plugin_id,str) or not isinstance(self.version,str) or not isinstance(self.status,str)
+                or not self.plugin_id.strip() or not self.version.strip()
                 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,254}", self.plugin_id.strip())
                 or not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?", self.version.strip())
                 or self.status not in {"discovered","validated","installed","enabled","disabled","failed","uninstalled"}):
@@ -42,6 +43,7 @@ class PluginRegistry:
         self._lock = RLock()
 
     def discover(self, plugin_id: str, version: str) -> PluginRecord:
+        self._validate_strings(plugin_id,version)
         plugin_id, version = plugin_id.strip(), version.strip()
         if not plugin_id or not version:raise PluginLifecycleError("plugin_id and version are required")
         with self._lock:
@@ -49,6 +51,7 @@ class PluginRegistry:
             record = PluginRecord(plugin_id, version); self._plugins[plugin_id] = record; self._history[plugin_id] = [record]; return record
 
     def transition(self, plugin_id: str, target: str) -> PluginRecord:
+        self._validate_strings(plugin_id,target)
         plugin_id, target = plugin_id.strip(), target.strip()
         if not plugin_id or not target:raise PluginLifecycleError("plugin lifecycle identity is required")
         with self._lock:
@@ -60,6 +63,7 @@ class PluginRegistry:
         with self._lock: return tuple(sorted(self._plugins.values(), key=lambda item: item.plugin_id))
 
     def upgrade(self, plugin_id: str, version: str) -> PluginRecord:
+        self._validate_strings(plugin_id,version)
         plugin_id, version = plugin_id.strip(), version.strip()
         if not plugin_id or not version:raise PluginLifecycleError("plugin_id and version are required")
         with self._lock:
@@ -68,6 +72,7 @@ class PluginRegistry:
             updated = replace(current, version=version.strip(), status="installed"); self._plugins[plugin_id] = updated; self._history[plugin_id].append(updated); return updated
 
     def rollback(self, plugin_id: str) -> PluginRecord:
+        self._validate_strings(plugin_id)
         plugin_id = plugin_id.strip()
         if not plugin_id:raise PluginLifecycleError("plugin_id is required")
         with self._lock:
@@ -78,8 +83,13 @@ class PluginRegistry:
             updated = PluginRecord(plugin_id, previous.version, "installed"); self._plugins[plugin_id] = updated; self._history[plugin_id].append(updated); return updated
 
     def get(self, plugin_id: str) -> PluginRecord:
+        self._validate_strings(plugin_id)
         plugin_id = plugin_id.strip()
         if not plugin_id:raise PluginLifecycleError("plugin_id is required")
         with self._lock:
             try: return self._plugins[plugin_id]
             except KeyError as error: raise PluginLifecycleError("plugin is not discovered") from error
+
+    @staticmethod
+    def _validate_strings(*values: str) -> None:
+        if any(not isinstance(value,str) for value in values):raise PluginLifecycleError("plugin lifecycle identity is required")
