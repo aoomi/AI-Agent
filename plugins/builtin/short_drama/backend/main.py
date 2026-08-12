@@ -49,7 +49,7 @@ class ShortDramaBackend:
         return self.pipeline.cancel(context, project_id, run_id)
 
     def status(self, context: IdentityContext, project_id: str, run_id: str) -> PipelineCheckpoint:
-        return self.pipeline.load(context.tenant_id, project_id, run_id)
+        return self.pipeline.load(context, project_id, run_id)
 
     def _runners(self):
         return {

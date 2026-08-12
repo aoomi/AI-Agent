@@ -31,7 +31,7 @@ class ShortDramaPipelineTest(unittest.TestCase):
         self.assertEqual(waiting.status, "waiting_human")
         self.assertEqual(waiting.next_index, 1)
         restarted = ShortDramaPipeline(Path(self.temp.name), self.queue, self.events, self.runners)
-        restored = restarted.load("tenant-a", "project-a", waiting.run_id)
+        restored = restarted.load(self.context, "project-a", waiting.run_id)
         self.assertEqual(restored.artifacts.keys(), {"requirements"})
         completed = restored
         while completed.status == "waiting_human":
@@ -45,7 +45,7 @@ class ShortDramaPipelineTest(unittest.TestCase):
         waiting = self.pipeline.start(self.context, "project-a", "operation-2")
         self.assertEqual(self.pipeline.cancel(self.context, "project-a", waiting.run_id).status, "cancelled")
         restarted = ShortDramaPipeline(Path(self.temp.name), self.queue, self.events, self.runners)
-        restored = restarted.load("tenant-a", "project-a", waiting.run_id)
+        restored = restarted.load(self.context, "project-a", waiting.run_id)
         self.assertEqual(restored.status, "cancelled")
         self.assertEqual(restarted.orchestrator.state(restarted._identity(restored))["status"], "cancelled")
         with self.assertRaisesRegex(ShortDramaPipelineError, "only waiting_human"):
@@ -58,7 +58,18 @@ class ShortDramaPipelineTest(unittest.TestCase):
     def test_cross_tenant_checkpoint_read_is_rejected(self) -> None:
         waiting = self.pipeline.start(self.context, "project-a", "operation-3")
         with self.assertRaises(ShortDramaPipelineError):
-            self.pipeline.load("tenant-b", "project-a", waiting.run_id)
+            self.pipeline.load(IdentityContext("request-2", "trace-2", "identity-1", "user", "tenant-b"), "project-a", waiting.run_id)
+
+    def test_cross_identity_checkpoint_read_and_mutation_are_rejected(self) -> None:
+        waiting = self.pipeline.start(self.context, "project-a", "operation-identity")
+        other = IdentityContext("request-2", "trace-2", "identity-2", "user", "tenant-a")
+        for operation in (
+            lambda: self.pipeline.load(other, "project-a", waiting.run_id),
+            lambda: self.pipeline.approve(other, "project-a", waiting.run_id),
+            lambda: self.pipeline.cancel(other, "project-a", waiting.run_id),
+        ):
+            with self.assertRaisesRegex(ShortDramaPipelineError, "not owned"):
+                operation()
 
     def test_node_failure_is_persisted_and_not_reported_as_success(self) -> None:
         runners = dict(self.runners)

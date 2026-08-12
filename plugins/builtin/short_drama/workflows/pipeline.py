@@ -36,6 +36,7 @@ class PipelineCheckpoint:
     run_id: str
     task_id: str
     tenant_id: str
+    user_id: str
     project_id: str
     operation_key: str
     status: str
@@ -57,21 +58,21 @@ class ShortDramaPipeline:
         run_id, task_id = f"run-{uuid4().hex}", f"task-{uuid4().hex}"
         task = QueuedTask(task_id, project_id, operation_key, "short_drama.pipeline", context, {"run_id": run_id})
         accepted, replayed = self.queue.enqueue(task)
-        if replayed: return self.load(context.tenant_id, project_id, str(accepted.payload["run_id"]))
+        if replayed: return self.load(context, project_id, str(accepted.payload["run_id"]))
         self.queue.claim(context.tenant_id)
         artifacts: dict[str, str] = {}
         next_index = 0
         if initial_requirements is not None:
             if not initial_requirements.content or not initial_requirements.media_type:
                 raise ShortDramaPipelineError("initial requirements output is empty")
-            initial_checkpoint = PipelineCheckpoint(run_id, task_id, context.tenant_id, project_id, operation_key, "running", 0, {})
+            initial_checkpoint = PipelineCheckpoint(run_id, task_id, context.tenant_id, context.identity_id, project_id, operation_key, "running", 0, {})
             artifact_path = self._artifact_path(initial_checkpoint, "requirements", 1)
             artifact_path.parent.mkdir(parents=True, exist_ok=True)
             artifact_path.write_bytes(initial_requirements.content)
             artifacts["requirements"] = str(artifact_path.relative_to(self.root))
             self.events.publish(PublishedEvent(f"event-{uuid4().hex}", "ASSET_STATUS_CHANGED", project_id, context, {"node_type": "requirements", "status": "available"}))
             next_index = 1
-        checkpoint = PipelineCheckpoint(run_id, task_id, context.tenant_id, project_id, operation_key, "running", next_index, artifacts)
+        checkpoint = PipelineCheckpoint(run_id, task_id, context.tenant_id, context.identity_id, project_id, operation_key, "running", next_index, artifacts)
         if initial_requirements is not None:
             self.orchestrator.report(self._identity(checkpoint), "requirements", "pending_confirmation")
             waiting = replace(checkpoint, status="waiting_human")
@@ -80,7 +81,7 @@ class ShortDramaPipeline:
         self._save(checkpoint); return self._run(context, checkpoint)
 
     def approve(self, context: IdentityContext, project_id: str, run_id: str) -> PipelineCheckpoint:
-        checkpoint = self.load(context.tenant_id, project_id, run_id)
+        checkpoint = self.load(context, project_id, run_id)
         if checkpoint.status != "waiting_human": raise ShortDramaPipelineError("only waiting_human run can be approved")
         state = self.orchestrator.state(self._identity(checkpoint)); completed_stage = str(state.get("current_stage") or "")
         if completed_stage not in NODES: raise ShortDramaPipelineError("orchestrator has no stage awaiting approval")
@@ -96,7 +97,7 @@ class ShortDramaPipeline:
         return self._run(context, replace(checkpoint, status="approved"))
 
     def cancel(self, context: IdentityContext, project_id: str, run_id: str) -> PipelineCheckpoint:
-        checkpoint = self.load(context.tenant_id, project_id, run_id)
+        checkpoint = self.load(context, project_id, run_id)
         if checkpoint.status in {"completed", "failed", "cancelled"}: raise ShortDramaPipelineError("terminal run cannot be cancelled")
         graph = self.orchestrator.state(self._identity(checkpoint)); current_stage = str(graph.get("current_stage") or "")
         if current_stage not in NODES: raise ShortDramaPipelineError("orchestrator has no cancellable stage")
@@ -106,15 +107,17 @@ class ShortDramaPipeline:
         self._task_event(context, cancelled, "cancelled", self._progress(cancelled.next_index)); return cancelled
 
     def resume(self, context: IdentityContext, project_id: str, run_id: str) -> PipelineCheckpoint:
-        checkpoint = self.load(context.tenant_id, project_id, run_id)
+        checkpoint = self.load(context, project_id, run_id)
         if checkpoint.status != "running": raise ShortDramaPipelineError("only running checkpoint can resume")
         return self._run(context, checkpoint)
 
-    def load(self, tenant_id: str, project_id: str, run_id: str) -> PipelineCheckpoint:
-        path = self._checkpoint_path(tenant_id, project_id, run_id)
+    def load(self, context: IdentityContext, project_id: str, run_id: str) -> PipelineCheckpoint:
+        path = self._checkpoint_path(context.tenant_id, project_id, run_id)
         try: data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error: raise ShortDramaPipelineError("checkpoint not found or invalid") from error
-        stored = PipelineCheckpoint(**data); state = self.orchestrator.state(self._identity(stored))
+        stored = PipelineCheckpoint(**data)
+        if stored.user_id != context.identity_id: raise ShortDramaPipelineError("checkpoint is not owned by identity")
+        state = self.orchestrator.state(self._identity(stored))
         graph_status = str(state.get("status") or "idle")
         status = "running" if graph_status == "idle" else graph_status
         return replace(stored, status=status, next_index=self._projection_index(state))
@@ -138,7 +141,7 @@ class ShortDramaPipeline:
             self._save(checkpoint); self._task_event(context, checkpoint, "waiting_human", self._progress(checkpoint.next_index)); return checkpoint
         except Exception:
             self.queue.finish(checkpoint.task_id, "failed")
-            failed = PipelineCheckpoint(checkpoint.run_id, checkpoint.task_id, checkpoint.tenant_id, checkpoint.project_id, checkpoint.operation_key, "failed", checkpoint.next_index, artifacts)
+            failed = PipelineCheckpoint(checkpoint.run_id, checkpoint.task_id, checkpoint.tenant_id, checkpoint.user_id, checkpoint.project_id, checkpoint.operation_key, "failed", checkpoint.next_index, artifacts)
             self._save(failed); self._task_event(context, failed, "failed", self._progress(checkpoint.next_index)); raise
 
     def _task_event(self, context: IdentityContext, checkpoint: PipelineCheckpoint, status: str, progress: int) -> None:
@@ -152,7 +155,7 @@ class ShortDramaPipeline:
 
     @staticmethod
     def _identity(checkpoint: PipelineCheckpoint) -> dict[str, str]:
-        return {"tenant_id":checkpoint.tenant_id, "user_id":"pipeline", "project_id":f"{checkpoint.project_id}:{checkpoint.run_id}"}
+        return {"tenant_id":checkpoint.tenant_id, "user_id":checkpoint.user_id, "project_id":f"{checkpoint.project_id}:{checkpoint.run_id}"}
 
     @staticmethod
     def _progress(completed: int) -> int: return min(100, completed * 100 // len(NODES))

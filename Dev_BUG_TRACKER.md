@@ -3094,3 +3094,5 @@
 - 第二十六项自动测试与稽查：新增异身份读取、发送、提案查看、确认和拒绝全部拒绝的动态测试，平台启动、协作与任务服务关联`24 passed`（另`3 subtests passed`）。只读确认所有公开调用点均已传身份，提案越权不会改变pending状态。
 - 第二十七项稽查首败与整改：平台开发→稽查协作会话只记录tenant/project而不记录创建identity，GET资源、提交稽查、自动循环、执行稽查和创建整改均只凭全局UUID；同租户其他身份可读取证据并推进带副作用的协作状态机。现会话持久契约加入创建identity，所有HTTP读写入口先执行tenant+identity所有权门禁，handoff/report通过所属session反查所有者后才允许执行。
 - 第二十七项自动测试与稽查：新增跨tenant、同tenant异identity的session/handoff/report拒绝矩阵，平台会话、协作与任务服务关联`25 passed`（另`3 subtests passed`）；所有服务构造点同步新必填身份契约。
+- 第二十八项稽查首败与整改：独立短剧11阶段pipeline检查点路径仅按tenant/project/run隔离，记录也不含user；状态、确认和取消只复核tenant，且ProductionOrchestrator身份硬编码为`user_id=pipeline`。同租户异用户获得run_id即可读取产物清单并推进或取消流程。现检查点持久化真实创建user，load/approve/cancel/resume统一接收IdentityContext并精确验权，Graph权威身份同步真实user。
+- 第二十八项自动测试与稽查：新增同tenant异identity读取、确认、取消全部拒绝矩阵；短剧pipeline与backend关联`7 passed`，Python编译及diff门禁通过。只读确认门禁在Graph读取和队列状态修改前执行。
