@@ -117,10 +117,16 @@ class ShortDramaPipeline:
 
     def load(self, context: IdentityContext, project_id: str, run_id: str) -> PipelineCheckpoint:
         path = self._checkpoint_path(context.tenant_id, project_id, run_id)
-        try: data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error: raise ShortDramaPipelineError("checkpoint not found or invalid") from error
-        stored = PipelineCheckpoint(**data)
-        if stored.user_id != context.identity_id: raise ShortDramaPipelineError("checkpoint is not owned by identity")
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"), parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+            stored = PipelineCheckpoint(**data)
+        except (OSError, json.JSONDecodeError, ValueError, TypeError) as error: raise ShortDramaPipelineError("checkpoint not found or invalid") from error
+        if stored.tenant_id != context.tenant_id or stored.user_id != context.identity_id or stored.project_id != project_id or stored.run_id != run_id:
+            raise ShortDramaPipelineError("checkpoint is not owned by identity")
+        if stored.status not in {"running","approved","waiting_human","completed","failed","cancelled"} or isinstance(stored.next_index,bool) or not isinstance(stored.next_index,int) or not 0 <= stored.next_index <= len(NODES):
+            raise ShortDramaPipelineError("checkpoint not found or invalid")
+        if not isinstance(stored.artifacts,dict) or any(stage not in NODES or not isinstance(value,str) or not value for stage,value in stored.artifacts.items()):
+            raise ShortDramaPipelineError("checkpoint not found or invalid")
         state = self.orchestrator.state(self._identity(stored))
         graph_status = str(state.get("status") or "idle")
         status = "running" if graph_status == "idle" else graph_status

@@ -84,5 +84,22 @@ class ShortDramaPipelineTest(unittest.TestCase):
         import json
         self.assertEqual(json.loads(checkpoints[0].read_text())["status"], "failed")
 
+    def test_checkpoint_rejects_tampered_scope_lifecycle_and_artifacts(self) -> None:
+        waiting=self.pipeline.start(self.context,"project-a","operation-tamper")
+        path=Path(self.temp.name)/"tenant-a/project-a/checkpoints"/f"{waiting.run_id}.json"
+        import json
+        original=json.loads(path.read_text())
+        mutations=(
+            {**original,"tenant_id":"tenant-b"},
+            {**original,"run_id":"run-forged"},
+            {**original,"status":"unknown"},
+            {**original,"next_index":True},
+            {**original,"artifacts":{"unknown":"artifact.bin"}},
+        )
+        for payload in mutations:
+            path.write_text(json.dumps(payload),encoding="utf-8")
+            with self.subTest(payload=payload),self.assertRaises(ShortDramaPipelineError):
+                self.pipeline.load(self.context,"project-a",waiting.run_id)
+
 
 if __name__ == "__main__": unittest.main()

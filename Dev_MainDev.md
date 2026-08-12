@@ -64,6 +64,7 @@
 - BUG072第二百八十九项整改：CollaborationContext更新在首个共享状态写入前完整验证任务状态、证据与文件引用，阻断后字段失败造成前字段部分提交；关联`30 passed, 40 subtests passed`，继续横向稽查。
 - BUG072第二百九十项整改：ConversationMemoryStore启动加载严格拒绝NaN、空identity/project及空白事实键，阻断无主或非标准持久事实进入内存；关联`41 passed, 47 subtests passed`，继续横向稽查。
 - BUG072第二百九十一项整改：LangGraph兼容流水线artifact manifest严格拒绝NaN、未知stage及非字符串空路径，阻断持久坏值被强制字符串化进入恢复状态；关联`10 passed, 3 subtests passed`，继续横向稽查。
+- BUG072第二百九十二项整改：兼容ShortDramaPipeline恢复严格绑定tenant/user/project/run四元身份，并验证生命周期、索引范围和canonical artifact映射，阻断篡改checkpoint切换Graph作用域；关联`11 passed, 8 subtests passed`，继续横向稽查。
 - BUG071最终闭环：composition、review、export权威证据与Graph状态在同一SQLite事务提交；导出manifest绑定generation、audit batch、视频及manifest哈希。正式三镜静音母版导出8.1秒、243帧、704×1216 H.264且仅video stream，重启后HTTP可读；关联`134 passed`。用户要求的不超过15秒、只验证视频范围已可测试，继续BUG072架构v2.2全仓一致性稽查。
 - BUG070最终闭环：普通生产端点门禁移到派发前；worker只接受进程私有loopback token或精确共享reservation，伪造dispatched头正式403，缺前序请求409且无副作用，合法run-stage composition generation 3通过并确认。关联`130 passed`；继续BUG071静音母版审核导出。
 - BUG069最终闭环：LTX三镜经正式run-stage与同批次video/audio-not-applicable/subtitle-not-applicable台账确认后，显式video-only composition生成8.1秒、243帧、704×1216@30 H.264静音母版；重启恢复、HTTP媒体与队列归零通过，关联`129 passed`。继续BUG070生产端点派发门禁旁路。
