@@ -3158,3 +3158,4 @@
 - 第六十项稽查首败与整改：TaskLease同owner acquire/renew未约束heartbeat时间单调，时钟回拨、乱序线程或更短TTL可缩短租约并把heartbeat倒退，破坏同generation晚到隔离。现acquire显式拒绝倒退，renew以SQLite条件CAS同时要求时间单调且新到期不早于旧到期，失败时保留当前权威租约。
 - 第六十一项稽查首败与整改：SecurityAuditLedger并发append以无锁“读末尾hash→追加”构链，多线程可生成共享previous_hash分叉并使审计链不可验证；export/verify/entries也读取可变列表。现RLock覆盖原子构链和快照读取，并拒绝空审计身份/动作字段。
 - 第六十二项稽查首败与整改：AgentScheduler虽有run single-flight集合，但run状态写回及pause/retry/takeover/resume读改写仍部分绕过锁；外部控制可在executor运行中改状态，随后被晚到结果覆盖。现所有run状态提交均加锁，四种控制先在同一临界区拒绝active run，再执行合法状态转换。
+- 第六十三项稽查首败与整改：IndustryWorkflow把活动workflow_id与robot_id混存在同一set；若两类外部ID同名，运行一个工作流会误判无关机器人executor正在执行，反向也可能误判workflow active。现拆分活动工作流与活动机器人两个命名空间，热替换和single-flight各查对应集合。

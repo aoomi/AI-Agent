@@ -1063,3 +1063,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第六十项：TaskLease同generation心跳已强制单调，乱序acquire/renew不能缩短或回滚权威租约。
 - BUG072第六十一项：安全审计哈希链已并发安全，append原子串行且export/verify/entries读取一致快照；8线程动态链验证通过。
 - BUG072第六十二项：AgentScheduler运行状态写回与pause/retry/takeover/resume已统一并发围栏，活动executor期间禁止外部状态覆盖；调度与Graph关联`10 passed`。
+- BUG072第六十三项：行业工作流活动workflow/robot ID命名空间已拆分，消除同名ID导致的虚假热替换或single-flight冲突。
