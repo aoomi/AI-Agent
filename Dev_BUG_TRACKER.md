@@ -3442,3 +3442,5 @@
 - 第二百一十二项自动测试与稽查：坏path、数字关联ID/标签键、NaN及倒退时钟动态拒绝；可观测性关联`8 passed`（另`18 subtests passed`），Python编译与diff门禁通过。
 - 第二百一十三项稽查首败与整改：DurableTaskRepository构造path、任务stage/status/时间、pid及payload序列化仍依赖宽松转换/default=str，projection ack也字符串化数字事件。现权威任务和投影控制保持原始类型并严格验证标准JSON。
 - 第二百一十三项自动测试与稽查：坏path、数字stage、布尔pid、任意payload、数字task_class/ack动态失败关闭；持久任务专项`3 passed`（另`18 subtests passed`），Python编译与diff门禁通过。
+- 第二百一十四项稽查首败与整改：ProviderAdapterRegistry.list仅靠集合比较处理kind，invoke只判resolver结果真值，数字密钥可进入executor的secret参数。现提供方分类和外部密钥解析结果均保持字符串契约。
+- 第二百一十四项自动测试与稽查：数字kind与数字secret动态失败关闭；Provider单元与生产集成关联`12 passed`（另`11 subtests passed`），Python编译与diff门禁通过。

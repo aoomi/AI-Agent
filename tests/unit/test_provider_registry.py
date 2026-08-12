@@ -38,8 +38,14 @@ class ProviderAdapterRegistryTest(unittest.TestCase):
         with self.assertRaisesRegex(ProviderAdapterError,"definition contract"):registry.register(object(),Executor())
         with self.assertRaisesRegex(ProviderAdapterError,"executor contract"):registry.register(definition,object())
         with self.assertRaisesRegex(ProviderAdapterError,"replace control"):registry.register(definition,Executor(),replace=1)
-        for operation in (lambda:registry.get(""),lambda:registry.get(1),lambda:registry.list(kind="unknown"),lambda:registry.invoke("","generate.image",{}),lambda:registry.invoke("p",1,{})):
+        for operation in (lambda:registry.get(""),lambda:registry.get(1),lambda:registry.list(kind="unknown"),lambda:registry.list(kind=1),lambda:registry.invoke("","generate.image",{}),lambda:registry.invoke("p",1,{})):
             with self.assertRaises(ProviderAdapterError):operation()
+
+    def test_resolved_secret_must_remain_a_string(self):
+        class BadSecrets:
+            def resolve(self,_reference):return 1
+        registry=ProviderAdapterRegistry(BadSecrets());definition=ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30);registry.register(definition,Executor())
+        with self.assertRaisesRegex(ProviderAdapterError,"resolved"):registry.invoke("p","generate.image",{})
 
     def test_inflight_provider_cannot_be_replaced_or_unregistered(self):
         entered=threading.Event();release=threading.Event()

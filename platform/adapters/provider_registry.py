@@ -77,7 +77,7 @@ class ProviderAdapterRegistry:
             try:return self._providers[provider_id][0]
             except KeyError as error:raise ProviderAdapterError(f"unknown provider: {provider_id}") from error
     def list(self,*,kind:str|None=None)->tuple[ProviderAdapterDefinition,...]:
-        if kind is not None and kind not in {"model","text","image","video","audio"}:raise ProviderAdapterError("provider kind is invalid")
+        if kind is not None and (not isinstance(kind,str) or kind not in {"model","text","image","video","audio"}):raise ProviderAdapterError("provider kind is invalid")
         with self._lock:return tuple(sorted((d for d,_ in self._providers.values() if kind is None or d.kind==kind),key=lambda d:d.provider_id))
     def invoke(self,provider_id:str,capability:str,inputs:Mapping[str,Any])->ProviderInvocation:
         if not isinstance(provider_id,str) or not isinstance(capability,str):raise ProviderAdapterError("provider, capability and mapping inputs are required")
@@ -91,7 +91,7 @@ class ProviderAdapterRegistry:
             self._inflight[provider_id]=self._inflight.get(provider_id,0)+1
         try:
             secret=self._resolver.resolve(definition.secret_reference)
-            if not secret:raise ProviderAdapterError("provider secret could not be resolved")
+            if not isinstance(secret,str) or not secret:raise ProviderAdapterError("provider secret could not be resolved")
             output=executor.execute(capability,MappingProxyType(dict(inputs)),secret=secret,timeout_seconds=definition.timeout_seconds)
             if output is None:raise ProviderAdapterError("provider returned no output")
             return ProviderInvocation(provider_id,definition.kind,capability,output)
