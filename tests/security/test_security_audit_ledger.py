@@ -24,4 +24,10 @@ class SecurityAuditLedgerTest(unittest.TestCase):
   for scope in (("","a"),("t","")):
    with self.assertRaisesRegex(SecurityAuditError,"identity"):ledger.export(tenant_id=scope[0],actor_id=scope[1])
   self.assertEqual(ledger.entries(),())
+ def test_runtime_identity_types_are_rejected_and_values_normalized(self):
+  ledger=SecurityAuditLedger()
+  with self.assertRaisesRegex(SecurityAuditError,"fields"):ledger.append(tenant_id=1,actor_id="a",action="x",resource_id="r",outcome="completed")
+  with self.assertRaisesRegex(SecurityAuditError,"identity"):ledger.export(tenant_id=1,actor_id="a")
+  entry=ledger.append(tenant_id=" t ",actor_id=" a ",action=" x ",resource_id=" r ",outcome=" completed ")
+  self.assertEqual((entry.tenant_id,entry.actor_id,entry.action,entry.resource_id,entry.outcome),("t","a","x","r","completed"));self.assertTrue(ledger.verify())
 if __name__=="__main__":unittest.main()

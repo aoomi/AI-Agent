@@ -3390,3 +3390,5 @@
 - 第一百八十六项自动测试与稽查：坏身份/context/payload/status/task及公开控制动态失败关闭；队列与任务服务关联`20 passed`（另`19 subtests passed`），Python编译与diff门禁通过。
 - 第一百八十七项稽查首败与整改：ProviderAuditLedger用`str(...)`接受数字owner/provider/产物身份，并依赖tuple静态类型；伪scope可与字符串身份含混，列表产物或空error也没有明确契约。现记录和查询边界均严格验证并规范化。
 - 第一百八十七项自动测试与稽查：六类坏身份/status/产物/error及数字查询scope动态失败关闭；审计与生产集成关联`11 passed`（另`14 subtests passed`），Python编译与diff门禁通过。
+- 第一百八十八项稽查首败与整改：SecurityAuditLedger用`str(...)`接受数字append/export身份且仅判空、不规范化，可能形成链上带空白身份却无法按规范scope导出。现写入与导出共享严格字符串门禁和规范化。
+- 第一百八十八项自动测试与稽查：数字写入/导出动态失败关闭，空白身份规范化后哈希链仍有效；安全审计关联`6 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
