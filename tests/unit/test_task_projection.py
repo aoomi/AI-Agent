@@ -6,7 +6,7 @@ from ai_agent_events import EventBus, PublishedEvent, TaskProgressProjection, Ta
 from ai_agent_tenant import IdentityContext
 
 
-def context(tenant="tenant-a"): return IdentityContext("request-1", "trace-1", "identity-1", "user", tenant)
+def context(tenant="tenant-a", identity="identity-1"): return IdentityContext("request-1", "trace-1", identity, "user", tenant)
 
 
 class TaskProgressProjectionTest(unittest.TestCase):
@@ -21,6 +21,13 @@ class TaskProgressProjectionTest(unittest.TestCase):
         events = EventBus(); projection = TaskProgressProjection(events)
         events.publish(PublishedEvent("event-1", "TASK_STATUS_CHANGED", "project-a", context(), {"task_id": "task-a", "current_status": "running", "progress_percent": 1}))
         with self.assertRaises(TaskProjectionError): projection.get(context("tenant-b"), "project-a", "task-a")
+
+    def test_projection_is_identity_scoped_within_tenant(self) -> None:
+        events = EventBus(); projection = TaskProgressProjection(events)
+        events.publish(PublishedEvent("event-1", "TASK_STATUS_CHANGED", "project-a", context(), {"task_id":"task-a", "current_status":"running", "progress_percent":1}))
+        self.assertEqual(projection.list(context("tenant-a", "identity-2")), ())
+        with self.assertRaises(TaskProjectionError):
+            projection.get(context("tenant-a", "identity-2"), "project-a", "task-a")
 
     def test_invalid_progress_is_rejected(self) -> None:
         events = EventBus(); TaskProgressProjection(events)

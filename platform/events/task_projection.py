@@ -17,6 +17,7 @@ class TaskProjectionError(ValueError): pass
 class TaskProgress:
     task_id: str
     tenant_id: str
+    identity_id: str
     project_id: str
     status: str
     progress_percent: int
@@ -36,12 +37,13 @@ class TaskProgressProjection:
             raise TaskProjectionError("task event payload is incomplete")
         if not isinstance(progress, int) or not 0 <= progress <= 100:
             raise TaskProjectionError("progress_percent must be between 0 and 100")
-        key = (event.context.tenant_id, event.project_id, task_id)
-        self._items[key] = TaskProgress(task_id, event.context.tenant_id, event.project_id, status, progress)
+        key = (event.context.tenant_id, event.context.identity_id, event.project_id, task_id)
+        self._items[key] = TaskProgress(task_id, event.context.tenant_id, event.context.identity_id, event.project_id, status, progress)
 
     def get(self, context: IdentityContext, project_id: str, task_id: str) -> TaskProgress:
-        try: return self._items[(context.tenant_id, project_id, task_id)]
+        try: return self._items[(context.tenant_id, context.identity_id, project_id, task_id)]
         except KeyError as error: raise TaskProjectionError("task progress does not exist in this scope") from error
 
     def list(self, context: IdentityContext, project_id: str | None = None) -> tuple[TaskProgress, ...]:
-        return tuple(item for item in self._items.values() if item.tenant_id == context.tenant_id and (project_id is None or item.project_id == project_id))
+        return tuple(item for item in self._items.values() if item.tenant_id == context.tenant_id
+                     and item.identity_id == context.identity_id and (project_id is None or item.project_id == project_id))
