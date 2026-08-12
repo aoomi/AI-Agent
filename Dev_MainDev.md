@@ -1077,3 +1077,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第七十四项：Skill工具输出脱敏已覆盖`access_token/client_secret`等组合键，并保持嵌套递归过滤。
 - BUG072第七十五项：智能体会话send已改为完整响应校验后原子提交消息与提案，非法模型输出不再留下半提交历史或memory。
 - BUG072第七十六项：AgentScheduler新增agent级single-flight与executor热替换围栏，并拒绝重复agent_ids，跨run不能并发污染同一机器人生命周期。
+- BUG072第七十七项：AgentRegistry状态更新已拒绝生命周期外字符串，防止全局与项目机器人进入不可恢复状态。

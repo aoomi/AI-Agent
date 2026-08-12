@@ -30,6 +30,8 @@ class AgentRegistryTest(unittest.TestCase):
     def test_unknown_agent_is_rejected(self) -> None:
         with self.assertRaisesRegex(AgentRegistryError, "unknown agent_id"):
             AgentRegistry().get("missing")
+        registry=AgentRegistry();agent,_=registry.register(skill())
+        with self.assertRaisesRegex(AgentRegistryError,"status"):registry.update_status(agent.agent_id,"unknown")
 
 
 if __name__ == "__main__":

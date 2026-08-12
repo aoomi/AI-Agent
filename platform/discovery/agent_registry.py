@@ -26,6 +26,7 @@ class ProcessRobotInstance:
 
 
 class AgentRegistry:
+    STATUSES = frozenset({"idle","loading","running","waiting_human","completed","failed","cancelled"})
     def __init__(self) -> None:
         self._by_id: dict[str, AgentInstance] = {}
         self._by_skill: dict[str, str] = {}
@@ -69,6 +70,7 @@ class AgentRegistry:
             except KeyError as error: raise AgentRegistryError(f"unknown skill_id: {skill_id}") from error
 
     def update_status(self, agent_id: str, status: str) -> AgentInstance:
+        if status not in self.STATUSES:raise AgentRegistryError("agent status is invalid")
         with self._lock:
             current = self.get(agent_id); updated = replace(current, status=status)
             if agent_id in self._by_id: self._by_id[agent_id] = updated
