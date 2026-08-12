@@ -3474,3 +3474,5 @@
 - 第二百二十八项自动测试与稽查：NaN及任意对象memory动态拒绝且无文件/内存副作用；会话关联回归、Python编译与diff门禁通过。
 - 第二百二十九项稽查首败与整改：ModelDefinition只验证settings为Mapping和敏感键，NaN或任意对象可进入共享注册表，直到HTTP或提供方边界才失败。现注册前必须通过标准JSON门禁。
 - 第二百二十九项自动测试与稽查：NaN及任意对象settings动态拒绝；模型定义与注册关联回归、Python编译与diff门禁通过。
+- 第二百三十项稽查首败与整改：ProviderService仅验证settings Mapping和敏感键，NaN与任意对象可被写入提供方配置并在API序列化时才失败。现注册/替换前必须通过标准JSON门禁。
+- 第二百三十项自动测试与稽查：NaN及任意对象settings动态拒绝；Provider配置与生产集成关联回归、Python编译与diff门禁通过。

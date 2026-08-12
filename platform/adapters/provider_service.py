@@ -6,6 +6,7 @@ from types import MappingProxyType
 from threading import RLock
 from typing import Any,Mapping,Protocol
 from urllib.parse import urlparse
+import json
 class ProviderServiceError(ValueError):pass
 class ProviderHealthChecker(Protocol):
     def check(self,provider:"ProviderConfiguration")->tuple[int|None,str|None]:...
@@ -35,6 +36,8 @@ class ProviderService:
             if isinstance(value,(list,tuple)):return any(contains_secret(item) for item in value)
             return False
         if contains_secret(settings or {}):raise ProviderServiceError("provider settings cannot contain secrets")
+        try:json.dumps(dict(settings or {}),allow_nan=False)
+        except (TypeError,ValueError) as error:raise ProviderServiceError("provider settings must be standard JSON") from error
         with self._lock:
             existing=self.configurations.get(provider_id)
             if existing and not replace:raise ProviderServiceError("provider already exists")
