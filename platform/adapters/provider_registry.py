@@ -39,9 +39,9 @@ class ProviderAdapterDefinition:
             if isinstance(value,(list,tuple)):return any(contains_secret(item) for item in value)
             return False
         if contains_secret(self.settings or {}):raise ProviderAdapterError("provider settings cannot contain secrets")
-        try:json.dumps(dict(self.settings or {}),allow_nan=False)
+        try:canonical_settings=json.dumps(dict(self.settings or {}),allow_nan=False)
         except (TypeError,ValueError) as error:raise ProviderAdapterError("provider settings must be standard JSON") from error
-        object.__setattr__(self,"settings",MappingProxyType(dict(self.settings or {})))
+        object.__setattr__(self,"settings",MappingProxyType(json.loads(canonical_settings)))
 
 @dataclass(frozen=True, slots=True)
 class ProviderInvocation:

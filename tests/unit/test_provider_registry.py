@@ -10,6 +10,11 @@ class Executor:
     def execute(self,capability,inputs,*,secret,timeout_seconds):self.calls.append((capability,dict(inputs),secret,timeout_seconds));return {"id":"real-output"}
 
 class ProviderAdapterRegistryTest(unittest.TestCase):
+    def test_settings_are_deeply_immutable_from_caller_mutation(self):
+        settings={"routing":{"regions":["local"]}}
+        definition=ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30,settings=settings)
+        settings["routing"]["regions"][0]="forged"
+        self.assertEqual(definition.settings["routing"]["regions"][0],"local")
     def test_definition_and_invoke_runtime_contracts_are_rejected(self):
         for kwargs in ({"capabilities":frozenset({" "})},{"capabilities":("generate.image",)},{"provider_id":1},{"timeout_seconds":True},{"enabled":1},{"settings":[]}):
             values=dict(provider_id="p",kind="image",capabilities=frozenset({"generate.image"}),secret_reference="vault://text",timeout_seconds=30);values.update(kwargs)
