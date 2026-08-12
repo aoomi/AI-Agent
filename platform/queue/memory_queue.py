@@ -50,7 +50,7 @@ class QueuedTask:
         if not isinstance(self.status, str) or self.status not in {"queued", "waiting_memory", "running", "waiting_human", "paused", "completed", "failed", "cancelled"}:
             raise QueueConflictError("task status is invalid")
         if self._contains_sensitive_key(self.payload):
-            raise QueueConflictError("task payload contains sensitive fields")
+            raise QueueConflictError("task payload contains sensitive or invalid fields")
         try:canonical_payload=json.dumps(dict(self.payload),allow_nan=False)
         except (TypeError,ValueError) as error:raise QueueConflictError("task payload must be standard JSON") from error
         object.__setattr__(self, "payload", MappingProxyType(json.loads(canonical_payload)))
@@ -59,7 +59,7 @@ class QueuedTask:
     def _contains_sensitive_key(value: Any) -> bool:
         forbidden = ("secret", "token", "password", "api_key", "authorization", "credential")
         if isinstance(value, Mapping):
-            return any(any(word in str(key).lower() for word in forbidden) or QueuedTask._contains_sensitive_key(item) for key, item in value.items())
+            return any(not isinstance(key,str) or not key.strip() or any(word in key.lower() for word in forbidden) or QueuedTask._contains_sensitive_key(item) for key, item in value.items())
         if isinstance(value, (list, tuple, set, frozenset)): return any(QueuedTask._contains_sensitive_key(item) for item in value)
         return False
 

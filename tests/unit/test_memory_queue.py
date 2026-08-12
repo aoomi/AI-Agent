@@ -50,8 +50,13 @@ class InMemoryTaskQueueTest(unittest.TestCase):
             {"transport":{"headers":{"Authorization":"Bearer plaintext"}}},
             {"profiles":[{"client_secret":"plaintext"}]},
         ):
-            with self.subTest(payload=payload), self.assertRaisesRegex(QueueConflictError, "sensitive fields"):
+            with self.subTest(payload=payload), self.assertRaisesRegex(QueueConflictError, "sensitive or invalid fields"):
                 QueuedTask("task", "project", "operation", "type", task().context, payload)
+
+    def test_task_payload_rejects_non_string_and_empty_keys(self) -> None:
+        for payload in ({1:"value"},{"nested":{1:"value"}},{" ":"value"}):
+            with self.subTest(payload=payload),self.assertRaisesRegex(QueueConflictError,"invalid fields"):
+                QueuedTask("task","project","operation","type",task().context,payload)
 
     def test_same_tenant_different_identities_have_independent_operation_keys(self) -> None:
         queue = InMemoryTaskQueue()

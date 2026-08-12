@@ -3621,3 +3621,4 @@
 - BUG072 / M9.198 / 架构横向稽查第三百一十八项（已关闭，2026-08-12）：WorkerRegistry新heartbeat已规范化，但历史SQLite payload读取仍原样发布带边界空白的身份，list过滤与reserve路由可继续漏读或产生幽灵worker。现严格持久解析后统一重建canonical WorkerSnapshot；历史空白记录动态恢复并精确匹配作用域。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百一十九项（已关闭，2026-08-12）：InMemoryTaskQueue应用持久状态投影时只改任务对象、不同步pending deque；queued→waiting_memory/running后仍可被claim重复执行，waiting_memory→queued又缺重新准入。现状态事件原子维护pending成员关系，只有queued精确入列且去重，其余状态全部移除；等待内存重准入与running防重领动态通过。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百二十项（已关闭，2026-08-12）：InMemoryTaskQueue把failed排除于终态集合，允许failed→cancelled直接改写失败事实，与法定恢复边`failed→queued`冲突。现failed纳入终态取消保护，必须显式resume后才可取消；动态生命周期验证通过。关联回归、Python编译与diff门禁通过。
+- BUG072 / M9.198 / 架构横向稽查第三百二十一项（已关闭，2026-08-12）：QueuedTask标准JSON快照前允许整数/空白Mapping键，JSON可把整数键强转为字符串并与已有字符串键碰撞，任务请求事实被静默改写。现递归要求所有payload键为非空字符串并同时执行敏感字段过滤；顶层、嵌套及空白键动态失败关闭。关联回归、Python编译与diff门禁通过。
