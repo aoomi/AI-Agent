@@ -119,6 +119,16 @@ class WorkerNumericContractTest(unittest.TestCase):
             self.assertEqual(registry.heartbeat(duplicate),current)
             self.assertEqual(registry.list(now=3.0),[current])
 
+    def test_registry_rejects_corrupt_persisted_worker_before_routing(self) -> None:
+        import sqlite3
+        with tempfile.TemporaryDirectory() as directory:
+            registry=WorkerRegistry(Path(directory)/"workers.db")
+            registry.heartbeat(self._worker())
+            for payload in ("NaN",'{"worker_id":"worker","resource_classes":[],"capacity":1,"active":0,"queue_depth":0,"available_memory":1,"heartbeat_at":1,"generation":1,"service_scope":"local"}'):
+                with sqlite3.connect(registry.database) as connection:connection.execute("UPDATE workers SET payload_json=?",(payload,))
+                with self.subTest(payload=payload),self.assertRaisesRegex(WorkloadRoutingError,"record is invalid"):
+                    registry.list(now=1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

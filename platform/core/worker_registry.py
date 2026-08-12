@@ -181,5 +181,19 @@ class WorkerRegistry:
 
     @staticmethod
     def _worker(payload_json: str) -> WorkerSnapshot:
-        payload = json.loads(payload_json); payload["resource_classes"] = tuple(payload.get("resource_classes") or ())
-        return WorkerSnapshot(**payload)
+        try:payload = json.loads(payload_json,parse_constant=lambda value:(_ for _ in ()).throw(ValueError(value)))
+        except (json.JSONDecodeError,ValueError,TypeError) as error:raise WorkloadRoutingError("worker registry record is invalid") from error
+        if not isinstance(payload,dict):raise WorkloadRoutingError("worker registry record is invalid")
+        payload["resource_classes"] = tuple(payload.get("resource_classes") or ())
+        try:worker=WorkerSnapshot(**payload)
+        except (TypeError,ValueError) as error:raise WorkloadRoutingError("worker registry record is invalid") from error
+        if (not isinstance(worker.worker_id,str) or not worker.worker_id.strip() or not isinstance(worker.service_scope,str) or not worker.service_scope.strip()
+                or not isinstance(worker.endpoint,str) or not isinstance(worker.resource_classes,tuple) or not worker.resource_classes
+                or any(not isinstance(value,str) or not value.strip() for value in worker.resource_classes)):
+            raise WorkloadRoutingError("worker registry record is invalid")
+        integers=(worker.capacity,worker.active,worker.queue_depth,worker.available_memory,worker.generation)
+        if (any(isinstance(value,bool) or not isinstance(value,int) for value in integers) or worker.capacity<=0 or worker.active<0
+                or worker.active>worker.capacity or worker.queue_depth<0 or worker.available_memory<0 or worker.generation<1
+                or isinstance(worker.heartbeat_at,bool) or not isinstance(worker.heartbeat_at,(int,float)) or not math.isfinite(worker.heartbeat_at)):
+            raise WorkloadRoutingError("worker registry record is invalid")
+        return worker
