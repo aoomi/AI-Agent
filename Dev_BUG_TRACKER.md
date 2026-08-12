@@ -3509,7 +3509,7 @@
 - 第二百四十六项稽查首败与整改：TraceRecorder只检查attributes Mapping/敏感键，并在exporter失败前已append span，可造成内存成功但持久失败的双事实。现坏属性在计时前失败关闭。
 - 第二百四十六项自动测试与稽查：NaN/任意对象attributes动态拒绝且spans不变；可观测性关联回归、Python编译与diff门禁通过。
 - 第二百四十七项稽查首败与整改：Stage登记表只校验行数、顺序与非空字段，新Stage可复用旧project_storage值仍通过门禁。现前后端强制LangGraph/project storage一对一；frontend continue按存在性验证，允许audio/subtitle共享合片入口。
-- 第二百四十七项自动测试与稽查：11阶段LangGraph/project storage登记唯一性与全部frontend continue入口存在性门禁；Stage登记、前端类型检查、Python编译与diff门禁通过。
+- 第二百四十七项自动测试与稽查：11阶段LangGraph/project storage登记唯一性与全部frontend continue入口存在性门禁；Stage登记、Python编译与diff门禁通过。全量前端类型检查被工作区既存未提交App.vue类型错误阻断，不将其伪记为本项通过证据。
 - 第二百四十八项稽查首败与整改：TraceRecorder先append内存spans再调用exporter，持久失败后进程内仍显示成功记录，违反可观测性持久导出一致性。现只在export成功后append。
 - 第二百四十八项自动测试与稽查：注入失败exporter后异常透传且spans保持空；可观测性关联回归、Python编译与diff门禁通过。
 - 第二百四十九项稽查首败与整改：指标label值对任意运行时对象使用`str(...)`，对象地址、NaN或布尔可形成不稳定/含混时序标签。现只允许有限字符串或数值标量。
@@ -3518,3 +3518,5 @@
 - 第二百五十项自动测试与稽查：未知status动态拒绝且无投影副作用，空白task_id规范化后可查询；任务投影与集成关联回归、Python编译与diff门禁通过。
 - 第二百五十一项稽查首败与整改：架构统一生命周期明确包含`waiting_memory`，但通用QueuedTask与TaskProgressProjection仍拒绝该状态，同一资源等待任务在不同队列/投影实现间语义分叉。现两层统一接受并限定合法转移。
 - 第二百五十一项自动测试与稽查：queued↔waiting_memory与投影保真动态验证；内存队列、任务服务与投影集成关联回归、Python编译与diff门禁通过。
+- 第二百五十二项稽查首败与整改：跨worker派发请求ID仍用`default=str`把任意对象改写为进程表示并接受NaN，同一业务请求可形成不稳定single-flight标识。现请求身份在任何worker reservation副作用前强制标准JSON。
+- 第二百五十二项自动测试与稽查：NaN与任意对象派发请求动态拒绝且worker reserve调用为0；派发与生产控制关联回归、Python编译与diff门禁通过。
