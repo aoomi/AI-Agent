@@ -3124,3 +3124,5 @@
 - 第四十一项自动测试与稽查：行业Skill注册、11机器人及平台启动关联`5 passed`；Python编译与diff门禁通过。
 - 第四十二项稽查首败与整改：基础ProviderAdapterRegistry仍是无锁注册/读取/调用，未遵守同仓provider并发一致性；调用选择期间可与注册冲突并观察撕裂映射。现RLock覆盖注册与选择，invoke按provider登记inflight并在所有成功/异常路径释放，secret解析和executor均在锁外执行。
 - 第四十二项自动测试与稽查：provider注册及短剧绑定关联`4 passed`；Python编译与diff门禁通过。只读确认计数不泄漏且未引入锁内外部调用。
+- 第四十三项稽查首败与整改：ProviderService配置和健康状态双表无锁，重复注册可竞态覆盖，慢健康探针晚到还可覆盖更新的失败计数。现注册/读取/列表原子化；探针锁外执行并以读取的health对象作CAS，状态并发变化时拒绝晚到覆盖。
+- 第四十三项自动测试与稽查：平台启动、管理API及provider契约关联`10 passed`；Python编译与diff门禁通过。只读确认checker网络调用不持锁。

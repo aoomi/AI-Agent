@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass,replace
 from datetime import datetime,timezone
 from types import MappingProxyType
+from threading import RLock
 from typing import Any,Mapping,Protocol
 from urllib.parse import urlparse
 class ProviderServiceError(ValueError):pass
@@ -15,23 +16,29 @@ class ProviderConfiguration:
 class ProviderHealth:
     provider_id:str;status:str;checked_at:str;latency_ms:int|None;error_code:str|None;consecutive_failures:int
 class ProviderService:
-    def __init__(self,checker:ProviderHealthChecker|None=None):self.checker=checker;self.configurations={};self.health={}
+    def __init__(self,checker:ProviderHealthChecker|None=None):self.checker=checker;self.configurations={};self.health={};self._lock=RLock()
     def register(self,*,provider_id:str,display_name:str,kind:str,endpoint:str,secret_reference:str,capabilities:tuple[str,...],enabled:bool=True,timeout_seconds:int=60,settings:Mapping[str,Any]|None=None)->ProviderConfiguration:
-        if provider_id in self.configurations:raise ProviderServiceError("provider already exists")
         parsed=urlparse(endpoint);local_http=parsed.scheme=="http" and parsed.hostname in {"127.0.0.1","localhost","::1"}
         if kind not in {"model","text","image","video","audio"} or not (endpoint.startswith("https://") or local_http) or not secret_reference.startswith(("env://","vault://","secret://")) or not capabilities:raise ProviderServiceError("provider configuration is invalid")
         if any(word in key.lower() for key in (settings or {}) for word in ("secret","token","password","api_key")):raise ProviderServiceError("provider settings cannot contain secrets")
-        now=self._now();item=ProviderConfiguration(provider_id,display_name,kind,endpoint,secret_reference,capabilities,enabled,timeout_seconds,MappingProxyType(dict(settings or {})),now,now);self.configurations[provider_id]=item;self.health[provider_id]=ProviderHealth(provider_id,"unknown",now,None,None,0);return item
+        with self._lock:
+            if provider_id in self.configurations:raise ProviderServiceError("provider already exists")
+            now=self._now();item=ProviderConfiguration(provider_id,display_name,kind,endpoint,secret_reference,capabilities,enabled,timeout_seconds,MappingProxyType(dict(settings or {})),now,now);self.configurations[provider_id]=item;self.health[provider_id]=ProviderHealth(provider_id,"unknown",now,None,None,0);return item
     def get(self,provider_id:str)->ProviderConfiguration:
-        try:return self.configurations[provider_id]
-        except KeyError as error:raise ProviderServiceError("provider not found") from error
-    def list(self)->tuple[ProviderConfiguration,...]:return tuple(sorted(self.configurations.values(),key=lambda x:x.provider_id))
+        with self._lock:
+            try:return self.configurations[provider_id]
+            except KeyError as error:raise ProviderServiceError("provider not found") from error
+    def list(self)->tuple[ProviderConfiguration,...]:
+        with self._lock:return tuple(sorted(self.configurations.values(),key=lambda x:x.provider_id))
     def test_connection(self,provider_id:str)->ProviderHealth:
-        provider=self.get(provider_id);previous=self.health[provider_id]
+        with self._lock:provider=self.get(provider_id);previous=self.health[provider_id]
         if not provider.enabled:item=ProviderHealth(provider_id,"disabled",self._now(),None,None,previous.consecutive_failures)
         elif self.checker is None:raise ProviderServiceError("real provider health checker is not configured")
         else:
             latency,error=self.checker.check(provider);failures=previous.consecutive_failures+1 if error else 0;item=ProviderHealth(provider_id,"healthy" if not error else "degraded" if failures<3 else "unhealthy",self._now(),latency,error,failures)
-        self.health[provider_id]=item;return item
+        with self._lock:
+            current=self.health[provider_id]
+            if current is not previous:raise ProviderServiceError("provider health changed concurrently; retry")
+            self.health[provider_id]=item;return item
     @staticmethod
     def _now():return datetime.now(timezone.utc).isoformat()
