@@ -8284,11 +8284,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(HTTPStatus.OK, {"tasks": tasks, "fault": None})
         if parsed.path == "/api/tasks/runtime":
             query = parse_qs(parsed.query)
+            identity = {key:query.get(key, [""])[0].strip() for key in ("tenant_id", "user_id", "project_id")}
+            if not all(identity.values()):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_task_scope"})
             repository = _task_repository(TEXT_JOBS_FILE)
             tasks = repository.list(
-                tenant_id=query.get("tenant_id", [""])[0],
-                user_id=query.get("user_id", [""])[0],
-                project_id=query.get("project_id", [""])[0],
+                tenant_id=identity["tenant_id"],
+                user_id=identity["user_id"],
+                project_id=identity["project_id"],
                 nonterminal_only=query.get("nonterminal_only", ["false"])[0] == "true",
             )
             return self._json(HTTPStatus.OK, {"tasks":tasks})

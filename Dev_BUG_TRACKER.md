@@ -3058,3 +3058,5 @@
 - 第八项自动测试与稽查：通用权威写、非upscale projection分别动态证明正确revision成功、旧revision拒绝且当前记录不变；生产控制、upscale、阶段权威与作用域关联`164 passed`。只读确认CAS发生在同一SQLite事务读取之后，没有TOCTOU窗口，原generation/fingerprint/batch围栏保持。
 - 第九项稽查首败与整改：`GET /api/videos/result`允许只凭任意job_id命中任务，条件为subject匹配“或”job_id匹配，未对job_id分支复核tenant/user/project；知道ID即可跨所有者读取状态、错误和媒体URL，甚至触发孤儿prompt核销。现强制三字段身份非空，并对subject与job_id两种检索共同执行`_job_matches_scope`；空身份400，异主身份不返回任务也不产生恢复副作用。
 - 第九项自动测试与稽查：源码契约覆盖非空身份、统一所有者过滤和显式job_id分支，结合H3、provider、waiting_memory与生产控制关联`103 passed`，Python编译与diff门禁通过。只读确认过滤发生在孤儿检测和任何终态写入之前。
+- 第十项稽查首败与整改：`GET /api/tasks/runtime`把三个所有者参数都作为可选过滤，空查询会直接返回`durable_tasks`全表，部分身份也会扩大到跨项目或跨用户任务。现端点强制tenant/user/project完整且非空，缺失身份以`invalid_task_scope`失败关闭，再以三字段共同查询持久任务。
+- 第十项自动测试与稽查：新增路由契约覆盖完整身份门禁及三字段传递，结合生产控制、视频结果所有者隔离和持久图片投影关联`92 passed`。只读确认前端服务已始终传完整`TaskIdentity`，无需触碰用户并行前端现场；过滤在仓储读取之前发生。
