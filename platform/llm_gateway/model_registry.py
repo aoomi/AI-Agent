@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from types import MappingProxyType
+from threading import RLock
 from typing import Any, Iterable, Mapping
 
 
@@ -80,35 +81,32 @@ class ModelRegistry:
 
     def __init__(self) -> None:
         self._models: dict[str, ModelDefinition] = {}
+        self._lock = RLock()
 
     def register(self, model: ModelDefinition) -> tuple[ModelDefinition, bool]:
-        existing = self._models.get(model.model_id)
-        if existing is not None:
-            if existing != model:
-                raise ModelRegistryError(f"conflicting model_id: {model.model_id}")
-            return existing, True
-        self._models[model.model_id] = model
-        return model, False
+        with self._lock:
+            existing = self._models.get(model.model_id)
+            if existing is not None:
+                if existing != model: raise ModelRegistryError(f"conflicting model_id: {model.model_id}")
+                return existing, True
+            self._models[model.model_id] = model; return model, False
 
     def get(self, model_id: str, *, require_enabled: bool = False) -> ModelDefinition:
-        try:
-            model = self._models[model_id]
-        except KeyError as error:
-            raise ModelRegistryError(f"unknown model_id: {model_id}") from error
-        if require_enabled and not model.enabled:
-            raise ModelRegistryError(f"model is disabled: {model_id}")
-        return model
+        with self._lock:
+            try: model = self._models[model_id]
+            except KeyError as error: raise ModelRegistryError(f"unknown model_id: {model_id}") from error
+            if require_enabled and not model.enabled: raise ModelRegistryError(f"model is disabled: {model_id}")
+            return model
 
     def set_enabled(self, model_id: str, enabled: bool) -> ModelDefinition:
-        updated = replace(self.get(model_id), enabled=enabled)
-        self._models[model_id] = updated
-        return updated
+        with self._lock:
+            updated = replace(self.get(model_id), enabled=enabled); self._models[model_id] = updated; return updated
 
     def list(self, *, enabled_only: bool = False) -> tuple[ModelDefinition, ...]:
-        models = self._models.values()
-        if enabled_only:
-            models = (model for model in models if model.enabled)
-        return tuple(sorted(models, key=lambda model: model.model_id))
+        with self._lock:
+            models = tuple(self._models.values())
+            if enabled_only: models = tuple(model for model in models if model.enabled)
+            return tuple(sorted(models, key=lambda model: model.model_id))
 
     def select(
         self,
@@ -116,14 +114,7 @@ class ModelRegistry:
         *,
         preferred_model_id: str | None = None,
     ) -> ModelDefinition:
-        candidates = [
-            model
-            for model in self._models.values()
-            if model.enabled
-            and requirements.capabilities <= model.capabilities
-            and model.context_window >= requirements.minimum_context_window
-            and (requirements.provider_id is None or model.provider_id == requirements.provider_id)
-        ]
+        with self._lock: candidates = [model for model in self._models.values() if model.enabled and requirements.capabilities <= model.capabilities and model.context_window >= requirements.minimum_context_window and (requirements.provider_id is None or model.provider_id == requirements.provider_id)]
         if preferred_model_id is not None:
             preferred = next(
                 (model for model in candidates if model.model_id == preferred_model_id), None
