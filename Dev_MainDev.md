@@ -1122,3 +1122,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百一十九项：Worker heartbeat快照的容量、活动数、排队数、内存、generation和时间戳已强制真实数值类型，内存与SQLite发现入口保持同一失败关闭契约。生产控制关联回归通过。
 - BUG072第一百二十项：Provider限流/熔断/重试构造已验证真实数值及全部callable协议，调用输入强制Mapping；畸形韧性配置不会延迟到真实提供方执行。关联`8 passed`、`7 subtests passed`，Python编译与只读diff稽查通过。
 - BUG072第一百二十一项：模型定义与选择需求已严格验证capabilities集合元素、enabled布尔、context_window正整数及可选provider身份；字符串能力不会被拆成字符集合。模型、配置与会话关联`29 passed`、`10 subtests passed`。
+- BUG072第一百二十二项：任务事件投影progress_percent已排除布尔伪整数，避免True被持久解释为1%进度；投影关联回归通过。

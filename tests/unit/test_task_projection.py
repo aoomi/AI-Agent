@@ -31,8 +31,9 @@ class TaskProgressProjectionTest(unittest.TestCase):
 
     def test_invalid_progress_is_rejected(self) -> None:
         events = EventBus(); TaskProgressProjection(events)
-        with self.assertRaises(TaskProjectionError):
-            events.publish(PublishedEvent("event-1", "TASK_STATUS_CHANGED", "project-a", context(), {"task_id": "task-a", "current_status": "running", "progress_percent": 101}))
+        for progress in (101, True):
+            with self.subTest(progress=progress), self.assertRaises(TaskProjectionError):
+                events.publish(PublishedEvent("event-1", "TASK_STATUS_CHANGED", "project-a", context(), {"task_id": "task-a", "current_status": "running", "progress_percent": progress}))
 
     def test_invalid_projection_contracts_are_rejected(self) -> None:
         with self.assertRaisesRegex(TaskProjectionError,"event bus contract"):TaskProgressProjection(object())

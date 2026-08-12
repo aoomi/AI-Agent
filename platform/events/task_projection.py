@@ -38,7 +38,7 @@ class TaskProgressProjection:
         task_id, status, progress = payload.get("task_id"), payload.get("current_status"), payload.get("progress_percent")
         if not isinstance(task_id, str) or not task_id.strip() or not isinstance(status, str) or not status.strip():
             raise TaskProjectionError("task event payload is incomplete")
-        if not isinstance(progress, int) or not 0 <= progress <= 100:
+        if isinstance(progress, bool) or not isinstance(progress, int) or not 0 <= progress <= 100:
             raise TaskProjectionError("progress_percent must be between 0 and 100")
         key = (event.context.tenant_id, event.context.identity_id, event.project_id, task_id)
         with self._lock:self._items[key] = TaskProgress(task_id, event.context.tenant_id, event.context.identity_id, event.project_id, status, progress)

@@ -3258,3 +3258,5 @@
 - 第一百二十项自动测试与稽查：七类畸形构造和非Mapping输入动态拒绝且provider零调用；韧性与私有部署关联`8 passed`（另`7 subtests passed`），Python编译与diff门禁通过。
 - 第一百二十一项稽查首败与整改：ModelDefinition.create会把字符串capabilities拆成字符集合，并允许伪布尔enabled/context_window；ModelRequirements可构造空能力、布尔最小窗口或空provider。现模型边界强制非空字符串集合、严格布尔/正整数及可选身份。
 - 第一百二十一项自动测试与稽查：四类畸形模型定义和三类非法需求动态失败关闭；模型、配置与会话关联`29 passed`（另`10 subtests passed`），Python编译与diff门禁通过。
+- 第一百二十二项稽查首败与整改：TaskProgressProjection用`isinstance(progress,int)`接收进度，Python布尔True会被当作1写入投影。现进度明确拒绝布尔伪整数，再执行0—100范围校验。
+- 第一百二十二项自动测试与稽查：101及True进度动态失败关闭，合法事件投影保持；任务投影关联测试、Python编译与diff门禁通过。
