@@ -124,6 +124,7 @@ class ProductionOrchestrator:
 
     def register_stage(self, stage: str, executor: StageExecutor, *, provider_id: str = "local", enabled: bool = True, replace: bool = False) -> None:
         canonical = canonical_stage(stage)
+        if not isinstance(provider_id,str) or not isinstance(enabled,bool) or not isinstance(replace,bool):raise ValueError("stage executor controls are invalid")
         provider = provider_id.strip()
         if not callable(executor) or not provider:
             raise ValueError("stage executor and provider are required")
@@ -143,6 +144,7 @@ class ProductionOrchestrator:
 
     def enable_stage(self, stage: str, enabled: bool) -> StageDefinition:
         canonical = canonical_stage(stage)
+        if not isinstance(enabled,bool):raise ValueError("stage enabled must be boolean")
         with self._lock:
             try:
                 definition, executor = self._executors[canonical]
@@ -161,6 +163,7 @@ class ProductionOrchestrator:
     def execute(self, identity: Mapping[str, Any], stage: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
         """Execute one registered production node under the durable LangGraph state machine."""
         canonical = canonical_stage(stage)
+        if not isinstance(inputs,Mapping):raise ValueError("stage inputs must be a mapping")
         state = self.state(identity)
         if state.get("status") == "cancelled":
             raise ValueError("workflow is cancelled")
@@ -199,6 +202,7 @@ class ProductionOrchestrator:
     def begin(self, identity: Mapping[str, Any], stage: str, *, stage_generation: int = 0) -> dict[str, Any]:
         """Authorize a legacy endpoint through the same dependency gate."""
         canonical = canonical_stage(stage)
+        if isinstance(stage_generation,bool) or not isinstance(stage_generation,int) or stage_generation < 0:raise ValueError("stage_generation must be a non-negative integer")
         state = self.state(identity)
         if state.get("status") == "cancelled":
             current_generation = int(state.get("stage_generations", {}).get(canonical) or 0)
@@ -217,12 +221,17 @@ class ProductionOrchestrator:
         def apply_event(state: ProductionControlState) -> dict[str, Any]:
             event = dict(state.get("event") or {})
             stage = canonical_stage(event.get("stage"))
-            lifecycle = str(event.get("lifecycle") or "idle")
+            lifecycle = event.get("lifecycle") or "idle"
+            if not isinstance(lifecycle,str):raise ValueError("production lifecycle must be a string")
             if lifecycle not in LIFECYCLES:
                 raise ValueError(f"invalid production lifecycle: {lifecycle}")
-            incoming_revision = max(0, int(event.get("projection_revision") or 0))
+            raw_revision=event.get("projection_revision",0)
+            raw_generation=event.get("stage_generation",0)
+            if isinstance(raw_revision,bool) or not isinstance(raw_revision,int) or raw_revision < 0:raise ValueError("projection_revision must be a non-negative integer")
+            if isinstance(raw_generation,bool) or not isinstance(raw_generation,int) or raw_generation < 0:raise ValueError("stage_generation must be a non-negative integer")
+            incoming_revision = raw_revision
             current_revision = int((state.get("projection_revisions") or {}).get(stage) or 0)
-            incoming_generation = max(0, int(event.get("stage_generation") or 0))
+            incoming_generation = raw_generation
             current_generation = int((state.get("stage_generations") or {}).get(stage) or 0)
 
             def reject() -> dict[str, Any]:
@@ -291,13 +300,15 @@ class ProductionOrchestrator:
 
     @staticmethod
     def thread_id(tenant_id: str, user_id: str, project_id: str) -> str:
-        values = tuple(str(value).strip() for value in (tenant_id, user_id, project_id))
+        if any(not isinstance(value,str) for value in (tenant_id,user_id,project_id)):raise ValueError("tenant_id, user_id and project_id are required")
+        values = tuple(value.strip() for value in (tenant_id, user_id, project_id))
         if not all(values):
             raise ValueError("tenant_id, user_id and project_id are required")
         return ":".join(values)
 
     def report(self, identity: Mapping[str, Any], stage: str, lifecycle: str, *, trusted: bool = False, **evidence: Any) -> dict[str, Any]:
-        tenant_id, user_id, project_id = (str(identity.get(key, "")).strip() for key in ("tenant_id", "user_id", "project_id"))
+        if not isinstance(identity,Mapping) or not isinstance(lifecycle,str) or not isinstance(trusted,bool):raise ValueError("production report contract is invalid")
+        tenant_id, user_id, project_id = (identity.get(key, "") for key in ("tenant_id", "user_id", "project_id"))
         thread_id = self.thread_id(tenant_id, user_id, project_id)
         canonical = canonical_stage(stage)
         if lifecycle == "completed":
@@ -316,7 +327,8 @@ class ProductionOrchestrator:
             raise ValueError(f"completed stage requires durable confirmation: {canonical}")
 
     def state(self, identity: Mapping[str, Any]) -> dict[str, Any]:
-        tenant_id, user_id, project_id = (str(identity.get(key, "")).strip() for key in ("tenant_id", "user_id", "project_id"))
+        if not isinstance(identity,Mapping):raise ValueError("production identity must be a mapping")
+        tenant_id, user_id, project_id = (identity.get(key, "") for key in ("tenant_id", "user_id", "project_id"))
         thread_id = self.thread_id(tenant_id, user_id, project_id)
         with self._lock:
             snapshot = self.graph.get_state({"configurable": {"thread_id": thread_id}})

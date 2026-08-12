@@ -3380,3 +3380,5 @@
 - 第一百八十一项自动测试与稽查：伪generation/revision/lifecycle/replace及数字证据ID动态失败关闭；专项回归、Python编译与diff门禁通过。
 - 第一百八十二项稽查首败与整改：Observability多个入口用`str(...)`接收数字事件/trace/metric，Composite/Alert又未经协议检查迭代任意对象，畸形记录可能泄漏底层异常或形成含混持久字段。现RecordExporter全链入口严格验证运行时结构。
 - 第一百八十二项自动测试与稽查：七类坏export/log/metric/trace/alert输入动态失败关闭；可观测性回归、Python编译与diff门禁通过。
+- 第一百八十三项稽查首败与整改：ProductionOrchestrator用`str/int/max`宽松转换identity/lifecycle/generation/revision，布尔或负值可被接受/截断后参与晚到响应围栏。现编排输入与事件代际按声明类型在Graph checkpoint写入前失败关闭。
+- 第一百八十三项自动测试与稽查：十三类坏身份/控制/代际动态拒绝；Graph事件围栏专项回归、Python编译与diff门禁通过。
