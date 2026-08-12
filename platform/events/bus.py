@@ -26,7 +26,7 @@ _SENSITIVE_KEY_PARTS = ("secret", "token", "password", "api_key", "authorization
 
 def _contains_sensitive_key(value: Any) -> bool:
     if isinstance(value, Mapping):
-        return any(any(word in str(key).lower() for word in _SENSITIVE_KEY_PARTS) or _contains_sensitive_key(item) for key, item in value.items())
+        return any(not isinstance(key,str) or not key.strip() or any(word in key.lower() for word in _SENSITIVE_KEY_PARTS) or _contains_sensitive_key(item) for key, item in value.items())
     if isinstance(value, (list, tuple, set, frozenset)): return any(_contains_sensitive_key(item) for item in value)
     return False
 
@@ -54,7 +54,7 @@ class PublishedEvent:
         if not isinstance(self.payload,Mapping) or not self.payload:
             raise EventBusError("payload must not be empty")
         if _contains_sensitive_key(self.payload):
-            raise EventBusError("event payload contains sensitive fields")
+            raise EventBusError("event payload contains sensitive or invalid fields")
         try:canonical_payload=json.dumps(dict(self.payload),allow_nan=False)
         except (TypeError,ValueError) as error:raise EventBusError("event payload must be standard JSON") from error
         object.__setattr__(self,"event_id",self.event_id.strip())

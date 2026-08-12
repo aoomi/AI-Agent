@@ -59,8 +59,13 @@ class EventBusTest(unittest.TestCase):
             {"transport":{"headers":{"Authorization":"Bearer plaintext"}}},
             {"profiles":[{"client_secret":"plaintext"}]},
         ):
-            with self.subTest(payload=payload), self.assertRaisesRegex(EventBusError, "sensitive fields"):
+            with self.subTest(payload=payload), self.assertRaisesRegex(EventBusError, "sensitive or invalid fields"):
                 PublishedEvent("event-1", "PROJECT_CREATED", "project-1", identity_context(), payload)
+
+    def test_payload_rejects_non_string_and_empty_keys(self) -> None:
+        for payload in ({1:"value"},{"nested":{1:"value"}},{" ":"value"}):
+            with self.subTest(payload=payload),self.assertRaisesRegex(EventBusError,"invalid fields"):
+                PublishedEvent("event-1","PROJECT_CREATED","project-1",identity_context(),payload)
 
     def test_event_payload_requires_standard_json(self) -> None:
         for payload in ({"value":float("nan")},{"value":object()}):

@@ -94,6 +94,7 @@
 - BUG072第三百一十九项整改：InMemoryTaskQueue状态投影与pending deque原子同步，仅queued精确入列且去重，waiting_memory/running等状态移除，关闭重复claim并恢复资源释放后准入；关联回归通过，继续横向稽查。
 - BUG072第三百二十项整改：InMemoryTaskQueue将failed纳入终态取消保护，失败事实必须经显式resume回到queued后才能取消，生命周期与法定恢复边一致；关联回归通过，继续横向稽查。
 - BUG072第三百二十一项整改：QueuedTask在标准JSON快照前递归强制所有payload键为非空字符串并执行敏感字段过滤，阻断整数键转换碰撞及空白事实键；关联回归通过，继续横向稽查。
+- BUG072第三百二十二项整改：PublishedEvent在标准JSON快照前递归强制所有payload键为非空字符串并执行敏感字段过滤，事件事实不再被JSON键转换静默改写；关联回归通过，继续横向稽查。
 - BUG072第三百一十八项整改：WorkerRegistry持久读取在严格schema后重建canonical WorkerSnapshot，历史空白身份记录也能与list/reserve作用域精确一致；关联回归通过，继续横向稽查。
 - BUG072第三百一十九项整改：InMemoryTaskQueue状态投影与pending deque原子同步，仅queued精确入列且去重，waiting_memory/running等状态移除，关闭重复claim并恢复资源释放后准入；关联回归通过，继续横向稽查。
 - BUG072第三百二十项整改：InMemoryTaskQueue将failed纳入终态取消保护，失败事实必须经显式resume回到queued后才能取消，生命周期与法定恢复边一致；关联回归通过，继续横向稽查。
