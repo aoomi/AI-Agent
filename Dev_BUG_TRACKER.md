@@ -3430,3 +3430,5 @@
 - 第二百零六项自动测试与稽查：数字上下文键、数字任务键及列表状态动态拒绝；上下文与scope隔离关联`7 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
 - 第二百零七项稽查首败与整改：AgentCollaboration解析稽查报告时用`str(...)`接受数字issue/evidence/reference/severity，畸形检查器输出可被伪装成合法整改身份。现报告、问题和证据均保持原始类型并严格验证。
 - 第二百零七项自动测试与稽查：五类数字issue/severity/file/evidence/reference动态失败关闭；协作单元与集成关联`12 passed`（另`20 subtests passed`），Python编译与diff门禁通过。
+- 第二百零八项稽查首败与整改：AgentConfiguration._build以`str(...)`接受数字system_prompt_version；同时此前模型严格化遗漏行业机器人配置的合法显式类型。现通用与行业Agent/Skill模型均列入契约，prompt版本必须非空字符串。
+- 第二百零八项自动测试与稽查：数字/空prompt版本动态拒绝，行业机器人独立模型版本集成保持通过；配置关联`9 passed`（另`5 subtests passed`），Python编译与diff门禁通过。

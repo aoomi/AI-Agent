@@ -9,7 +9,7 @@ from threading import RLock
 from typing import Any, Mapping
 from uuid import uuid4
 
-from ai_agent_discovery import AgentInstance, SkillDefinition
+from ai_agent_discovery import AgentInstance, IndustrySkillDefinition, ProcessRobotInstance, SkillDefinition
 from ai_agent_llm_gateway import ModelDefinition, ModelRegistry, ModelRequirements
 
 
@@ -49,7 +49,7 @@ class AgentConfigurationStore:
         updated_by_identity_id: str,
         settings: Mapping[str, Any] | None = None,
     ) -> AgentConfiguration:
-        if not isinstance(agent,AgentInstance) or not isinstance(skill,SkillDefinition):raise AgentConfigurationError("agent and Skill contracts are invalid")
+        if not isinstance(agent,(AgentInstance,ProcessRobotInstance)) or not isinstance(skill,(SkillDefinition,IndustrySkillDefinition)):raise AgentConfigurationError("agent and Skill contracts are invalid")
         if not isinstance(model_id,str) or not model_id.strip():raise AgentConfigurationError("model_id is required")
         if settings is not None and not isinstance(settings,Mapping):raise AgentConfigurationError("agent settings must be a mapping")
         with self._lock:
@@ -76,7 +76,7 @@ class AgentConfigurationStore:
         agent: AgentInstance,
     ) -> AgentConfiguration:
         agent_id = self._required_id("agent_id", agent_id)
-        if not isinstance(agent,AgentInstance) or not isinstance(skill,SkillDefinition):raise AgentConfigurationError("agent and Skill contracts are invalid")
+        if not isinstance(agent,(AgentInstance,ProcessRobotInstance)) or not isinstance(skill,(SkillDefinition,IndustrySkillDefinition)):raise AgentConfigurationError("agent and Skill contracts are invalid")
         if isinstance(expected_version, bool) or not isinstance(expected_version, int) or expected_version <= 0:
             raise AgentConfigurationError("expected_version must be a positive integer")
         if settings is not None and not isinstance(settings,Mapping):raise AgentConfigurationError("agent settings must be a mapping")
@@ -144,6 +144,8 @@ class AgentConfigurationStore:
             raise AgentConfigurationError("Skill permissions are invalid")
         if role in {"tester", "inspector"} and "workspace.write" in permissions:
             raise AgentConfigurationError(f"{role} Skill cannot write workspace")
+        prompt_version=skill.metadata.get("system_prompt_version","1.0")
+        if not isinstance(prompt_version,str) or not prompt_version.strip():raise AgentConfigurationError("Skill system_prompt_version is invalid")
 
     @staticmethod
     def _contains_sensitive_key(value: Any) -> bool:
@@ -175,7 +177,7 @@ class AgentConfigurationStore:
             raise AgentConfigurationError("updated_by_identity_id is required")
         if AgentConfigurationStore._contains_sensitive_key(settings):
             raise AgentConfigurationError("agent settings contain sensitive fields")
-        role = str(skill.metadata["agent_role"])
+        role = skill.metadata["agent_role"]
         permissions = skill.metadata["permissions"]
         return AgentConfiguration(
             configuration_id=configuration_id,
@@ -184,7 +186,7 @@ class AgentConfigurationStore:
             skill_id=skill.skill_id,
             role=role,
             model_id=model.model_id,
-            system_prompt_version=str(skill.metadata.get("system_prompt_version", "1.0")),
+            system_prompt_version=skill.metadata.get("system_prompt_version", "1.0").strip(),
             settings=MappingProxyType(dict(settings)),
             writable=role == "developer" and "workspace.write" in permissions,
             updated_by_identity_id=identity_id,

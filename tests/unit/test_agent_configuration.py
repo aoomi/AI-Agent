@@ -104,6 +104,15 @@ class AgentConfigurationStoreTest(unittest.TestCase):
                     updated_by_identity_id="owner", settings=settings,
                 )
 
+    def test_skill_prompt_version_must_be_a_non_empty_string(self) -> None:
+        from dataclasses import replace
+        from types import MappingProxyType
+        skill=self.skills["system_main_developer"];agent,_=self.agents.register(skill)
+        for value in (1," "):
+            metadata=dict(skill.metadata);metadata["system_prompt_version"]=value
+            invalid=replace(skill,metadata=MappingProxyType(metadata))
+            with self.subTest(value=value),self.assertRaisesRegex(AgentConfigurationError,"prompt_version"):self.store.create(agent=agent,skill=invalid,model_id="model-full",updated_by_identity_id="owner")
+
 
 if __name__ == "__main__":
     unittest.main()
