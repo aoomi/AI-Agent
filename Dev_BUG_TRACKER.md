@@ -3254,3 +3254,5 @@
 - 第一百一十八项自动测试与稽查：路由心跳/深度/内存及发现心跳/内存/TTL畸形值动态失败关闭；生产控制关联`100 passed`（另`12 subtests passed`），Python编译与diff门禁通过。
 - 第一百一十九项稽查首败与整改：两类worker heartbeat虽有范围门禁，但布尔capacity/generation和浮点active可绕过并成为权威发现快照。现五类计数强制整数，heartbeat_at强制非布尔数值，内存及SQLite入口一致。
 - 第一百一十九项自动测试与稽查：布尔容量、浮点活动数和布尔时间戳在两类入口均动态拒绝；生产控制关联回归、Python编译与diff门禁通过。
+- 第一百二十项稽查首败与整改：Provider韧性层的limit/threshold/retry/rate接受布尔伪整数，clock/invoke/sleeper协议未在构造时验证，call也接受非Mapping inputs。现三层构造及调用入口在建立限流/熔断状态或执行provider前完整失败关闭。
+- 第一百二十项自动测试与稽查：七类畸形构造和非Mapping输入动态拒绝且provider零调用；韧性与私有部署关联`8 passed`（另`7 subtests passed`），Python编译与diff门禁通过。

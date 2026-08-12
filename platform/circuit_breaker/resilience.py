@@ -16,7 +16,7 @@ def normalize_provider_error(error:Exception,provider_id:str)->ProviderCallError
     return ProviderCallError("PROVIDER_ERROR","provider request failed",retryable=False,provider_id=provider_id)
 class SlidingWindowRateLimiter:
     def __init__(self,limit:int,clock:Callable[[],float]=time.monotonic):
-        if limit<1:raise ValueError("rate limit must be positive")
+        if isinstance(limit,bool) or not isinstance(limit,int) or limit<1 or not callable(clock):raise ValueError("rate limit and clock must be valid")
         self.limit=limit;self.clock=clock;self.calls:deque[float]=deque();self._lock=RLock()
     def acquire(self,provider_id:str)->None:
         with self._lock:
@@ -28,7 +28,9 @@ class SlidingWindowRateLimiter:
 class CircuitState: failures:int=0;opened_at:float|None=None
 class CircuitBreaker:
     def __init__(self,threshold:int=3,recovery_seconds:float=30,clock:Callable[[],float]=time.monotonic):
-        if threshold<1 or recovery_seconds<=0:raise ValueError("circuit threshold and recovery must be positive")
+        if (isinstance(threshold,bool) or not isinstance(threshold,int) or threshold<1
+                or isinstance(recovery_seconds,bool) or not isinstance(recovery_seconds,(int,float)) or recovery_seconds<=0
+                or not callable(clock)):raise ValueError("circuit threshold and recovery must be positive and clock callable")
         self.threshold=threshold;self.recovery_seconds=recovery_seconds;self.clock=clock;self.states:dict[str,CircuitState]={};self._lock=RLock()
     def before_call(self,p:str)->None:
         with self._lock:
@@ -45,12 +47,15 @@ class CircuitBreaker:
             s=self.states.get(p,CircuitState());return "open" if s.opened_at is not None and self.clock()-s.opened_at<self.recovery_seconds else "closed"
 class ResilientProviderInvoker:
     def __init__(self,invoke:Callable[[str,str,Mapping[str,Any]],Any],*,max_retries:int=2,rate_limit:int=60,circuit_threshold:int=3,recovery_seconds:float=30,sleeper:Callable[[float],None]=time.sleep,clock:Callable[[],float]=time.monotonic):
-        if not 0<=max_retries<=10:raise ValueError("invalid retry limit")
+        if not callable(invoke) or not callable(sleeper) or not callable(clock):raise ValueError("provider invoker callables are required")
+        if isinstance(max_retries,bool) or not isinstance(max_retries,int) or not 0<=max_retries<=10:raise ValueError("invalid retry limit")
+        if isinstance(rate_limit,bool) or not isinstance(rate_limit,int) or rate_limit<1:raise ValueError("invalid rate limit")
         self.invoke=invoke;self.max_retries=max_retries;self.rate_limit=rate_limit;self.sleeper=sleeper;self.clock=clock;self.breaker=CircuitBreaker(circuit_threshold,recovery_seconds,clock);self.limiters:dict[str,SlidingWindowRateLimiter]={};self._lock=RLock()
     def call(self,provider_id:str,capability:str,inputs:Mapping[str,Any],*,fallback_provider_ids:tuple[str,...]=())->Any:
         targets=(provider_id,*fallback_provider_ids)
         if not provider_id.strip() or not capability.strip() or any(not target.strip() for target in targets):raise ValueError("provider and capability are required")
         if len(set(targets))!=len(targets):raise ValueError("provider fallback chain must be unique")
+        if not isinstance(inputs,Mapping):raise ValueError("provider inputs must be a mapping")
         last=None
         for target in targets:
             with self._lock:limiter=self.limiters.setdefault(target,SlidingWindowRateLimiter(self.rate_limit,self.clock))
