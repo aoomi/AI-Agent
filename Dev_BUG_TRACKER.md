@@ -3041,3 +3041,4 @@
 - 第一项稽查首败：生产能力注册表已有`inflight`围栏，但基础设施`ProductionExtensionRegistry.create()`在工厂执行前即释放注册锁，期间可卸载、禁用、替换或切走当前provider，直接违背v2.2热插拔保护；带候选探针的卸载还存在探针结束到最终删除之间的二次竞态。
 - 第一项整改：基础设施注册表按extension point/provider原子登记活动创建；全量替换、单provider替换、卸载、禁用与活动provider切换在活动计数非零时统一失败关闭，工厂成功、异常和契约失败均在`finally`释放；卸载在候选探针后再次复核活动计数。
 - 第一项自动测试与稽查：并发慢工厂动态证明五种变更均被`in-flight`拒绝，自然终态后可卸载；provider能力、extension、ProductionLedger、waiting_memory、RecordExporter、Stage登记及静音全链关联`145 passed`，Python编译和diff门禁通过。只读检查确认变更不持锁执行用户工厂，不引入死锁，异常路径计数守恒。
+- 第二项稽查首败：所谓“Graph提交与业务结果同一SQLite写事务”当前仅由`commit_callback`模拟。ProductionLedger写入`production-ledger.sqlite`的临时连接，LangGraph `SqliteSaver`却通过长期连接提交到独立`production-orchestrator.sqlite`；回调异常只能回滚台账，Graph提交成功后若台账最终提交失败则无法回滚，现有测试也只覆盖回调主动抛错，未覆盖Graph已提交后的台账提交失败。这是事实性原子边界违约，继续整改为同库同连接事务并补迁移与故障注入。
