@@ -106,6 +106,33 @@ class InMemoryTaskQueueTest(unittest.TestCase):
         queue.claim("tenant-a"); queue.pause("task-1")
         self.assertEqual(queue.resume("task-1").status, "queued")
 
+    def test_public_controls_reject_empty_scope_identifiers(self) -> None:
+        queue = InMemoryTaskQueue(); queue.enqueue(task()); queue.claim("tenant-a")
+        calls = (
+            lambda: queue.claim(" "), lambda: queue.claim("tenant-a", " "),
+            lambda: queue.get(" ", "tenant-a"), lambda: queue.get("task-1", " "),
+            lambda: queue.list(" "), lambda: queue.list("tenant-a", identity_id=" "),
+            lambda: queue.cancel(" "), lambda: queue.pause(" "),
+            lambda: queue.wait_for_human(" "), lambda: queue.resume(" "),
+            lambda: queue.resume_human(" "),
+            lambda: queue.apply_status_event(" ", "tenant-a", "identity-1", "project-1", "paused", 1),
+        )
+        for call in calls:
+            with self.subTest(call=call), self.assertRaisesRegex(QueueConflictError, "must not be empty"):
+                call()
+
+    def test_finish_rejects_unknown_runtime_status_without_mutation(self) -> None:
+        queue = InMemoryTaskQueue(); queue.enqueue(task()); queue.claim("tenant-a")
+        with self.assertRaisesRegex(QueueConflictError, "finish status"):
+            queue.finish("task-1", "cancelled")  # type: ignore[arg-type]
+        self.assertEqual(queue.get("task-1", "tenant-a").status, "running")
+
+    def test_status_event_rejects_unknown_runtime_status_without_mutation(self) -> None:
+        queue = InMemoryTaskQueue(); queue.enqueue(task()); queue.claim("tenant-a")
+        with self.assertRaisesRegex(QueueConflictError, "status is invalid"):
+            queue.apply_status_event("task-1", "tenant-a", "identity-1", "project-1", "unknown", 1)  # type: ignore[arg-type]
+        self.assertEqual(queue.get("task-1", "tenant-a").status, "running")
+
 
 if __name__ == "__main__":
     unittest.main()

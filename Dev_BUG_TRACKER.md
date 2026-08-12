@@ -3236,3 +3236,5 @@
 - 第一百零九项自动测试与稽查：坏checker及五类畸形注册和空读取动态拒绝；Provider生产集成与Agent管理API关联`8 passed`（另`5 subtests passed`），Python编译与diff门禁通过。
 - 第一百一十项稽查首败与整改：TaskProgressProjection构造不验证events协议，事件task/status接受空白字符串，get/list也把空project/task伪装scope不存在。现订阅、投影写入及两类读取在共享状态访问前严格验证。
 - 第一百一十项自动测试与稽查：坏EventBus、空project/task及空列表scope动态拒绝；任务投影、TaskService和HTTP追踪关联`12 passed`，Python编译与diff门禁通过。
+- 第一百一十一项稽查首败与整改：InMemoryTaskQueue的claim/get/list及六类生命周期控制接受空白身份并伪装未命中，finish和状态事件还依赖静态类型而可在运行时写入未知状态。现所有公开控制入口统一规范化并验证必填scope，finish及事件状态在任何共享状态变更前失败关闭非法值。
+- 第一百一十一项自动测试与稽查：空task/tenant/identity/project及两类非法运行时状态均动态拒绝且原任务保持running；队列、服务、集成、E2E及scope隔离关联`23 passed`（另`15 subtests passed`），Python编译与diff门禁通过。

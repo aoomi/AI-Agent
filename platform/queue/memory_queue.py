@@ -78,6 +78,8 @@ class InMemoryTaskQueue:
             return task, False
 
     def claim(self, tenant_id: str, identity_id: str | None = None) -> QueuedTask | None:
+        tenant_id = self._required_scope("tenant_id", tenant_id)
+        identity_id = self._optional_scope("identity_id", identity_id)
         with self._lock:
             for _ in range(len(self._pending)):
                 task_id = self._pending.popleft()
@@ -94,6 +96,9 @@ class InMemoryTaskQueue:
             return None
 
     def finish(self, task_id: str, status: Literal["completed", "failed"]) -> QueuedTask:
+        task_id = self._required_scope("task_id", task_id)
+        if status not in {"completed", "failed"}:
+            raise QueueConflictError("finish status must be completed or failed")
         with self._lock:
             task = self._require(task_id)
             if task.status != "running":
@@ -103,6 +108,7 @@ class InMemoryTaskQueue:
             return finished
 
     def cancel(self, task_id: str) -> QueuedTask:
+        task_id = self._required_scope("task_id", task_id)
         with self._lock:
             task = self._require(task_id)
             if task.status in TERMINAL_STATUSES:
@@ -114,6 +120,7 @@ class InMemoryTaskQueue:
             return cancelled
 
     def pause(self, task_id: str) -> QueuedTask:
+        task_id = self._required_scope("task_id", task_id)
         with self._lock:
             task = self._require(task_id)
             if task.status != "running":
@@ -123,6 +130,7 @@ class InMemoryTaskQueue:
             return paused
 
     def wait_for_human(self, task_id: str) -> QueuedTask:
+        task_id = self._required_scope("task_id", task_id)
         with self._lock:
             task = self._require(task_id)
             if task.status != "running":
@@ -132,6 +140,7 @@ class InMemoryTaskQueue:
             return waiting
 
     def resume(self, task_id: str) -> QueuedTask:
+        task_id = self._required_scope("task_id", task_id)
         with self._lock:
             task = self._require(task_id)
             if task.status not in {"paused", "failed"}:
@@ -142,6 +151,7 @@ class InMemoryTaskQueue:
             return queued
 
     def resume_human(self, task_id: str) -> QueuedTask:
+        task_id = self._required_scope("task_id", task_id)
         with self._lock:
             task = self._require(task_id)
             if task.status != "waiting_human":
@@ -151,6 +161,9 @@ class InMemoryTaskQueue:
             return running
 
     def get(self, task_id: str, tenant_id: str, identity_id: str | None = None) -> QueuedTask:
+        task_id = self._required_scope("task_id", task_id)
+        tenant_id = self._required_scope("tenant_id", tenant_id)
+        identity_id = self._optional_scope("identity_id", identity_id)
         with self._lock:
             task = self._require(task_id)
             task.context.require_tenant(tenant_id)
@@ -159,12 +172,21 @@ class InMemoryTaskQueue:
             return task
 
     def list(self, tenant_id: str, project_id: str | None = None, identity_id: str | None = None) -> tuple[QueuedTask, ...]:
+        tenant_id = self._required_scope("tenant_id", tenant_id)
+        project_id = self._optional_scope("project_id", project_id)
+        identity_id = self._optional_scope("identity_id", identity_id)
         with self._lock:
             return tuple(task for task in self._tasks.values() if task.context.tenant_id == tenant_id
                          and (identity_id is None or task.context.identity_id == identity_id.strip())
                          and (project_id is None or task.project_id == project_id))
 
     def apply_status_event(self, task_id: str, tenant_id: str, identity_id: str, project_id: str, status: TaskStatus, progress_percent: int) -> QueuedTask:
+        task_id = self._required_scope("task_id", task_id)
+        tenant_id = self._required_scope("tenant_id", tenant_id)
+        identity_id = self._required_scope("identity_id", identity_id)
+        project_id = self._required_scope("project_id", project_id)
+        if status not in {"queued", "running", "waiting_human", "paused", "completed", "failed", "cancelled"}:
+            raise QueueConflictError("task status is invalid")
         with self._lock:
             task = self._require(task_id)
             task.context.require_tenant(tenant_id)
@@ -185,6 +207,17 @@ class InMemoryTaskQueue:
             return self._tasks[task_id]
         except KeyError as error:
             raise QueueConflictError("task does not exist") from error
+
+    @staticmethod
+    def _required_scope(field_name: str, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise QueueConflictError(f"{field_name} must not be empty")
+        return normalized
+
+    @classmethod
+    def _optional_scope(cls, field_name: str, value: str | None) -> str | None:
+        return None if value is None else cls._required_scope(field_name, value)
 
     @staticmethod
     def _same_request(existing: QueuedTask, incoming: QueuedTask) -> bool:
