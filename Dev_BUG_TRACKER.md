@@ -3382,3 +3382,5 @@
 - 第一百八十二项自动测试与稽查：七类坏export/log/metric/trace/alert输入动态失败关闭；可观测性回归、Python编译与diff门禁通过。
 - 第一百八十三项稽查首败与整改：ProductionOrchestrator用`str/int/max`宽松转换identity/lifecycle/generation/revision，布尔或负值可被接受/截断后参与晚到响应围栏。现编排输入与事件代际按声明类型在Graph checkpoint写入前失败关闭。
 - 第一百八十三项自动测试与稽查：十三类坏身份/控制/代际动态拒绝；Graph事件围栏专项回归、Python编译与diff门禁通过。
+- 第一百八十四项稽查首败与整改：TaskLeaseRepository接受NaN/Infinity TTL/now、浮点generation且直接strip身份，可能制造永久租约、错误过期判断或含混所有者。现全部租约控制入口共享有限时钟和严格所有权门禁。
+- 第一百八十四项自动测试与稽查：十一类坏TTL/clock/identity/generation动态失败关闭；租约专项回归、Python编译与diff门禁通过。

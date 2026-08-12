@@ -1184,3 +1184,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百八十一项：ProductionLedger通用/批量投影与非upscale权威提交已统一严格generation/revision/lifecycle/replace及证据边界，布尔伪CAS不能绕过原子台账事务。专项回归通过。
 - BUG072第一百八十二项：RecordExporter链、日志、指标、Trace和Alert运行时身份/结构已完整失败关闭，数字事件或非Mapping快照不能进入JSONL/Prometheus持久导出。可观测性回归通过。
 - BUG072第一百八十三项：生产LangGraph编排的身份、stage executor控制、inputs及generation/revision事件围栏已强制真实运行时类型，布尔伪代际不能覆盖权威阶段事件。Graph专项回归通过。
+- BUG072第一百八十四项：TaskLease所有权、generation、TTL及now已拒绝数字伪身份、浮点代际和NaN/Infinity，非有限时钟不能绕过跨实例租约取消/提交围栏。租约专项回归通过。

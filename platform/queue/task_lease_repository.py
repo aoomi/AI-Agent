@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
+import math
 import sqlite3
 from threading import RLock
 import time
@@ -40,10 +41,11 @@ class TaskLeaseRepository:
             connection.close()
 
     def acquire(self, job_id: str, owner_id: str, *, ttl: float = 30.0, now: float | None = None) -> dict[str, object]:
-        if (not job_id.strip() or not owner_id.strip() or isinstance(ttl,bool)
-                or not isinstance(ttl,(int,float)) or ttl <= 0):
+        if (not isinstance(job_id,str) or not isinstance(owner_id,str) or not job_id.strip() or not owner_id.strip() or isinstance(ttl,bool)
+                or not isinstance(ttl,(int,float)) or not math.isfinite(ttl) or ttl <= 0):
             raise TaskLeaseError("invalid lease request")
         moment = time.time() if now is None else now
+        self._validate_clock(moment)
         with self._lock, self._connection() as connection:
             current = connection.execute("SELECT * FROM task_leases WHERE job_id=?", (job_id,)).fetchone()
             if current and current["owner_id"] != owner_id and current["lease_expires_at"] > moment:
@@ -64,8 +66,9 @@ class TaskLeaseRepository:
 
     def renew(self, job_id: str, owner_id: str, generation: int, *, ttl: float = 30.0, now: float | None = None) -> bool:
         self._validate_owner(job_id, owner_id, generation)
-        if isinstance(ttl,bool) or not isinstance(ttl,(int,float)) or ttl <= 0: raise TaskLeaseError("invalid lease renewal")
+        if isinstance(ttl,bool) or not isinstance(ttl,(int,float)) or not math.isfinite(ttl) or ttl <= 0: raise TaskLeaseError("invalid lease renewal")
         moment = time.time() if now is None else now
+        self._validate_clock(moment)
         with self._lock, self._connection() as connection:
             result = connection.execute("""UPDATE task_leases SET lease_expires_at=?,heartbeat_at=?
                 WHERE job_id=? AND owner_id=? AND generation=? AND lease_expires_at>? AND heartbeat_at<=?
@@ -81,14 +84,16 @@ class TaskLeaseRepository:
     def owns(self, job_id: str, owner_id: str, generation: int, *, now: float | None = None) -> bool:
         self._validate_owner(job_id, owner_id, generation)
         moment = time.time() if now is None else now
+        self._validate_clock(moment)
         with self._lock, self._connection() as connection:
             row = connection.execute("SELECT owner_id,generation,lease_expires_at,cancel_requested FROM task_leases WHERE job_id=?", (job_id,)).fetchone()
         return bool(row and row["owner_id"] == owner_id and row["generation"] == generation and row["lease_expires_at"] > moment and not row["cancel_requested"])
 
     def request_cancel(self, job_id: str, *, now: float | None = None) -> bool:
         """Persist cancellation for the current live owner, across service instances."""
-        if not job_id.strip(): raise TaskLeaseError("invalid lease cancellation")
+        if not isinstance(job_id,str) or not job_id.strip(): raise TaskLeaseError("invalid lease cancellation")
         moment = time.time() if now is None else now
+        self._validate_clock(moment)
         with self._lock, self._connection() as connection:
             result = connection.execute(
                 "UPDATE task_leases SET cancel_requested=1 WHERE job_id=? AND lease_expires_at>?",
@@ -115,6 +120,7 @@ class TaskLeaseRepository:
         """
         self._validate_owner(job_id, owner_id, generation)
         moment = time.time() if now is None else now
+        self._validate_clock(moment)
         with self._lock, self._connection() as connection:
             row = connection.execute(
                 "SELECT owner_id,generation,lease_expires_at,cancel_requested FROM task_leases WHERE job_id=?",
@@ -132,11 +138,18 @@ class TaskLeaseRepository:
 
     def reap_expired(self, *, now: float | None = None) -> int:
         moment = time.time() if now is None else now
+        self._validate_clock(moment)
         with self._lock, self._connection() as connection:
             result = connection.execute("DELETE FROM task_leases WHERE lease_expires_at<=?", (moment,))
             return result.rowcount
 
     @staticmethod
     def _validate_owner(job_id: str, owner_id: str, generation: int) -> None:
-        if not job_id.strip() or not owner_id.strip() or isinstance(generation, bool) or generation < 1:
+        if (not isinstance(job_id,str) or not isinstance(owner_id,str) or not job_id.strip() or not owner_id.strip()
+                or isinstance(generation, bool) or not isinstance(generation,int) or generation < 1):
             raise TaskLeaseError("invalid task lease owner")
+
+    @staticmethod
+    def _validate_clock(value: object) -> None:
+        if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value):
+            raise TaskLeaseError("invalid task lease clock")
