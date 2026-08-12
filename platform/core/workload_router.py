@@ -54,7 +54,7 @@ class WorkloadRouter:
             previous = self._workers.get(worker.worker_id)
             if previous and worker.generation < previous.generation:
                 raise WorkloadRoutingError("stale worker generation")
-            if previous and worker.generation == previous.generation and worker.heartbeat_at < previous.heartbeat_at:
+            if previous and worker.generation == previous.generation and worker.heartbeat_at <= previous.heartbeat_at:
                 return previous
             if previous and worker.generation == previous.generation and (worker.service_scope,worker.resource_classes,worker.capacity,worker.endpoint)!=(previous.service_scope,previous.resource_classes,previous.capacity,previous.endpoint):
                 raise WorkloadRoutingError("worker identity requires a new generation")

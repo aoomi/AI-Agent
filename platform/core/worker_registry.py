@@ -55,7 +55,7 @@ class WorkerRegistry:
                 raise WorkloadRoutingError("stale worker generation")
             if previous and worker.generation==int(previous[1]):
                 current=self._worker(previous[0])
-                if worker.heartbeat_at<current.heartbeat_at:
+                if worker.heartbeat_at<=current.heartbeat_at:
                     return current
                 if (worker.service_scope,worker.resource_classes,worker.capacity,worker.endpoint)!=(current.service_scope,current.resource_classes,current.capacity,current.endpoint):raise WorkloadRoutingError("worker identity requires a new generation")
             connection.execute("""INSERT INTO workers VALUES(?,?,?,?) ON CONFLICT(worker_id) DO UPDATE SET

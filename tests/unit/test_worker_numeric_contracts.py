@@ -109,6 +109,16 @@ class WorkerNumericContractTest(unittest.TestCase):
                 registry.heartbeat(self._worker(heartbeat_at=4.0,generation=1))
             self.assertEqual(registry.heartbeat(self._worker(endpoint="old",heartbeat_at=2.0,generation=2)),current)
 
+    def test_equal_timestamp_heartbeat_is_idempotent_across_router_and_registry(self) -> None:
+        current=self._worker(active=0,queue_depth=0,heartbeat_at=3.0)
+        duplicate=self._worker(active=1,queue_depth=9,heartbeat_at=3.0)
+        router=WorkloadRouter();router.heartbeat(current)
+        self.assertEqual(router.heartbeat(duplicate),current)
+        with tempfile.TemporaryDirectory() as directory:
+            registry=WorkerRegistry(Path(directory)/"workers.db");registry.heartbeat(current)
+            self.assertEqual(registry.heartbeat(duplicate),current)
+            self.assertEqual(registry.list(now=3.0),[current])
+
 
 if __name__ == "__main__":
     unittest.main()
