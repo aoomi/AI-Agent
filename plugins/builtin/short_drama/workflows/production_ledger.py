@@ -70,6 +70,21 @@ def _nonempty_evidence(value: object, label: str) -> str:
         raise ProductionLedgerError(f"{label} must be non-empty canonical JSON") from error
 
 
+def _integer(value: object, label: str, *, minimum: int = 0) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise ProductionLedgerError(f"{label} must be an integer")
+    return value
+
+
+def _string(value: object, label: str, *, allow_empty: bool = True) -> str:
+    if not isinstance(value, str):
+        raise ProductionLedgerError(f"{label} must be a string")
+    normalized = value.strip()
+    if not allow_empty and not normalized:
+        raise ProductionLedgerError(f"{label} must be a non-empty string")
+    return normalized
+
+
 class ProductionLedger:
     """Single source of truth for scope state, dependencies and immutable versions."""
 
@@ -434,12 +449,9 @@ class ProductionLedger:
                 stage, scope_type, scope_id = self._key(item)
                 if _is_upscale_scope(stage, scope_type, scope_id):
                     raise ProductionLedgerError("upscale authority requires the dedicated commit protocol")
-                try:
-                    generation = int(item.get("generation") or 0)
-                except (TypeError, ValueError):
-                    generation = 0
-                fingerprint = str(item.get("content_fingerprint") or "").strip()
-                audit_batch_id = str(item.get("audit_batch_id") or "").strip()
+                generation = _integer(item.get("generation"), "generation", minimum=1)
+                fingerprint = _string(item.get("content_fingerprint"), "content_fingerprint", allow_empty=False)
+                audit_batch_id = _string(item.get("audit_batch_id"), "audit_batch_id", allow_empty=False)
                 production_json = _nonempty_evidence(item.get("production_evidence"), "production_evidence")
                 audit_json = _nonempty_evidence(item.get("audit_evidence"), "audit_evidence")
                 if generation < 1 or not fingerprint or not audit_batch_id:
@@ -469,7 +481,7 @@ class ProductionLedger:
     def upsert(self, payload: Mapping[str, Any], *, connection: sqlite3.Connection | None = None) -> dict[str, Any]:
         tenant_id, user_id, project_id = self._identity(payload)
         stage, scope_type, scope_id = self._key(payload)
-        lifecycle = str(payload.get("lifecycle", "idle")).strip()
+        lifecycle = _string(payload.get("lifecycle", "idle"), "lifecycle", allow_empty=False)
         if lifecycle not in LIFECYCLES:
             raise ProductionLedgerError(f"invalid lifecycle: {lifecycle}")
         owns_connection = connection is None
@@ -484,10 +496,7 @@ class ProductionLedger:
             current_revision = int(current["revision"] or 0) if current else 0
             expected_revision = payload.get("expected_revision")
             if expected_revision is not None:
-                try:
-                    expected_revision = int(expected_revision)
-                except (TypeError, ValueError):
-                    raise ProductionLedgerError("expected_revision must be an integer") from None
+                expected_revision = _integer(expected_revision, "expected_revision")
                 if expected_revision != current_revision:
                     raise ProductionLedgerError("production scope CAS conflict")
             confirmation = json.loads(current["confirmation_json"]) if current and current["confirmation_json"] else None
@@ -549,7 +558,7 @@ class ProductionLedger:
                 "confirmation_scope_json": _json(payload.get("confirmation_scope", json.loads(current["confirmation_scope_json"]) if current else {"scope_type": scope_type, "scope_ids": [scope_id]})),
                 "impact_scope_json": _json(payload.get("impact_scope", json.loads(current["impact_scope_json"]) if current else [])),
                 "created_at": created_at, "updated_at": _now(),
-                "generation": int(payload.get("generation", current["generation"] if current else 0) or 0),
+                "generation": _integer(payload.get("generation", current["generation"] if current else 0), "generation"),
                 "revision": current_revision + 1,
                 "production_evidence_json": current["production_evidence_json"] if current else None,
                 "audit_evidence_json": current["audit_evidence_json"] if current else None,
@@ -608,15 +617,12 @@ class ProductionLedger:
                 projected = dict(payload)
                 expected_revision = projected.pop("expected_revision", None)
                 if expected_revision is not None:
-                    try:
-                        expected_revision = int(expected_revision)
-                    except (TypeError, ValueError):
-                        raise ProductionLedgerError("expected_revision must be an integer") from None
+                    expected_revision = _integer(expected_revision, "expected_revision")
                     if expected_revision != int(current["revision"] if current else 0):
                         raise ProductionLedgerError("production scope CAS conflict")
                 for field in ("confirmation", "generation", "production_evidence", "audit_evidence"):
                     projected.pop(field, None)
-                requested_lifecycle = str(projected.get("lifecycle") or "idle").strip()
+                requested_lifecycle = _string(projected.get("lifecycle") or "idle", "lifecycle", allow_empty=False)
                 if requested_lifecycle not in LIFECYCLES:
                     raise ProductionLedgerError(f"invalid lifecycle: {requested_lifecycle}")
                 current_confirmation = json.loads(current["confirmation_json"]) if current and current["confirmation_json"] else None
@@ -643,10 +649,7 @@ class ProductionLedger:
             """, (tenant_id, user_id, project_id, stage, scope_type, scope_id)).fetchone()
             expected_revision = payload.get("expected_revision")
             if expected_revision is not None:
-                try:
-                    expected_revision = int(expected_revision)
-                except (TypeError, ValueError):
-                    raise ProductionLedgerError("expected_revision must be an integer") from None
+                expected_revision = _integer(expected_revision, "expected_revision")
                 if expected_revision != int(current["revision"] if current else 0):
                     raise ProductionLedgerError("production scope CAS conflict")
             incoming_progress = payload.get("progress")
@@ -663,7 +666,7 @@ class ProductionLedger:
             current_revision = int(current["revision"] or 0) if current else 0
             has_authority = bool(current and int(current["generation"] or 0) > 0)
             confirmed = bool(current and current["confirmation_json"])
-            requested_lifecycle = str(payload.get("lifecycle") or "idle").strip()
+            requested_lifecycle = _string(payload.get("lifecycle") or "idle", "lifecycle", allow_empty=False)
             if requested_lifecycle not in LIFECYCLES:
                 raise ProductionLedgerError(f"invalid lifecycle: {requested_lifecycle}")
             lifecycle = current["lifecycle"] if has_authority or confirmed else (
@@ -715,6 +718,7 @@ class ProductionLedger:
             return self._record(row)
 
     def upsert_many_projection(self, records: Iterable[Mapping[str, Any]], *, replace: bool = False) -> list[dict[str, Any]]:
+        if not isinstance(replace,bool):raise ProductionLedgerError("replace must be boolean")
         records = list(records)
         if not records:
             return []
@@ -739,6 +743,7 @@ class ProductionLedger:
             return [self.upsert_projection(item, connection=connection) for item in records]
 
     def upsert_many(self, records: Iterable[Mapping[str, Any]], *, replace: bool = False) -> list[dict[str, Any]]:
+        if not isinstance(replace,bool):raise ProductionLedgerError("replace must be boolean")
         records = list(records)
         if not records:
             return []

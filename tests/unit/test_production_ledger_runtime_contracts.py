@@ -30,5 +30,21 @@ class ProductionLedgerRuntimeContractsTest(unittest.TestCase):
             payload={**base,"generation":generation,"content_fingerprint":"f","audit_batch_id":"a","production_evidence":{"ok":True},"audit_evidence":{"ok":True},"expected_revision":True}
             with self.assertRaisesRegex(ProductionLedgerError,"expected_revision"):ledger.commit_upscale_authority(payload)
 
+    def test_generic_upserts_reject_pseudo_cas_and_lifecycle_controls(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            ledger=ProductionLedger(Path(directory)/"ledger.sqlite")
+            base={"tenant_id":"t","user_id":"u","project_id":"p","stage":"video","scope_type":"shot","scope_id":"1"}
+            for payload in ({**base,"generation":True},{**base,"expected_revision":True},{**base,"lifecycle":1}):
+                with self.subTest(payload=payload),self.assertRaises(ProductionLedgerError):ledger.upsert(payload)
+            for operation in (lambda:ledger.upsert_many([base],replace=1),lambda:ledger.upsert_many_projection([base],replace=1)):
+                with self.subTest(operation=operation),self.assertRaisesRegex(ProductionLedgerError,"replace"):operation()
+
+    def test_stage_authority_rejects_pseudo_generation_and_evidence_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            ledger=ProductionLedger(Path(directory)/"ledger.sqlite")
+            base={"tenant_id":"t","user_id":"u","project_id":"p","stage":"video","scope_type":"shot","scope_id":"1","production_evidence":{"ok":True},"audit_evidence":{"ok":True}}
+            for changes in ({"generation":True,"content_fingerprint":"f","audit_batch_id":"a"},{"generation":1,"content_fingerprint":1,"audit_batch_id":"a"},{"generation":1,"content_fingerprint":"f","audit_batch_id":1}):
+                with self.subTest(changes=changes),self.assertRaises(ProductionLedgerError):ledger.commit_stage_authorities([{**base,**changes}])
+
 
 if __name__ == "__main__":unittest.main()
