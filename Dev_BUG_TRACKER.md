@@ -3615,3 +3615,4 @@
 - BUG072 / M9.198 / 架构横向稽查第三百一十二项（已关闭，2026-08-12）：StoryBible把数值身份强制字符串化，未知stage静默当作无分集更新，episodes对象/伪item/bool编号可能被忽略或泄漏异常。现身份只接受非空字符串，写入只接受三法定阶段、数组领域项及真实整数集号；五类伪输入零持久副作用失败关闭。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百一十三项（已关闭，2026-08-12）：ProductionLedger批量replace在完整验证记录键前先删除旧scope，数字scope_id还被`str`转换后参与保留集，后续upsert失败可留下部分删除。现事务前验证可迭代Mapping、统一身份及每个canonical key，replace复用已验证键；三类伪批次动态证明旧记录不变。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百一十四项（已关闭，2026-08-12）：DurableTaskRepository.list验证的是strip后的作用域，却把未规范化原值用于SQLite查询，合法带边界空白输入会静默漏掉权威任务；task_class同样分叉。现查询参数直接复用已验证规范化scope与task_class，动态证明同一任务精确返回。关联回归、Python编译与diff门禁通过。
+- BUG072 / M9.198 / 架构横向稽查第三百一十五项（已关闭，2026-08-12）：DurableTaskRepository批量写入对job_id/task_class分别以原值查重和规范化值落库，`job`与` job `可在同批静默覆盖，空白task_class也延迟失败。现批次入口一次规范化身份、拒绝空值及规范化碰撞，查询/比较/outbox共用同一值；动态证明合法规范化与碰撞失败关闭。关联回归、Python编译与diff门禁通过。

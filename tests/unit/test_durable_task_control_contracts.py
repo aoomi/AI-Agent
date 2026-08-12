@@ -29,4 +29,13 @@ class DurableTaskControlContractTest(unittest.TestCase):
    repository=DurableTaskRepository(Path(directory)/"tasks.db")
    repository.upsert("job","task",{"tenant_id":"t","user_id":"u","project_id":"p","status":"queued"})
    self.assertEqual([item["job_id"] for item in repository.list(tenant_id=" t ",user_id=" u ",project_id=" p ",task_class=" task ")],["job"])
+ def test_batch_normalizes_identity_once_and_rejects_collisions(self):
+  with tempfile.TemporaryDirectory() as directory:
+   repository=DurableTaskRepository(Path(directory)/"tasks.db")
+   job={"tenant_id":"t","user_id":"u","project_id":"p","status":"queued"}
+   repository.upsert_many(" task ",{" job ":job})
+   self.assertIsNotNone(repository.get("job",tenant_id="t",user_id="u",project_id="p"))
+   with self.assertRaisesRegex(ValueError,"duplicate normalized"):
+    repository.upsert_many("task",{"job":job," job ":job})
+   self.assertEqual(len(repository.list()),1)
 if __name__=="__main__":unittest.main()

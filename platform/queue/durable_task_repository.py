@@ -81,7 +81,10 @@ class DurableTaskRepository:
 
     def upsert_many(self, task_class: str, jobs: Mapping[str, Mapping[str, Any]], *, enqueue_projection: bool = False) -> list[dict[str, Any]]:
         if not isinstance(task_class,str) or not isinstance(jobs, Mapping) or not isinstance(enqueue_projection, bool) or any(not isinstance(job_id,str) for job_id in jobs):raise ValueError("durable task batch contract is invalid")
-        prepared = [(job_id, self._values(job_id, task_class, job)) for job_id, job in jobs.items()]
+        task_class=task_class.strip()
+        if not task_class:raise ValueError("durable task batch contract is invalid")
+        prepared = [(job_id.strip(), self._values(job_id, task_class, job)) for job_id, job in jobs.items()]
+        if any(not job_id for job_id,_ in prepared) or len({job_id for job_id,_ in prepared}) != len(prepared):raise ValueError("durable task batch contains duplicate normalized job ids")
         applied: list[str] = []
         with self._lock, self._connection() as connection:
             for job_id, values in prepared:
@@ -89,13 +92,13 @@ class DurableTaskRepository:
                     "SELECT payload_json,task_class,tenant_id,user_id,project_id FROM durable_tasks WHERE job_id=?",
                     (job_id,),
                 ).fetchone()
-                if current and current["task_class"] != str(task_class):
+                if current and current["task_class"] != task_class:
                     raise ValueError("durable task job_id belongs to another task class")
                 if current and tuple(current[key] for key in ("tenant_id", "user_id", "project_id")) != tuple(
                     values[key] for key in ("tenant_id", "user_id", "project_id")
                 ):
                     raise ValueError("durable task owner scope is immutable")
-                if current and current["task_class"] == str(task_class) and current["payload_json"] == values["payload_json"]:
+                if current and current["task_class"] == task_class and current["payload_json"] == values["payload_json"]:
                     continue
                 self._execute_upsert(connection, values)
                 applied.append(job_id)
@@ -104,7 +107,7 @@ class DurableTaskRepository:
                     connection.execute("""INSERT INTO task_projection_outbox(job_id,task_class,payload_json,updated_at,event_revision) VALUES(?,?,?,?,?)
                         ON CONFLICT(job_id) DO UPDATE SET task_class=excluded.task_class,payload_json=excluded.payload_json,
                         updated_at=excluded.updated_at,event_revision=excluded.event_revision""",
-                        (job_id, str(task_class), values["payload_json"], values["updated_at"], event_revision))
+                        (job_id, task_class, values["payload_json"], values["updated_at"], event_revision))
         applied_set=set(applied)
         with self._lock, self._connection() as connection:
             rows=connection.execute(f"SELECT * FROM durable_tasks WHERE job_id IN ({','.join('?' for _ in applied_set)})", tuple(applied_set)).fetchall() if applied_set else []

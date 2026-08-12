@@ -87,6 +87,7 @@
 - BUG072第三百一十二项整改：StoryBible身份、阶段和分集边界强制非空字符串作用域、三法定阶段、数组领域项及真实整数集号，伪输入零持久副作用失败关闭；关联回归通过，继续横向稽查。
 - BUG072第三百一十三项整改：ProductionLedger批量replace在事务副作用前完整验证可迭代Mapping、统一身份及canonical scope键，移除数字键字符串化并保证坏批次不删除旧记录；关联回归通过，继续横向稽查。
 - BUG072第三百一十四项整改：DurableTaskRepository.list查询参数复用已验证规范化owner scope与task_class，消除边界空白导致的权威任务静默漏读；关联回归通过，继续横向稽查。
+- BUG072第三百一十五项整改：DurableTaskRepository批量写入一次规范化job_id/task_class并拒绝空值与规范化碰撞，权威行、比较及outbox不再因原值/规范值分叉；关联回归通过，继续横向稽查。
 - BUG071最终闭环：composition、review、export权威证据与Graph状态在同一SQLite事务提交；导出manifest绑定generation、audit batch、视频及manifest哈希。正式三镜静音母版导出8.1秒、243帧、704×1216 H.264且仅video stream，重启后HTTP可读；关联`134 passed`。用户要求的不超过15秒、只验证视频范围已可测试，继续BUG072架构v2.2全仓一致性稽查。
 - BUG070最终闭环：普通生产端点门禁移到派发前；worker只接受进程私有loopback token或精确共享reservation，伪造dispatched头正式403，缺前序请求409且无副作用，合法run-stage composition generation 3通过并确认。关联`130 passed`；继续BUG071静音母版审核导出。
 - BUG069最终闭环：LTX三镜经正式run-stage与同批次video/audio-not-applicable/subtitle-not-applicable台账确认后，显式video-only composition生成8.1秒、243帧、704×1216@30 H.264静音母版；重启恢复、HTTP媒体与队列归零通过，关联`129 passed`。继续BUG070生产端点派发门禁旁路。
