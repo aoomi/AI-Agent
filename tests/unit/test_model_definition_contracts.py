@@ -23,5 +23,10 @@ class ModelDefinitionContractTest(unittest.TestCase):
         ):
             with self.subTest(build=build),self.assertRaises(ModelRegistryError):build()
 
+    def test_settings_reject_non_standard_json(self) -> None:
+        for settings in ({"value":float("nan")},{"value":object()}):
+            with self.subTest(settings=settings),self.assertRaisesRegex(ModelRegistryError,"standard JSON"):
+                self._create(settings=settings)
+
 
 if __name__=="__main__":unittest.main()

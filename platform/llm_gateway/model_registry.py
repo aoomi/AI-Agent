@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from threading import RLock
 from typing import Any, Iterable, Mapping
+import json
 
 
 MODEL_CAPABILITIES = frozenset(
@@ -71,6 +72,8 @@ class ModelDefinition:
             return False
         if settings is not None and not isinstance(settings,Mapping):raise ModelRegistryError("model settings must be a mapping")
         if contains_secret(settings or {}):raise ModelRegistryError("model settings cannot contain secrets")
+        try:json.dumps(dict(settings or {}),allow_nan=False)
+        except (TypeError,ValueError) as error:raise ModelRegistryError("model settings must be standard JSON") from error
         return cls(
             **values,
             capabilities=normalized,
