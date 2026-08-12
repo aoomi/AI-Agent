@@ -40,6 +40,15 @@ class IndustryWorkflowContractTest(unittest.TestCase):
   service=IndustryWorkflowService(BadOrchestrator());service.bind_executor("robot",lambda *_:{})
   service.execute(None,{"operation":"create","workflow_id":"workflow","industry_id":"industry","robot_ids":("robot",)},"owner")
   with self.assertRaisesRegex(IndustryWorkflowError,"result must be standard JSON"):service.execute(None,{"operation":"run","workflow_id":"workflow"},"owner")
+ def test_run_deeply_snapshots_inputs_and_result(self):
+  class CapturingOrchestrator(Orchestrator):
+   def __init__(self):self.result={"state":{"steps":["completed"]}}
+   def invoke(self,_name,_thread,inputs):inputs["routing"]["regions"][0]="graph";return self.result
+  orchestrator=CapturingOrchestrator();service=IndustryWorkflowService(orchestrator);service.bind_executor("robot",lambda *_:{})
+  service.execute(None,{"operation":"create","workflow_id":"workflow","industry_id":"industry","robot_ids":("robot",)},"owner")
+  inputs={"routing":{"regions":["local"]}};response=service.execute(None,{"operation":"run","workflow_id":"workflow","inputs":inputs},"owner")
+  orchestrator.result["state"]["steps"][0]="forged"
+  self.assertEqual(inputs["routing"]["regions"][0],"local");self.assertEqual(response["result"]["state"]["steps"][0],"completed")
  def test_connection_ids_are_normalized_before_membership(self):
   service=IndustryWorkflowService(Orchestrator());service.execute(None,{"operation":"create","workflow_id":"workflow","industry_id":"industry","robot_ids":("one","two")},"owner")
   result=service.execute(None,{"operation":"connect","workflow_id":"workflow","source_robot_id":" one ","target_robot_id":" two "},"owner")

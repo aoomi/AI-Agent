@@ -52,19 +52,20 @@ class IndustryWorkflowService:
     if not isinstance(thread_id,str):raise IndustryWorkflowError("workflow run contract is invalid")
     thread_id=thread_id.strip()
     if not thread_id or not isinstance(inputs,Mapping):raise IndustryWorkflowError("workflow run contract is invalid")
-    try:json.dumps(dict(inputs),allow_nan=False)
+    try:canonical_inputs=json.dumps(dict(inputs),allow_nan=False)
     except (TypeError,ValueError) as error:raise IndustryWorkflowError("workflow inputs must be standard JSON") from error
+    input_snapshot=json.loads(canonical_inputs)
     with self._lock:
      missing=set(item.robot_ids)-self.executors.keys();executors={r:self.executors[r] for r in item.robot_ids if r in self.executors}
     if missing:raise IndustryWorkflowError("workflow robot executors are not bound")
     if item.mode=="branching":raise IndustryWorkflowError("branching workflow requires explicit route configuration")
     with self._lock:self._active_workflows.add(workflow_id);self._active_robots.update(item.robot_ids)
     try:
-     self.orchestrator.compile(workflow_id,executors,mode=item.mode);result=self.orchestrator.invoke(workflow_id,thread_id,inputs)
+     self.orchestrator.compile(workflow_id,executors,mode=item.mode);result=self.orchestrator.invoke(workflow_id,thread_id,input_snapshot)
      if not isinstance(result,Mapping):raise IndustryWorkflowError("workflow result must be a mapping")
-     try:json.dumps(dict(result),allow_nan=False)
+     try:canonical_result=json.dumps(dict(result),allow_nan=False)
      except (TypeError,ValueError) as error:raise IndustryWorkflowError("workflow result must be standard JSON") from error
-     return {"workflow_id":workflow_id,"version":item.version,"result":dict(result)}
+     return {"workflow_id":workflow_id,"version":item.version,"result":json.loads(canonical_result)}
     finally:
      with self._lock:self._active_workflows.discard(workflow_id);self._active_robots.difference_update(item.robot_ids)
    elif operation=="modify":
