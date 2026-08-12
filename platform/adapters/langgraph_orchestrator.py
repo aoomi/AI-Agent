@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Annotated,Any,Callable,Mapping,TypedDict
 from threading import RLock
 import operator
+import json
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END,START,StateGraph
 from langgraph.types import Command,RetryPolicy,interrupt
@@ -39,6 +40,8 @@ class LangGraphOrchestrator:
   return graph
  def invoke(self,name:str,thread_id:str,inputs:Mapping[str,Any])->Mapping[str,Any]:
   if not isinstance(inputs,Mapping):raise LangGraphOrchestratorError("graph inputs must be a mapping")
+  try:json.dumps(dict(inputs),allow_nan=False)
+  except (TypeError,ValueError) as error:raise LangGraphOrchestratorError("graph inputs must be standard JSON") from error
   return self._invoke(name,thread_id,{"inputs":dict(inputs),"outputs":{}})
  def compile_branching(self,name:str,executors:Mapping[str,GraphExecutor],*,entry_node:str,branches:Mapping[str,Mapping[str,str]],terminal_nodes:tuple[str,...],max_attempts:int=3):
   if (not isinstance(name,str) or not isinstance(entry_node,str) or not isinstance(executors,Mapping) or not isinstance(branches,Mapping)
@@ -69,7 +72,12 @@ class LangGraphOrchestrator:
   with self._lock:
    if key in self._active:raise LangGraphOrchestratorError("graph thread is already active")
    graph=self._graph(name);self._active.add(key)
-  try:return graph.invoke(value,config={"configurable":{"thread_id":thread_id}})
+  try:
+   result=graph.invoke(value,config={"configurable":{"thread_id":thread_id}})
+   public_state={key:item for key,item in dict(result).items() if key!="__interrupt__"}
+   try:json.dumps(public_state,allow_nan=False)
+   except (TypeError,ValueError) as error:raise LangGraphOrchestratorError("graph result must be standard JSON") from error
+   return result
   finally:
    with self._lock:self._active.discard(key)
  def _graph(self,name):
