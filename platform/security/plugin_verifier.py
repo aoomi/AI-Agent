@@ -11,8 +11,15 @@ class SignatureVerifier(Protocol):
 class PluginVerificationRequest:
  plugin_id:str;package_path:Path;package_sha256:str;manifest_bytes:bytes;manifest_sha256:str;algorithm:str;key_id:str;signature_base64:str;minimum_platform_version:str;permissions:tuple[str,...]
 class PluginInstallVerifier:
- def __init__(self,signature_verifier:SignatureVerifier,*,platform_version:str,allowed_permissions:frozenset[str]):self.signatures=signature_verifier;self.platform_version=platform_version;self.allowed_permissions=allowed_permissions
+ def __init__(self,signature_verifier:SignatureVerifier,*,platform_version:str,allowed_permissions:frozenset[str]):
+  if not callable(getattr(signature_verifier,"verify",None)):raise PluginVerificationError("signature verifier contract is invalid")
+  self._version(platform_version)
+  if any(not isinstance(value,str) or not value.strip() for value in allowed_permissions):raise PluginVerificationError("allowed permissions are invalid")
+  self.signatures=signature_verifier;self.platform_version=platform_version;self.allowed_permissions=allowed_permissions
  def verify(self,request:PluginVerificationRequest)->None:
+  required=(request.plugin_id,request.package_sha256,request.manifest_sha256,request.algorithm,request.key_id,request.signature_base64)
+  if any(not isinstance(value,str) or not value.strip() for value in required):raise PluginVerificationError("plugin verification identity is required")
+  if any(not isinstance(value,str) or not value.strip() for value in request.permissions):raise PluginVerificationError("plugin permissions are invalid")
   try:content=request.package_path.read_bytes()
   except OSError as error:raise PluginVerificationError("plugin package is unreadable") from error
   if sha256(content).hexdigest()!=request.package_sha256:raise PluginVerificationError("plugin package integrity mismatch")
@@ -23,5 +30,6 @@ class PluginInstallVerifier:
   if denied:raise PluginVerificationError(f"plugin permissions are not authorized: {sorted(denied)}")
  @staticmethod
  def _version(value:str)->tuple[int,int,int]:
-  try:return tuple(int(part) for part in value.split(".",2)) # type: ignore[return-value]
-  except ValueError as error:raise PluginVerificationError("plugin version is invalid") from error
+  parts=value.split(".") if isinstance(value,str) else []
+  if len(parts)!=3 or any(not part.isdigit() for part in parts):raise PluginVerificationError("plugin version is invalid")
+  return tuple(int(part) for part in parts) # type: ignore[return-value]

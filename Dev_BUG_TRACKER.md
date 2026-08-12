@@ -3278,3 +3278,5 @@
 - 第一百三十项自动测试与稽查：布尔进度动态失败关闭且任务保持running；队列、服务、投影与隔离关联测试、Python编译与diff门禁通过。
 - 第一百三十一项稽查首败与整改：PlatformConfig.from_environment有输入校验，但dataclass直接构造可接受空host/environment、布尔或越界port；应用组合根和测试均直接使用该路径。现模型边界统一规范化并验证，保留port=0本地临时监听语义。
 - 第一百三十一项自动测试与稽查：空host/environment、布尔及越界port动态拒绝；平台bootstrap/API关联测试、Python编译与diff门禁通过。
+- 第一百三十二项稽查首败与整改：PluginInstallVerifier不验证signature_verifier协议，平台/最低版本解析接受非严格三段版本，allowed/request permissions及签名身份可为空，错误会延迟到包读取或签名调用。现构造和verify副作用前完整失败关闭。
+- 第一百三十二项自动测试与稽查：坏verifier、两段版本及空授权权限动态拒绝；插件验证安全关联`3 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
