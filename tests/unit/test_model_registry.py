@@ -51,6 +51,8 @@ class ModelRegistryTest(unittest.TestCase):
     def test_invalid_definition_is_rejected(self) -> None:
         with self.assertRaisesRegex(ModelRegistryError, "invalid model capabilities"):
             model("invalid", {"audio"})
+        with self.assertRaisesRegex(ModelRegistryError, "secrets"):
+            ModelDefinition.create(model_id="m", provider_id="p", display_name="M", capabilities={"chat"}, context_window=8, settings={"transport":{"headers":[{"authorization":"Bearer hidden"}]}})
 
 
 if __name__ == "__main__":

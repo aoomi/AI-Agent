@@ -53,6 +53,12 @@ class ModelDefinition:
             raise ModelRegistryError(f"invalid model capabilities: {sorted(unknown)}")
         if context_window < 1:
             raise ModelRegistryError("context_window must be positive")
+        forbidden=("secret","token","password","api_key","authorization","credential")
+        def contains_secret(value:Any)->bool:
+            if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
+            if isinstance(value,(list,tuple)):return any(contains_secret(item) for item in value)
+            return False
+        if contains_secret(settings or {}):raise ModelRegistryError("model settings cannot contain secrets")
         return cls(
             **values,
             capabilities=normalized,
