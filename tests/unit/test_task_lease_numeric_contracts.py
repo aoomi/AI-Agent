@@ -34,5 +34,14 @@ class TaskLeaseNumericContractTest(unittest.TestCase):
             ):
                 with self.subTest(operation=operation),self.assertRaises(TaskLeaseError):operation()
 
+    def test_owner_identity_uses_one_normalized_value(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            leases=TaskLeaseRepository(Path(directory)/"leases.db")
+            lease=leases.acquire(" job "," owner ",ttl=30,now=10)
+            self.assertEqual((lease["job_id"],lease["owner_id"]),("job","owner"))
+            self.assertTrue(leases.owns(" job "," owner ",lease["generation"],now=11))
+            self.assertTrue(leases.request_cancel(" job ",now=11))
+            self.assertTrue(leases.cancellation_requested(" job "," owner ",lease["generation"]))
+
 
 if __name__=="__main__":unittest.main()
