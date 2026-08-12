@@ -10,6 +10,9 @@ class ObservabilityTest(unittest.TestCase):
  def test_secret_log_fields_are_rejected(self):
   with self.assertRaises(ObservabilityError):StructuredLogger(io.StringIO()).emit("info","x",{"api_key":"secret"})
   with self.assertRaises(ObservabilityError):StructuredLogger(io.StringIO()).emit("info","x",{"nested":{"authorization":"secret"}})
+  for fields in ({"prompt":"商业核心提示"},{"message":"Bearer abcdefghijklmnop"},{"value":"13800138000"},{"credential":"opaque"}):
+   with self.assertRaises(ObservabilityError):StructuredLogger(io.StringIO()).emit("info","x",fields)
+  self.assertEqual(StructuredLogger(io.StringIO()).emit("info","x",{"message":"completed 138 tasks"})["event"],"x")
  def test_durable_exporters_and_correlation(self):
   with tempfile.TemporaryDirectory() as directory:
    events=Path(directory)/"events.jsonl";metrics_file=Path(directory)/"metrics.prom"
@@ -56,5 +59,11 @@ class ObservabilityTest(unittest.TestCase):
    ):
     with self.assertRaises(ObservabilityError):JsonLinesExporter(events).export("metrics_snapshot",invalid)
     with self.assertRaises(ObservabilityError):PrometheusSnapshotExporter(prometheus).export("metrics_snapshot",invalid)
+   self.assertFalse(events.exists());self.assertFalse(prometheus.exists())
+ def test_secret_values_cannot_bypass_exporter_with_neutral_keys(self):
+  with tempfile.TemporaryDirectory() as directory:
+   events=Path(directory)/"events.jsonl";prometheus=Path(directory)/"metrics.prom"
+   for exporter in (JsonLinesExporter(events),PrometheusSnapshotExporter(prometheus)):
+    with self.assertRaises(ObservabilityError):exporter.export("metrics_snapshot",{"counters":[],"gauges":[{"name":"state","labels":[["value","github_pat_abcdefghijklmnop"]],"value":1}]})
    self.assertFalse(events.exists());self.assertFalse(prometheus.exists())
 if __name__=="__main__":unittest.main()

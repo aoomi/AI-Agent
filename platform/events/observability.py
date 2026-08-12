@@ -20,7 +20,15 @@ class ObservabilityError(ValueError):
     pass
 
 
-_SECRET_WORDS = ("secret", "token", "password", "api_key", "authorization")
+_SECRET_WORDS = (
+    "secret", "token", "password", "api_key", "authorization", "credential",
+    "prompt", "phone", "mobile", "wechat", "payment_account", "paid_account",
+)
+_SECRET_VALUE = re.compile(
+    r"(?i)(?:^|\s)(?:bearer|basic)\s+[a-z0-9._~+/=-]{8,}|"
+    r"\b(?:sk|ghp|github_pat)_[a-z0-9_-]{12,}\b|"
+    r"(?<!\d)1[3-9]\d{9}(?!\d)"
+)
 _METRIC_NAME = re.compile(r"^[a-zA-Z_:][a-zA-Z0-9_:]*$")
 _METRIC_LABEL_NAME = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
@@ -37,6 +45,8 @@ def _contains_secret(value: Any) -> bool:
             if any(word in value[0].lower() for word in _SECRET_WORDS):
                 return True
         return any(_contains_secret(item) for item in value)
+    if isinstance(value, str):
+        return bool(_SECRET_VALUE.search(value))
     return False
 
 
