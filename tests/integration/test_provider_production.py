@@ -20,7 +20,7 @@ class ProviderProductionIntegrationTest(unittest.TestCase):
         resilient=ResilientProviderInvoker(lambda p,c,i:registry.invoke(p,c,i),sleeper=lambda _:None);result=resilient.call("production","short_drama.image",{})
         self.assertEqual(result.output[0]["source_id"],"source");self.assertEqual(binding.generate("short_drama.video",{})[0].content,b"real")
         service=ProviderService(Checker());service.register(provider_id="production",display_name="Production",kind="video",endpoint="https://provider.example/v1",secret_reference="vault://production",capabilities=tuple(caps));self.assertEqual(service.test_connection("production").status,"healthy")
-        audit=ProviderAuditLedger();record=audit.record(tenant_id="tenant",project_id="project",provider_id="production",capability="short_drama.image",request={"prompt_hash":"abc"},input_tokens=0,output_tokens=0,duration_ms=12,cost_microunits=5,artifact_ids=("image-1",),artifact_checksums=("a"*64,));self.assertEqual(record.cost_microunits,5)
+        audit=ProviderAuditLedger();record=audit.record(tenant_id="tenant",user_id="user",project_id="project",provider_id="production",capability="short_drama.image",request={"prompt_hash":"abc"},input_tokens=0,output_tokens=0,duration_ms=12,cost_microunits=5,artifact_ids=("image-1",),artifact_checksums=("a"*64,));self.assertEqual(record.cost_microunits,5)
     def test_no_health_checker_never_reports_fake_success(self):
         service=ProviderService();service.register(provider_id="p",display_name="P",kind="image",endpoint="https://p.example",secret_reference="env://P_KEY",capabilities=("image",))
         with self.assertRaisesRegex(Exception,"real provider health checker"):service.test_connection("p")
