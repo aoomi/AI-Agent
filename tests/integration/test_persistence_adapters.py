@@ -8,4 +8,10 @@ class PersistenceAdaptersTest(unittest.TestCase):
  def test_object_traversal_is_rejected(self):
   with tempfile.TemporaryDirectory() as d:
    with self.assertRaises(PersistenceError):LocalObjectStore(Path(d)).put("t","../../x",b"x")
+ def test_empty_persistence_owner_scopes_are_rejected(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);state=SQLiteStateStore(root/"state.db");objects=LocalObjectStore(root/"objects");queue=SQLiteDurableQueue(root/"queue.db")
+   with self.assertRaises(PersistenceError):state.put("","n","k",{})
+   with self.assertRaises(PersistenceError):objects.put("","key",b"x")
+   with self.assertRaises(PersistenceError):queue.enqueue("",{})
 if __name__=="__main__":unittest.main()
