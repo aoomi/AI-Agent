@@ -96,6 +96,7 @@ class JsonLinesExporter:
     def __init__(self, path: str | Path):
         if not isinstance(path,(str,Path)):raise ObservabilityError("export path is invalid")
         self.path = Path(path)
+        if not str(self.path).strip() or self.path.exists() and self.path.is_dir():raise ObservabilityError("export path is invalid")
         self._lock = RLock()
 
     def export(self, kind: str, record: Mapping[str, Any]) -> None:
@@ -123,6 +124,7 @@ class PrometheusSnapshotExporter:
     def __init__(self, path: str | Path):
         if not isinstance(path,(str,Path)):raise ObservabilityError("export path is invalid")
         self.path = Path(path)
+        if not str(self.path).strip() or self.path.exists() and self.path.is_dir():raise ObservabilityError("export path is invalid")
         self._lock = RLock()
 
     @staticmethod

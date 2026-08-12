@@ -101,4 +101,9 @@ class ObservabilityTest(unittest.TestCase):
    for exporter in (JsonLinesExporter(events),PrometheusSnapshotExporter(prometheus)):
     with self.assertRaises(ObservabilityError):exporter.export("metrics_snapshot",{"counters":[],"gauges":[{"name":"state","labels":[["value","github_pat_abcdefghijklmnop"]],"value":1}]})
    self.assertFalse(events.exists());self.assertFalse(prometheus.exists())
+ def test_exporters_reject_existing_directory_targets(self):
+  with tempfile.TemporaryDirectory() as directory:
+   target=Path(directory)/"target";target.mkdir()
+   for factory in (JsonLinesExporter,PrometheusSnapshotExporter):
+    with self.assertRaises(ObservabilityError):factory(target)
 if __name__=="__main__":unittest.main()
