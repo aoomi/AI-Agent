@@ -28,10 +28,10 @@ class ProviderAuditLedger:
         if error_code is not None and (not isinstance(error_code,str) or not error_code.strip()):raise ProviderAuditError("audit error_code is invalid")
         forbidden={"api_key","secret","token","password","credential","authorization"}
         def contains_secret(value:Any)->bool:
-            if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
+            if isinstance(value,Mapping):return any(not isinstance(key,str) or not key.strip() or any(word in key.lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
             if isinstance(value,(list,tuple)):return any(contains_secret(item) for item in value)
             return False
-        if contains_secret(request):raise ProviderAuditError("audit request contains secret fields")
+        if contains_secret(request):raise ProviderAuditError("audit request contains secret or invalid fields")
         try:digest=sha256(json.dumps(dict(request),sort_keys=True,separators=(",",":"),allow_nan=False).encode()).hexdigest()
         except (TypeError,ValueError) as error:raise ProviderAuditError("audit request must be standard JSON") from error
         record=ProviderAuditRecord(f"audit-{uuid4().hex}",tenant_id.strip(),user_id.strip(),project_id.strip(),provider_id.strip(),capability.strip(),digest,input_tokens,output_tokens,duration_ms,cost_microunits,tuple(value.strip() for value in artifact_ids),tuple(value.strip() for value in artifact_checksums),status,error_code.strip() if error_code else None,datetime.now(timezone.utc).isoformat())

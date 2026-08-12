@@ -31,6 +31,11 @@ class ProviderAuditContractTest(unittest.TestCase):
             with self.subTest(request=request), self.assertRaisesRegex(ProviderAuditError, "standard JSON"):
                 self._record(request=request)
 
+    def test_request_hash_rejects_non_string_and_empty_keys(self) -> None:
+        for request in ({1:"value"},{"nested":{1:"value"}},{" ":"value"}):
+            with self.subTest(request=request),self.assertRaisesRegex(ProviderAuditError,"invalid fields"):
+                self._record(request=request)
+
 
 if __name__ == "__main__":
     unittest.main()
