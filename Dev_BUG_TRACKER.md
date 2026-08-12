@@ -3218,3 +3218,5 @@
 - 第一百项自动测试与稽查：空tenant、空project和坏orchestrator三类均零执行失败关闭；调度控制、Agent流水线与LangGraph关联`14 passed`，Python编译与diff门禁通过。
 - 第一百零一项稽查首败与整改：AgentScheduler的run/remediation接受空ID并伪装不存在，schedule_remediation只检查重复ID，可登记空instruction/root task/developer、空issues或非法round。现控制查找与整改登记在共享表访问前验证完整可追溯契约。
 - 第一百零一项自动测试与稽查：空run、空remediation ID及空instruction动态失败关闭；调度控制、Agent流水线与协作集成关联`11 passed`，Python编译与diff门禁通过。
+- 第一百零二项稽查首败与整改：PluginRecord自身校验必填字段，但Registry.discover在查重前不规范化，其他get/transition/upgrade/rollback也接受空或空白ID并伪装未发现；坏控制请求无法区分。现所有生命周期边界在注册表访问前统一strip并验证身份、版本及目标。
+- 第一百零二项自动测试与稽查：六类匿名发现/读取/转换/升级/回滚动态失败关闭；插件生命周期与Agent管理API关联`10 passed`，Python编译与diff门禁通过。

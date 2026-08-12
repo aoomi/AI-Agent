@@ -41,6 +41,15 @@ class PluginRegistryTest(unittest.TestCase):
         self.assertEqual(registry.upgrade("plugin-a", "2.0.0").version, "2.0.0")
         self.assertEqual(registry.rollback("plugin-a").version, "1.0.0")
 
+    def test_anonymous_plugin_controls_are_rejected_before_registry_access(self) -> None:
+        registry=PluginRegistry()
+        for operation in (
+            lambda:registry.discover("", "1.0"), lambda:registry.discover("plugin", ""),
+            lambda:registry.get(""), lambda:registry.transition("", "enabled"),
+            lambda:registry.upgrade("", "2.0"), lambda:registry.rollback(""),
+        ):
+            with self.assertRaisesRegex(PluginLifecycleError, "required"):operation()
+
 
 if __name__ == "__main__":
     unittest.main()

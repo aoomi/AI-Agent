@@ -38,11 +38,15 @@ class PluginRegistry:
         self._lock = RLock()
 
     def discover(self, plugin_id: str, version: str) -> PluginRecord:
+        plugin_id, version = plugin_id.strip(), version.strip()
+        if not plugin_id or not version:raise PluginLifecycleError("plugin_id and version are required")
         with self._lock:
             if plugin_id in self._plugins: raise PluginLifecycleError("plugin already discovered")
             record = PluginRecord(plugin_id, version); self._plugins[plugin_id] = record; self._history[plugin_id] = [record]; return record
 
     def transition(self, plugin_id: str, target: str) -> PluginRecord:
+        plugin_id, target = plugin_id.strip(), target.strip()
+        if not plugin_id or not target:raise PluginLifecycleError("plugin lifecycle identity is required")
         with self._lock:
             current = self.get(plugin_id)
             if (current.status, target) not in TRANSITIONS: raise PluginLifecycleError("plugin lifecycle transition is forbidden")
@@ -52,12 +56,16 @@ class PluginRegistry:
         with self._lock: return tuple(sorted(self._plugins.values(), key=lambda item: item.plugin_id))
 
     def upgrade(self, plugin_id: str, version: str) -> PluginRecord:
+        plugin_id, version = plugin_id.strip(), version.strip()
+        if not plugin_id or not version:raise PluginLifecycleError("plugin_id and version are required")
         with self._lock:
             current = self.get(plugin_id)
             if current.status not in {"installed", "disabled"} or not version.strip() or version == current.version: raise PluginLifecycleError("plugin upgrade is forbidden")
             updated = replace(current, version=version.strip(), status="installed"); self._plugins[plugin_id] = updated; self._history[plugin_id].append(updated); return updated
 
     def rollback(self, plugin_id: str) -> PluginRecord:
+        plugin_id = plugin_id.strip()
+        if not plugin_id:raise PluginLifecycleError("plugin_id is required")
         with self._lock:
             current = self.get(plugin_id)
             if current.status not in {"installed", "disabled"}: raise PluginLifecycleError("plugin rollback is forbidden")
@@ -66,6 +74,8 @@ class PluginRegistry:
             updated = PluginRecord(plugin_id, previous.version, "installed"); self._plugins[plugin_id] = updated; self._history[plugin_id].append(updated); return updated
 
     def get(self, plugin_id: str) -> PluginRecord:
+        plugin_id = plugin_id.strip()
+        if not plugin_id:raise PluginLifecycleError("plugin_id is required")
         with self._lock:
             try: return self._plugins[plugin_id]
             except KeyError as error: raise PluginLifecycleError("plugin is not discovered") from error
