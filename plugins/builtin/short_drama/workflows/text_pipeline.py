@@ -89,5 +89,8 @@ class TextPipeline:
 
     @staticmethod
     def _require_node(artifact: TextArtifact, expected: str) -> None:
-        if not isinstance(artifact,TextArtifact) or artifact.node_type != expected:
+        if not isinstance(artifact,TextArtifact) or artifact.node_type != expected or not isinstance(artifact.content,Mapping) or not artifact.content or artifact.media_type != "application/json":
             raise TextPipelineError(f"expected {expected} artifact")
+        try:canonical=json.dumps(dict(artifact.content),ensure_ascii=False,sort_keys=True,separators=(",",":"),allow_nan=False)
+        except (TypeError,ValueError) as error:raise TextPipelineError(f"expected {expected} artifact") from error
+        if not isinstance(artifact.checksum_sha256,str) or artifact.checksum_sha256 != sha256(canonical.encode("utf-8")).hexdigest():raise TextPipelineError(f"expected {expected} artifact")

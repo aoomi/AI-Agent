@@ -70,6 +70,8 @@ class TextPipelineTest(unittest.TestCase):
             def generate(self,*_):return []
         with self.assertRaises(MODULE.TextPipelineError):MODULE.TextPipeline(Invalid()).outline(requirements)
         with self.assertRaises(MODULE.TextPipelineError):pipeline.outline(object())
+        for artifact in (MODULE.TextArtifact("requirements",{"title":"t"},"bad"),MODULE.TextArtifact("requirements",{},"a"*64),MODULE.TextArtifact("requirements",{"title":"t"},"a"*64,"text/plain")):
+            with self.subTest(artifact=artifact),self.assertRaises(MODULE.TextPipelineError):pipeline.outline(artifact)
 
 
 if __name__ == "__main__": unittest.main()

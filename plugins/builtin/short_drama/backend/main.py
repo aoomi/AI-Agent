@@ -82,7 +82,9 @@ class ShortDramaBackend:
         return NodeOutput(exported.content, exported.media_type)
 
     def _read_text(self, paths: Mapping[str, str], key: str, node: str) -> TextArtifact:
-        return TextArtifact(node, self._read_json(paths, key), "")
+        content = self._read_json(paths, key)
+        canonical = json.dumps(dict(content), ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return TextArtifact(node, content, sha256(canonical.encode("utf-8")).hexdigest())
 
     def _read_media(self, paths: Mapping[str, str], key: str) -> MediaArtifact:
         data = self._read_json(paths, key)

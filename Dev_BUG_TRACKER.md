@@ -3611,3 +3611,4 @@
 - BUG072 / M9.198 / 架构横向稽查第三百零八项（已关闭，2026-08-12）：TextPipeline正式调用`short_drama.asset_catalog`，但ShortDramaProviderBindings既未把它登记为必需能力，也把其对象响应误入媒体数组解析，授权provider链无法完成大纲至资产目录。现能力清单与文本响应路由同步登记asset_catalog，并补授权registry动态验证。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百零九项（已关闭，2026-08-12）：ShortDramaProviderBindings公共调用对未知能力直接泄漏KeyError，并允许非Mapping输入延迟到递归/adapter层。现统一invoke边界只接受已登记必需能力和Mapping输入，未知能力与数组请求以领域错误失败关闭。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百一十项（已关闭，2026-08-12）：兼容ShortDramaPipeline把任意artifact键值强制字符串化，数字键可碰撞/未知阶段可进入runner；初始与runner输出也在属性访问前缺少NodeOutput门禁。现阶段输入只接受canonical字符串路径，两个输出入口强制非空bytes与媒体类型；伪键值和伪输出动态失败关闭。关联回归、Python编译与diff门禁通过。
+- BUG072 / M9.198 / 架构横向稽查第三百一十一项（已关闭，2026-08-12）：TextPipeline上游只核对TextArtifact节点名，伪造空content、媒体类型或checksum即可把未发布事实送入下一provider。现每阶段重新验证标准JSON内容、固定媒体类型及规范化SHA-256；三类伪artifact动态失败关闭。关联回归、Python编译与diff门禁通过。
