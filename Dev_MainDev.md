@@ -1220,3 +1220,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百一十七项：插件网络沙箱已拒绝URL凭据、fragment和非443端口，进程命令仅接受list/tuple；任意Sequence或授权主机上的危险URL变体不能绕过broker。安全关联`3 passed`、`12 subtests passed`。
 - BUG072第二百一十八项：内存worker路由已验证字符串endpoint，并要求同generation不得改变service/resource/capacity/endpoint拓扑；节点配置变更必须显式提升代际。发现关联`7 passed`、`39 subtests passed`。
 - BUG072第二百一十九项：SQLite WorkerRegistry已同步Path库、字符串service/endpoint及同generation拓扑不变契约，跨实例发现与内存路由使用相同代际围栏。发现关联`8 passed`、`40 subtests passed`。
+- BUG072第二百二十项：插件签名验证器返回值已强制真实布尔，整数1等真值不能冒充密码学验签成功。安全关联`5 passed`、`9 subtests passed`。

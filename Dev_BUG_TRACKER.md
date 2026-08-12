@@ -3454,3 +3454,5 @@
 - 第二百一十八项自动测试与稽查：数字endpoint和同代capacity变更动态拒绝，升代变更成功；worker发现关联`7 passed`（另`39 subtests passed`），Python编译与diff门禁通过。
 - 第二百一十九项稽查首败与整改：SQLite WorkerRegistry仍未验证database Path、service_scope/endpoint，且同generation可覆盖拓扑，与内存WorkloadRouter代际契约不一致。现持久发现入口同步严格围栏。
 - 第二百一十九项自动测试与稽查：字符串database、数字service/endpoint及同代endpoint变更动态拒绝，升代变更成功；跨实例发现关联`8 passed`（另`40 subtests passed`），Python编译与diff门禁通过。
+- 第二百二十项稽查首败与整改：PluginInstallVerifier仅以真值判断SignatureVerifier结果，整数1或任意truthy对象可被当成签名有效。现密码学验证边界只接受显式`True`。
+- 第二百二十项自动测试与稽查：整数验签结果动态失败关闭；插件签名与完整性关联`5 passed`（另`9 subtests passed`），Python编译与diff门禁通过。

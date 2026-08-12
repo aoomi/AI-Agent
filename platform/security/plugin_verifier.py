@@ -27,7 +27,8 @@ class PluginInstallVerifier:
   except OSError as error:raise PluginVerificationError("plugin package is unreadable") from error
   if sha256(content).hexdigest()!=request.package_sha256:raise PluginVerificationError("plugin package integrity mismatch")
   if sha256(request.manifest_bytes).hexdigest()!=request.manifest_sha256:raise PluginVerificationError("plugin manifest integrity mismatch")
-  if not self.signatures.verify(algorithm=request.algorithm,key_id=request.key_id,signature_base64=request.signature_base64,payload=request.manifest_bytes):raise PluginVerificationError("plugin signature is invalid")
+  verified=self.signatures.verify(algorithm=request.algorithm,key_id=request.key_id,signature_base64=request.signature_base64,payload=request.manifest_bytes)
+  if not isinstance(verified,bool) or not verified:raise PluginVerificationError("plugin signature is invalid")
   if self._version(self.platform_version)<self._version(request.minimum_platform_version):raise PluginVerificationError("plugin requires a newer platform version")
   denied=set(request.permissions)-self.allowed_permissions
   if denied:raise PluginVerificationError(f"plugin permissions are not authorized: {sorted(denied)}")
