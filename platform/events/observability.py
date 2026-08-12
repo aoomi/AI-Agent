@@ -105,7 +105,10 @@ class JsonLinesExporter:
             raise ObservabilityError("export record contains secrets")
         if kind == "metrics_snapshot":
             _validate_metrics_snapshot(record)
-        line = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        try:
+            line = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        except (TypeError, ValueError) as error:
+            raise ObservabilityError("export record must be standard JSON") from error
         with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as sink:
@@ -179,7 +182,10 @@ class StructuredLogger:
             "event": event,
             **dict(fields),
         }
-        line = json.dumps(record, ensure_ascii=False, sort_keys=True)
+        try:
+            line = json.dumps(record, ensure_ascii=False, sort_keys=True, allow_nan=False)
+        except (TypeError, ValueError) as error:
+            raise ObservabilityError("log record must be standard JSON") from error
         with self._lock:
             self.sink.write(line + "\n")
             self.exporter.export("log", record)

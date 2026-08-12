@@ -3466,3 +3466,5 @@
 - 第二百二十四项自动测试与稽查：内存与SQLite两种发现实现的同时标冲突负载重放均保持首个权威快照；关联回归、Python编译与diff门禁通过。
 - 第二百二十五项稽查首败与整改：TaskLeaseRepository构造直接调用运行时database.resolve，与其他SQLite权威仓储的Path契约不一致。现在任何目录或SQLite副作用前失败关闭。
 - 第二百二十五项自动测试与稽查：字符串伪数据库路径动态拒绝；租约数值契约与生产控制关联回归、Python编译与diff门禁通过。
+- 第二百二十六项稽查首败与整改：持久JsonLinesExporter与StructuredLogger使用json.dumps默认行为，会输出非标准NaN/Infinity，并将任意对象序列化异常泄漏给调用方。现两条路径在任何sink/文件副作用前统一失败关闭。
+- 第二百二十六项自动测试与稽查：NaN/Infinity及任意对象日志/导出动态拒绝且不创建文件；可观测性关联回归、Python编译与diff门禁通过。

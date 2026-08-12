@@ -25,6 +25,15 @@ class ObservabilityTest(unittest.TestCase):
   for fields in ({"prompt":"商业核心提示"},{"message":"Bearer abcdefghijklmnop"},{"value":"13800138000"},{"credential":"opaque"}):
    with self.assertRaises(ObservabilityError):StructuredLogger(io.StringIO()).emit("info","x",fields)
   self.assertEqual(StructuredLogger(io.StringIO()).emit("info","x",{"message":"completed 138 tasks"})["event"],"x")
+ def test_logs_and_jsonl_exports_reject_non_standard_json(self):
+  sink=io.StringIO()
+  for fields in ({"value":float("nan")},{"value":object()}):
+   with self.subTest(fields=fields),self.assertRaisesRegex(ObservabilityError,"standard JSON"):StructuredLogger(sink).emit("info","x",fields)
+  with tempfile.TemporaryDirectory() as directory:
+   target=Path(directory)/"events.jsonl";exporter=JsonLinesExporter(target)
+   for record in ({"value":float("inf")},{"value":object()}):
+    with self.subTest(record=record),self.assertRaisesRegex(ObservabilityError,"standard JSON"):exporter.export("log",record)
+   self.assertFalse(target.exists())
  def test_durable_exporters_and_correlation(self):
   with tempfile.TemporaryDirectory() as directory:
    events=Path(directory)/"events.jsonl";metrics_file=Path(directory)/"metrics.prom"
