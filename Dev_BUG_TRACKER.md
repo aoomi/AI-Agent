@@ -3552,3 +3552,5 @@
 - 第二百六十七项自动测试与稽查：能力与扩展注册后嵌套region篡改动态隔离；热插拔、扩展契约与生产控制关联回归、Python编译及diff门禁通过。
 - 第二百六十八项稽查首败与整改：AgentContext、协作证据metadata及会话context只冻结顶层，跨智能体共享后调用方仍可篡改嵌套事实。现三条边界均以标准JSON规范化结果建立独立深快照。
 - 第二百六十八项自动测试与稽查：AgentContext嵌套state在更新后篡改动态隔离；上下文、协作与会话关联回归、Python编译及diff门禁通过。
+- 第二百六十九项稽查首败与整改：会话proposal requested_changes虽冻结顶层，模型返回对象仍可在提案持久后改写嵌套审批内容。现proposal也使用已验证标准JSON的独立深快照，并补证会话context隔离。
+- 第二百六十九项自动测试与稽查：调用方context及模型proposal嵌套steps在发布后篡改均被隔离；Agent会话、配置确认与记忆关联回归、Python编译及diff门禁通过。

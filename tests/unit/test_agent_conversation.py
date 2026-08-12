@@ -166,6 +166,18 @@ class AgentConversationServiceTest(unittest.TestCase):
                 candidate.send(session.session_id,"change","owner")
             self.assertEqual(candidate.proposals(session.session_id,"owner"),())
 
+    def test_context_and_proposal_deeply_snapshot_model_and_caller_values(self) -> None:
+        skill,agent=self.configured()
+        context={"project_id":"project","routing":{"steps":["local"]}}
+        requested={"approval":{"steps":["review"]}}
+        client=ModelClient({"reply":"proposal","proposal":{"proposal_type":"configuration_change","requested_changes":requested}})
+        service=AgentConversationService(self.models,self.configurations,client);service.bind(agent,skill)
+        session=service.open_session(agent.agent_id,"owner",context)
+        _,proposal=service.send(session.session_id,"change","owner")
+        context["routing"]["steps"][0]="forged";requested["approval"]["steps"][0]="forged"
+        self.assertEqual(session.context["routing"]["steps"][0],"local")
+        self.assertEqual(proposal.requested_changes["approval"]["steps"][0],"review")
+
     def test_memory_store_does_not_publish_failed_file_update(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "memory.json"

@@ -303,8 +303,9 @@ class AgentConversationService:
         requested = dict(requested)
         if self._contains_sensitive_key(requested): raise ConversationError("proposal requested_changes contain sensitive fields")
         if plan and "plan" not in requested: requested["plan"] = list(plan)
-        try:json.dumps(requested,allow_nan=False)
+        try:canonical_requested=json.dumps(requested,allow_nan=False)
         except (TypeError,ValueError) as error:raise ConversationError("proposal requested_changes must be standard JSON") from error
+        requested=json.loads(canonical_requested)
         if configuration.role in {"tester", "inspector"} and proposal_type == "task_execution" and requested.get("read_only") is not True:
             raise ConversationError(f"{configuration.role} task proposal must be read-only")
         proposal = ConversationProposal(f"proposal-{uuid4().hex}", session.session_id, session.agent_id, proposal_type, "pending_confirmation", MappingProxyType(dict(requested)), True, self._now())

@@ -1269,3 +1269,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百六十六项：ModelDefinition与AgentConfiguration settings已由标准JSON规范化结果生成独立深快照，注册后不能绕过模型注册或智能体版本历史篡改嵌套配置。
 - BUG072第二百六十七项：ProductionCapability/Extension metadata已由标准JSON规范化结果生成独立深快照，注册后不能绕过replace/inflight保护篡改嵌套生产绑定。
 - BUG072第二百六十八项：AgentContext、协作证据metadata与会话context已由标准JSON规范化结果生成独立深快照，共享后调用方不能篡改嵌套事实。
+- BUG072第二百六十九项：会话proposal requested_changes已由标准JSON规范化结果生成独立深快照，模型返回对象不能在提案持久后篡改嵌套审批内容。
