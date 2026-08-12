@@ -3246,3 +3246,5 @@
 - 第一百一十四项自动测试与稽查：匿名读取/历史及三类非法版本动态失败关闭；Agent配置和会话关联`22 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
 - 第一百一十五项稽查首败与整改：ResourceScheduler.claim只比较estimated_memory<0，布尔和浮点可进入资源票据；timeout也接受零、负数或布尔值，制造立即超时或含混等待。现内存估算强制非负整数、超时强制正数，均在队列追加前失败关闭。
 - 第一百一十五项自动测试与稽查：两类非法memory及三类非法timeout动态拒绝，调度快照保持零排队；资源调度与生产控制关联`99 passed`（另`11 subtests passed`），Python编译与diff门禁通过。
+- 第一百一十六项稽查首败与整改：ProviderAuditLedger只比较指标<0，布尔/浮点可成为token、耗时或成本；request非Mapping延迟到dict转换，artifact_ids与checksums也可长度错位或为空。现四类指标、请求结构及产物证明在哈希和账本追加前完整验证。
+- 第一百一十六项自动测试与稽查：三类非法指标、非Mapping请求、错位及空产物证明动态失败关闭；Provider审计关联`5 passed`（另`3 subtests passed`），Python编译与diff门禁通过。

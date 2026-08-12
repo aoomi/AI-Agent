@@ -19,7 +19,11 @@ class ProviderAuditLedger:
         if not all(str(value).strip() for value in (tenant_id,user_id,project_id)):raise ProviderAuditError("audit owner scope is required")
         if not str(provider_id).strip() or not str(capability).strip():raise ProviderAuditError("audit provider and capability are required")
         if status not in {"completed","failed","cancelled"}:raise ProviderAuditError("audit status is invalid")
-        if any(value<0 for value in (input_tokens,output_tokens,duration_ms,cost_microunits)):raise ProviderAuditError("audit metrics cannot be negative")
+        metrics=(input_tokens,output_tokens,duration_ms,cost_microunits)
+        if any(isinstance(value,bool) or not isinstance(value,int) or value<0 for value in metrics):raise ProviderAuditError("audit metrics must be non-negative integers")
+        if not isinstance(request,Mapping):raise ProviderAuditError("audit request must be a mapping")
+        if len(artifact_ids)!=len(artifact_checksums):raise ProviderAuditError("audit artifact identifiers and checksums must align")
+        if any(not str(value).strip() for value in (*artifact_ids,*artifact_checksums)):raise ProviderAuditError("audit artifact identifiers and checksums are required")
         forbidden={"api_key","secret","token","password","credential","authorization"}
         def contains_secret(value:Any)->bool:
             if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
