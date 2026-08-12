@@ -3114,3 +3114,5 @@
 - 第三十六项自动测试与稽查：Skill发现、映射与平台启动关联`10 passed`；Python编译与diff门禁通过。只读确认坏manifest不会发布半成品注册表。
 - 第三十七项稽查首败与整改：AgentContextStore与CollaborationContextStore被串并行调度器多线程共享，但create/update/get均无锁；并行agent及开发/稽查写读可碰撞、丢字段或在构造快照时观察半更新。现两类store各自用RLock覆盖创建、更新和不可变快照读取，校验与提交在同一临界区。
 - 第三十七项自动测试与稽查：上下文、协作、并行调度、集成流水线及作用域安全关联`13 passed`（另`3 subtests passed`）；Python编译与diff门禁通过。
+- 第三十八项稽查首败与整改：AgentRegistry全局/项目机器人注册及状态更新无锁；并发注册同Skill可产生两个实例、映射不一致，且scoped机器人状态更新原只写`_by_id`，实际不会更新scoped索引。现统一RLock覆盖注册、解析和状态更新，并按实例类型同步正确索引。
+- 第三十八项自动测试与稽查：Agent注册、调度、流水线与平台启动关联`13 passed`；Python编译与diff门禁通过。只读确认全局和scoped索引更新分支互斥且内部get可重入。
