@@ -3290,3 +3290,5 @@
 - 第一百三十六项自动测试与稽查：字符串/重复能力、userinfo URL、布尔timeout及列表settings动态失败关闭；专项`1 passed`（另`5 subtests passed`），Python编译与diff门禁通过。
 - 第一百三十七项稽查首败与整改：ProviderAdapterDefinition未逐项验证capability，timeout/enabled/settings接受伪类型，invoke非Mapping输入会在secret解析后才失败。现定义与调用契约均在注册或外部副作用前失败关闭。
 - 第一百三十七项自动测试与稽查：空能力、布尔timeout、整数enabled、列表settings和列表inputs动态拒绝；Provider与短剧绑定关联`12 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
+- 第一百三十八项稽查首败与整改：LangGraphOrchestrator未验证checkpointer协议，compile max_attempts/require_approval、invoke inputs及resume approved接受伪类型，错误会延迟到Graph构建或执行。现构造、编译和线程控制在副作用前完整失败关闭。
+- 第一百三十八项自动测试与稽查：坏checkpointer、布尔attempts、整数approval、列表inputs动态拒绝；Graph关联`6 passed`（另`4 subtests passed`），Python编译与diff门禁通过。
