@@ -55,3 +55,6 @@ def test_server_stage_commit_wires_composition_audit_and_export_authorities():
     assert 'result.get("operation") in {"audit", "export"}' in block
     assert "PRODUCTION_LEDGER.commit_stage_authorities(records, commit_callback=commit_graph_authority)" in block
     assert '"authority_batch_id":batch_id' in block
+    assert 'manifest_payload["authority"]' in block
+    assert '"manifest_fingerprint":manifest_fingerprint' in block
+    assert '"export_content_fingerprint":"sha256-" + hashlib.sha256(target.read_bytes()).hexdigest()' in backend
