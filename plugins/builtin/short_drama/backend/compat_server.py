@@ -5116,7 +5116,12 @@ def _recover_video_jobs() -> None:
         ACTIVE_VIDEO_JOBS.clear(); ACTIVE_VIDEO_SUBJECTS.clear(); ACTIVE_VIDEO_PROCESSES.clear()
         store = _load_video_jobs(); changed = False
         for job_id, job in store.get("jobs", {}).items():
-            if job.get("status") in {"generating", "waiting_memory"}:
+            if job.get("status") == "waiting_memory":
+                # This is a durable queued substate, not an interrupted model
+                # lifecycle. Keep it queued so the monitor can re-admit it only
+                # after the post-restart Comfy release gate is proven open.
+                job.update({"stage":"queued", "heartbeat_at":_iso_now(), "pid":None, "process_group":None}); changed = True
+            elif job.get("status") == "generating":
                 if _cancel_job_comfy_prompts(job):
                     job.update({"status":"failed", "stage":"failed", "error":"服务重启已回收视频任务，请重新生成", "finished_at":_iso_now(), "pid":None, "process_group":None}); changed = True
                 else:

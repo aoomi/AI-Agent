@@ -42,3 +42,16 @@ def test_waiting_memory_remains_task_state_and_projects_to_graph_queue():
     source = BACKEND.read_text(encoding="utf-8")
     assert '"waiting_memory":"queued"' in source
     assert 'status = "generating" if ready and _waiting_video_release_window_open() else "waiting_memory"' in source
+
+
+def test_restart_preserves_waiting_memory_for_release_gated_readmission(monkeypatch, tmp_path):
+    module = load_backend("waiting_video_restart")
+    module.VIDEO_JOBS_FILE = tmp_path / "video-jobs.json"
+    module.TASK_REPOSITORIES = {}
+    module.ACTIVE_VIDEO_JOBS = set(); module.ACTIVE_VIDEO_SUBJECTS = {}; module.ACTIVE_VIDEO_PROCESSES = {}
+    module._save_video_jobs({"jobs":{"waiting":{"job_id":"waiting", "status":"waiting_memory", "stage":"queued", "request":{"tenant_id":"t", "user_id":"u", "project_id":"p"}}}})
+    monkeypatch.setattr(module, "_cancel_job_comfy_prompts", lambda _job: (_ for _ in ()).throw(AssertionError("waiter is not a prompt lifecycle")))
+    module._recover_video_jobs()
+    recovered = module._load_video_jobs()["jobs"]["waiting"]
+    assert recovered["status"] == "waiting_memory"
+    assert recovered["stage"] == "queued"
