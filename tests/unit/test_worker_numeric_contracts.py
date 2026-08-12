@@ -35,6 +35,16 @@ class WorkerNumericContractTest(unittest.TestCase):
                 with self.subTest(operation=operation), self.assertRaises(WorkloadRoutingError):
                     operation()
 
+    def test_registry_reservation_identity_controls_require_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            registry=WorkerRegistry(Path(directory)/"workers.db")
+            for operation in (
+                lambda:registry.reserve(1,"video"),lambda:registry.reserve("request",1),
+                lambda:registry.reserve("request","video",service_scope=1),
+                lambda:registry.reserve("request","video",owner_scope=1),lambda:registry.release_reservation(1),
+            ):
+                with self.subTest(operation=operation),self.assertRaises(WorkloadRoutingError):operation()
+
     def test_heartbeat_rejects_pseudo_numeric_snapshots(self) -> None:
         router=WorkloadRouter()
         with tempfile.TemporaryDirectory() as directory:

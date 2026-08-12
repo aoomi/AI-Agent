@@ -84,7 +84,9 @@ class WorkerRegistry:
                 owner_scope: str = "",
                 now: float | None = None) -> WorkerSnapshot:
         """Atomically reserve one dispatch slot across all registry instances."""
-        request_id, resource_class = str(request_id).strip(), str(resource_class).strip()
+        if any(not isinstance(value,str) for value in (request_id,resource_class,service_scope,owner_scope)):
+            raise WorkloadRoutingError("invalid worker reservation")
+        request_id, resource_class, service_scope, owner_scope = (value.strip() for value in (request_id,resource_class,service_scope,owner_scope))
         if (not request_id or not resource_class
                 or isinstance(estimated_memory,bool) or not isinstance(estimated_memory,int) or estimated_memory < 0
                 or isinstance(heartbeat_timeout,bool) or not isinstance(heartbeat_timeout,(int,float)) or not math.isfinite(heartbeat_timeout) or heartbeat_timeout <= 0
@@ -138,7 +140,8 @@ class WorkerRegistry:
                 connection.rollback(); raise
 
     def release_reservation(self, request_id: str) -> bool:
-        request_id = str(request_id).strip()
+        if not isinstance(request_id,str):raise WorkloadRoutingError("invalid worker reservation release")
+        request_id = request_id.strip()
         if not request_id: raise WorkloadRoutingError("invalid worker reservation release")
         with sqlite3.connect(self.database, timeout=30) as connection:
             result = connection.execute("DELETE FROM worker_reservations WHERE request_id=?", (request_id,))
