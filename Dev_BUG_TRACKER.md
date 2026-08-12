@@ -3476,3 +3476,5 @@
 - 第二百二十九项自动测试与稽查：NaN及任意对象settings动态拒绝；模型定义与注册关联回归、Python编译与diff门禁通过。
 - 第二百三十项稽查首败与整改：ProviderService仅验证settings Mapping和敏感键，NaN与任意对象可被写入提供方配置并在API序列化时才失败。现注册/替换前必须通过标准JSON门禁。
 - 第二百三十项自动测试与稽查：NaN及任意对象settings动态拒绝；Provider配置与生产集成关联回归、Python编译与diff门禁通过。
+- 第二百三十一项稽查首败与整改：ProviderAdapterDefinition仍可接受NaN和任意对象settings，与ProviderService的严格配置契约分叉。现适配器注册也在进入共享表前强制标准JSON。
+- 第二百三十一项自动测试与稽查：NaN及任意对象adapter settings动态拒绝；Provider适配与短剧绑定关联回归、Python编译与diff门禁通过。

@@ -32,6 +32,10 @@ class ProviderAdapterRegistryTest(unittest.TestCase):
     def test_nested_adapter_settings_reject_credentials(self):
         with self.assertRaisesRegex(ProviderAdapterError,"secrets"):
             ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30,settings={"transport":{"headers":[{"authorization":"Bearer hidden"}]}})
+    def test_adapter_settings_require_standard_json(self):
+        for settings in ({"value":float("nan")},{"value":object()}):
+            with self.subTest(settings=settings),self.assertRaisesRegex(ProviderAdapterError,"standard JSON"):
+                ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30,settings=settings)
     def test_registry_rejects_invalid_provider_control_contracts(self):
         with self.assertRaisesRegex(ProviderAdapterError,"resolver contract"):ProviderAdapterRegistry(object())
         registry=ProviderAdapterRegistry(Secrets());definition=ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30)

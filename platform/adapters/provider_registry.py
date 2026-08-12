@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from threading import RLock
 from typing import Any, Mapping, Protocol
+import json
 
 class ProviderAdapterError(ValueError): pass
 
@@ -38,6 +39,8 @@ class ProviderAdapterDefinition:
             if isinstance(value,(list,tuple)):return any(contains_secret(item) for item in value)
             return False
         if contains_secret(self.settings or {}):raise ProviderAdapterError("provider settings cannot contain secrets")
+        try:json.dumps(dict(self.settings or {}),allow_nan=False)
+        except (TypeError,ValueError) as error:raise ProviderAdapterError("provider settings must be standard JSON") from error
         object.__setattr__(self,"settings",MappingProxyType(dict(self.settings or {})))
 
 @dataclass(frozen=True, slots=True)
