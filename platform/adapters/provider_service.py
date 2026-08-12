@@ -20,8 +20,9 @@ class ProviderService:
         if checker is not None and not callable(getattr(checker,"check",None)):raise ProviderServiceError("provider health checker contract is invalid")
         self.checker=checker;self.configurations={};self.health={};self._lock=RLock()
     def register(self,*,provider_id:str,display_name:str,kind:str,endpoint:str,secret_reference:str,capabilities:tuple[str,...],enabled:bool=True,timeout_seconds:int=60,settings:Mapping[str,Any]|None=None)->ProviderConfiguration:
-        if isinstance(capabilities,(str,bytes)) or not isinstance(capabilities,(tuple,list,set,frozenset)) or any(not isinstance(value,str) for value in capabilities):raise ProviderServiceError("provider configuration is invalid")
-        provider_id,display_name,kind,endpoint,secret_reference=(str(value).strip() for value in (provider_id,display_name,kind,endpoint,secret_reference));capabilities=tuple(value.strip() for value in capabilities)
+        if (any(not isinstance(value,str) for value in (provider_id,display_name,kind,endpoint,secret_reference))
+            or isinstance(capabilities,(str,bytes)) or not isinstance(capabilities,(tuple,list,set,frozenset)) or any(not isinstance(value,str) for value in capabilities)):raise ProviderServiceError("provider configuration is invalid")
+        provider_id,display_name,kind,endpoint,secret_reference=(value.strip() for value in (provider_id,display_name,kind,endpoint,secret_reference));capabilities=tuple(value.strip() for value in capabilities)
         parsed=urlparse(endpoint);local_http=parsed.scheme=="http" and parsed.hostname in {"127.0.0.1","localhost","::1"}
         valid_https=parsed.scheme=="https" and bool(parsed.hostname) and not parsed.username and not parsed.password and not parsed.fragment
         if (not provider_id or not display_name or kind not in {"model","text","image","video","audio"} or not (valid_https or local_http)
@@ -38,6 +39,7 @@ class ProviderService:
             if provider_id in self.configurations:raise ProviderServiceError("provider already exists")
             now=self._now();item=ProviderConfiguration(provider_id,display_name,kind,endpoint,secret_reference,capabilities,enabled,timeout_seconds,MappingProxyType(dict(settings or {})),now,now);self.configurations[provider_id]=item;self.health[provider_id]=ProviderHealth(provider_id,"unknown",now,None,None,0);return item
     def get(self,provider_id:str)->ProviderConfiguration:
+        if not isinstance(provider_id,str):raise ProviderServiceError("provider id is required")
         provider_id=provider_id.strip()
         if not provider_id:raise ProviderServiceError("provider id is required")
         with self._lock:
@@ -46,6 +48,7 @@ class ProviderService:
     def list(self)->tuple[ProviderConfiguration,...]:
         with self._lock:return tuple(sorted(self.configurations.values(),key=lambda x:x.provider_id))
     def test_connection(self,provider_id:str)->ProviderHealth:
+        if not isinstance(provider_id,str) or not provider_id.strip():raise ProviderServiceError("provider id is required")
         with self._lock:provider=self.get(provider_id);previous=self.health[provider_id]
         if not provider.enabled:item=ProviderHealth(provider_id,"disabled",self._now(),None,None,previous.consecutive_failures)
         elif self.checker is None:raise ProviderServiceError("real provider health checker is not configured")

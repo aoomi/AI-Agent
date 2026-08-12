@@ -3338,3 +3338,5 @@
 - 第一百六十项自动测试与稽查：五类数字scope读写/领取动态失败关闭；持久化关联回归、Python编译与diff门禁通过。
 - 第一百六十一项稽查首败与整改：AgentState直接对agent_id调用strip，transition也直接读取任意state.status；数字或任意对象会泄漏AttributeError。现模型及状态机入口统一验证运行时类型。
 - 第一百六十一项自动测试与稽查：数字agent及任意state对象动态失败关闭；生命周期关联回归、Python编译与diff门禁通过。
+- 第一百六十二项稽查首败与整改：ProviderService注册会把数字身份隐式字符串化，get/test_connection又直接strip，导致写入含混注册键或泄漏AttributeError。现五类身份字段及控制入口均要求真实字符串。
+- 第一百六十二项自动测试与稽查：数字provider注册/读取/探活动态失败关闭；专项关联回归、Python编译与diff门禁通过。
