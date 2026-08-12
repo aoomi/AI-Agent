@@ -4316,7 +4316,7 @@ async function generateAsset3D(kind:"character" | "scene" | "prop", item:Charact
     while (item.model3d_status === "generating") {
       await new Promise(resolve => window.setTimeout(resolve, 1500));
       if (!isCurrentProjectSession(project.id, session)) return;
-      const job = await assetService.status3D<{ status:string; error?:string; result?:Asset3DResult }>(accepted.job_id);
+      const job = await assetService.status3D<{ status:string; error?:string; result?:Asset3DResult }>(accepted.job_id, projectIdentity);
       if (!isCurrentProjectSession(project.id, session)) return;
       if (job.status === "completed" && job.result) { result = job.result; break; }
       if (job.status === "failed") throw new Error(job.error || "3D资产生成失败");

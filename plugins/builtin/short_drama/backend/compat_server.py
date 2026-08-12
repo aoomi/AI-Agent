@@ -8198,9 +8198,13 @@ class Handler(BaseHTTPRequestHandler):
             payload["heartbeat_at"] = datetime.now(UTC).isoformat()
             return self._json(HTTPStatus.OK, payload)
         if parsed.path == "/api/assets/3d/status":
-            job_id = parse_qs(parsed.query).get("job_id", [""])[0]
+            query = parse_qs(parsed.query)
+            job_id = query.get("job_id", [""])[0]
+            identity = {key:query.get(key, [""])[0].strip() for key in ("tenant_id", "user_id", "project_id")}
             job = _load_image_jobs().get("jobs", {}).get(job_id)
-            if not job or job.get("workflow") != "asset_3d":
+            if not all(identity.values()):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_asset_3d_scope"})
+            if not job or job.get("workflow") != "asset_3d" or not _job_matches_scope(job, identity):
                 return self._json(HTTPStatus.NOT_FOUND, {"error":"asset_3d_job_not_found"})
             return self._json(HTTPStatus.OK, dict(job))
         if parsed.path == "/api/projects":

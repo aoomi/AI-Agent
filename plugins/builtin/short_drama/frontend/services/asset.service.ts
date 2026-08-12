@@ -12,7 +12,9 @@ export const assetService = {
   stopImages(body:unknown) { return postJsonIgnoringResponse("/api/images/stop", body); },
   purgeGenerated<T>(body:unknown, signal?:AbortSignal) { return postJson<T>("/api/assets/purge-generated", body, { signal }, "旧图片和任务缓存清理失败"); },
   generate3D<T>(body:unknown, signal?:AbortSignal) { return postJson<T>("/api/assets/3d/generate", body, { signal }, "3D资产生成失败"); },
-  status3D<T>(jobId:string) { return requestJsonOk<T>(`/api/assets/3d/status?job_id=${encodeURIComponent(jobId)}`, undefined, "3D任务状态读取失败"); },
+  status3D<T>(jobId:string, identity:{ tenant_id:string; user_id:string; project_id:string }) {
+    return requestJsonOk<T>(`/api/assets/3d/status?${new URLSearchParams({ job_id:jobId, ...identity })}`, undefined, "3D任务状态读取失败");
+  },
   confirm3D<T>(body:unknown) { return postJson<T>("/api/assets/3d/confirm", body, {}, "3D资产确认归档失败"); },
   stop3D(jobId:string, identity:Record<string, unknown>) { return postJsonIgnoringResponse("/api/images/stop", { ...identity, name:jobId }); },
 };
