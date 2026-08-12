@@ -67,7 +67,7 @@ class ShortDramaPipeline:
         artifacts: dict[str, str] = {}
         next_index = 0
         if initial_requirements is not None:
-            if not initial_requirements.content or not initial_requirements.media_type:
+            if not self._valid_node_output(initial_requirements):
                 raise ShortDramaPipelineError("initial requirements output is empty")
             initial_checkpoint = PipelineCheckpoint(run_id, task_id, context.tenant_id, context.identity_id, project_id, operation_key, "running", 0, {})
             artifact_path = self._artifact_path(initial_checkpoint, "requirements", 1)
@@ -160,8 +160,14 @@ class ShortDramaPipeline:
     def _execute_stage(self, node: str, inputs: Mapping[str, object]) -> Mapping[str, str]:
         artifacts = inputs.get("artifacts")
         if not isinstance(artifacts, Mapping): raise ShortDramaPipelineError("stage artifacts are required")
-        output = self.runners[node]({str(key):str(value) for key, value in artifacts.items()})
+        if any(not isinstance(key,str) or key not in NODES or not isinstance(value,str) or not value for key,value in artifacts.items()): raise ShortDramaPipelineError("stage artifacts are invalid")
+        output = self.runners[node](dict(artifacts))
+        if not self._valid_node_output(output): raise ShortDramaPipelineError(f"{node} returned invalid output")
         return {"content_hex":output.content.hex(), "media_type":output.media_type}
+
+    @staticmethod
+    def _valid_node_output(value: object) -> bool:
+        return isinstance(value,NodeOutput) and isinstance(value.content,bytes) and bool(value.content) and isinstance(value.media_type,str) and bool(value.media_type.strip())
 
     @staticmethod
     def _identity(checkpoint: PipelineCheckpoint) -> dict[str, str]:

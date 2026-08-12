@@ -101,5 +101,15 @@ class ShortDramaPipelineTest(unittest.TestCase):
             with self.subTest(payload=payload),self.assertRaises(ShortDramaPipelineError):
                 self.pipeline.load(self.context,"project-a",waiting.run_id)
 
+    def test_stage_boundaries_reject_pseudo_outputs_and_artifact_keys(self) -> None:
+        with self.assertRaisesRegex(ShortDramaPipelineError,"initial requirements"):
+            self.pipeline.start(self.context,"project-a","bad-initial",object())
+        for inputs in ({"artifacts":{1:"path"}},{"artifacts":{"unknown":"path"}},{"artifacts":{"image":1}}):
+            with self.subTest(inputs=inputs),self.assertRaisesRegex(ShortDramaPipelineError,"artifacts are invalid"):
+                self.pipeline._execute_stage("video",inputs)
+        self.pipeline.runners["video"]=lambda _:object()
+        with self.assertRaisesRegex(ShortDramaPipelineError,"invalid output"):
+            self.pipeline._execute_stage("video",{"artifacts":{"image":"image.bin"}})
+
 
 if __name__ == "__main__": unittest.main()
