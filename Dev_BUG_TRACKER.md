@@ -3354,3 +3354,5 @@
 - 第一百六十八项自动测试与稽查：数字session/tenant/reference动态失败关闭；协作关联回归、Python编译与diff门禁通过。
 - 第一百六十九项稽查首败与整改：atomic_write_json默认允许NaN/Infinity且replace后未同步目录，所谓“crash-safe”不能保证标准JSON或重启后目录项持久。现序列化强制标准JSON，目标/临时前缀失败关闭并同步父目录。
 - 第一百六十九项自动测试与稽查：NaN写入不覆盖旧文件，非法target/prefix动态拒绝；专项回归、Python编译与diff门禁通过。
+- 第一百七十项稽查首败与整改：IndustryWorkflowService广泛使用`str(...)`接受数字workflow/robot/owner/operation，并把任意Iterable转成robot tuple，产生含混共享身份。现所有工作流控制字段均按声明类型严格验证和规范化。
+- 第一百七十项自动测试与稽查：数字身份/操作/机器人及列表robot集合动态失败关闭；专项回归、Python编译与diff门禁通过。
