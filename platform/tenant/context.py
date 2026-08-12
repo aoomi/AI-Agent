@@ -13,6 +13,8 @@ class IdentityContextError(ValueError):
 
 
 def _required(value: str, field_name: str) -> str:
+    if not isinstance(value,str):
+        raise IdentityContextError(f"{field_name} must be a string")
     normalized = value.strip()
     if not normalized:
         raise IdentityContextError(f"{field_name} must not be empty")
@@ -30,7 +32,7 @@ class IdentityContext:
     def __post_init__(self) -> None:
         for field_name in ("request_id", "trace_id", "identity_id", "tenant_id"):
             object.__setattr__(self, field_name, _required(getattr(self, field_name), field_name))
-        normalized_kind = self.identity_kind.strip()
+        normalized_kind = _required(self.identity_kind,"identity_kind")
         if normalized_kind not in IDENTITY_KINDS:
             raise IdentityContextError("identity_kind is not supported")
         object.__setattr__(self, "identity_kind", normalized_kind)

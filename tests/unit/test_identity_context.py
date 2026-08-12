@@ -37,6 +37,12 @@ class IdentityContextTest(unittest.TestCase):
         with self.assertRaisesRegex(IdentityContextError, "tenant scope mismatch"):
             context.require_tenant("tenant-b")
 
+    def test_runtime_identity_types_are_rejected(self) -> None:
+        for values in ((1,"trace","identity","user","tenant"),("request","trace","identity",1,"tenant")):
+            with self.subTest(values=values),self.assertRaises(IdentityContextError):IdentityContext(*values)
+        context=IdentityContext("request","trace","identity","user","tenant")
+        with self.assertRaises(IdentityContextError):context.require_tenant(1)
+
 
 if __name__ == "__main__":
     unittest.main()

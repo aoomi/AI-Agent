@@ -1197,3 +1197,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百九十四项：插件生命周期模型及discover/transition/upgrade/rollback/get入口已统一验证字符串身份，数字伪插件/version/target不会泄漏strip异常或访问共享注册表。插件关联`8 passed`、`8 subtests passed`。
 - BUG072第一百九十五项：OpenAI兼容客户端已验证字符串endpoint/secret、有限timeout、ModelDefinition、消息结构及TransportResponse模型；畸形请求或响应不会进入网络序列化/状态解析。LLM关联`5 passed`、`9 subtests passed`。
 - BUG072第一百九十六项：AgentMapper绑定已验证SkillDefinition/AgentInstance模型及全部字符串身份，双向读取同步拒绝数字ID；畸形映射不会泄漏属性异常或污染一对一索引。映射与注册关联`9 passed`、`4 subtests passed`。
+- BUG072第一百九十七项：IdentityContext构造与tenant围栏已统一验证字符串scope/kind，数字request/kind/tenant不会泄漏strip异常或进入事件、队列作用域。身份关联`27 passed`、`27 subtests passed`。
