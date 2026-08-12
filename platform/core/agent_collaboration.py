@@ -111,6 +111,9 @@ class AgentCollaborationService:
     EVIDENCE_KINDS = frozenset({"file", "test", "log", "artifact"})
 
     def __init__(self, configurations: AgentConfigurationStore, inspection_executor: InspectionExecutor | None, remediation_scheduler: RemediationScheduler | None = None) -> None:
+        if not callable(getattr(configurations,"get",None)):raise AgentCollaborationError("configuration store contract is invalid")
+        if inspection_executor is not None and not callable(getattr(inspection_executor,"inspect",None)):raise AgentCollaborationError("inspection executor contract is invalid")
+        if remediation_scheduler is not None and not callable(getattr(remediation_scheduler,"schedule_remediation",None)):raise AgentCollaborationError("remediation scheduler contract is invalid")
         self.configurations = configurations
         self.inspection_executor = inspection_executor
         self.remediation_scheduler = remediation_scheduler
@@ -138,6 +141,7 @@ class AgentCollaborationService:
         return session
 
     def submit_for_inspection(self, session_id: str, *, task_id: str, context_reference: str, evidence: tuple[Mapping[str, Any], ...] = ()) -> TaskHandoff:
+        if isinstance(evidence,(str,bytes)) or not isinstance(evidence,tuple):raise AgentCollaborationError("inspection evidence must be a tuple")
         task_id = self._required(task_id)[0]
         parsed_evidence = tuple(self._evidence(item) for item in evidence)
         reference = self._safe_reference(context_reference)
@@ -201,6 +205,7 @@ class AgentCollaborationService:
         return handoff, report, remediation
 
     def get_session(self, session_id: str) -> CollaborationSession:
+        session_id=self._required(session_id)[0]
         with self._lock:
             try: return self._sessions[session_id]
             except KeyError as error: raise AgentCollaborationError(f"unknown collaboration session: {session_id}") from error
@@ -223,16 +228,19 @@ class AgentCollaborationService:
         return report
 
     def get_handoff(self, handoff_id: str) -> TaskHandoff:
+        handoff_id=self._required(handoff_id)[0]
         with self._lock:
             try: return self._handoffs[handoff_id]
             except KeyError as error: raise AgentCollaborationError(f"unknown task handoff: {handoff_id}") from error
 
     def get_report(self, report_id: str) -> InspectionReport:
+        report_id=self._required(report_id)[0]
         with self._lock:
             try: return self._reports[report_id]
             except KeyError as error: raise AgentCollaborationError(f"unknown inspection report: {report_id}") from error
 
     def get_instruction(self, instruction_id: str) -> RemediationInstruction:
+        instruction_id=self._required(instruction_id)[0]
         with self._lock:
             try: return self._instructions[instruction_id]
             except KeyError as error: raise AgentCollaborationError(f"unknown remediation instruction: {instruction_id}") from error

@@ -19,6 +19,12 @@ class RemediationScheduler:
 
 
 class AgentCollaborationServiceTest(unittest.TestCase):
+    def test_runtime_dependency_and_identifier_contracts_are_rejected(self) -> None:
+        with self.assertRaisesRegex(AgentCollaborationError,"configuration store"):AgentCollaborationService(object(),None)
+        with self.assertRaisesRegex(AgentCollaborationError,"inspection executor"):AgentCollaborationService(self.configurations,object())
+        service=AgentCollaborationService(self.configurations,None)
+        for operation in (lambda:service.get_session(" "),lambda:service.get_handoff(" "),lambda:service.get_report(" "),lambda:service.get_instruction(" ")):
+            with self.subTest(operation=operation),self.assertRaises(AgentCollaborationError):operation()
     def setUp(self) -> None:
         models = ModelRegistry(); models.register(ModelDefinition.create(model_id="model-1", provider_id="provider-1", display_name="Model", capabilities={"chat", "reasoning", "tool_calling", "structured_output"}, context_window=10000))
         configurations = AgentConfigurationStore(models)

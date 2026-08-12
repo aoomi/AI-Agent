@@ -1148,3 +1148,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百四十五项：Agent/协作上下文update已强制Mapping values/task_states、非空agent及tuple引用集合；畸形共享上下文输入不会进入状态表。上下文/隔离关联`10 passed`、`8 subtests passed`。
 - BUG072第一百四十六项：AgentConfigurationStore已验证ModelRegistry协议、settings Mapping、可选model身份，以及Skill能力/权限逐项非空；畸形配置不会进入版本历史。配置/会话关联`23 passed`、`3 subtests passed`。
 - BUG072第一百四十七项：行业工作流已验证orchestrator compile/invoke协议、changes/inputs/result Mapping及非空thread；畸形运行不会进入active集合或发布伪结果。关联`5 passed`、`4 subtests passed`。
+- BUG072第一百四十八项：开发→稽查协作已验证configuration/inspection/remediation依赖协议、evidence tuple及session/handoff/report/instruction非空身份；畸形控制不会进入共享状态。关联`10 passed`、`12 subtests passed`。

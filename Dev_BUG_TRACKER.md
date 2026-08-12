@@ -3310,3 +3310,5 @@
 - 第一百四十六项自动测试与稽查：坏registry与列表settings动态拒绝；配置和会话关联`23 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
 - 第一百四十七项稽查首败与整改：IndustryWorkflowService不验证orchestrator协议，execute changes/inputs及invoke result依赖Mapping假设，空thread可进入Graph。现构造和run入口在活动状态及真实编排副作用前完整失败关闭。
 - 第一百四十七项自动测试与稽查：坏orchestrator动态拒绝，合法工作流行为保持；行业工作流关联`5 passed`（另`4 subtests passed`），Python编译与diff门禁通过。
+- 第一百四十八项稽查首败与整改：AgentCollaborationService未验证三类依赖协议，submit evidence依赖tuple假设，四类内部查询把空ID伪装unknown。现构造和共享资源查找边界统一失败关闭。
+- 第一百四十八项自动测试与稽查：坏configuration/inspector及四类空ID动态拒绝；协作关联`10 passed`（另`12 subtests passed`），Python编译与diff门禁通过。
