@@ -1060,3 +1060,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第五十七项组合复测：生产控制、跨worker派发证明与持久任务owner矩阵`93 passed`；旧无身份fixture已补齐合法所有者，不再掩盖生产门禁。
 - BUG072第五十八项：持久任务单条upsert已移除重复事务提交，并新增底层执行恰一次契约。
 - BUG072第五十九项：跨worker reservation已持久绑定owner scope，远端在绕过本地调度门禁前直接复核请求body所有者，阻断篡改body复用合法派发证明。
+- BUG072第六十项：TaskLease同generation心跳已强制单调，乱序acquire/renew不能缩短或回滚权威租约。

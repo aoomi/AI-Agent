@@ -48,6 +48,8 @@ class TaskLeaseRepository:
             if current and current["owner_id"] != owner_id and current["lease_expires_at"] > moment:
                 raise TaskLeaseError("task lease already owned")
             if current and current["owner_id"] == owner_id:
+                if moment < float(current["heartbeat_at"]):
+                    raise TaskLeaseError("stale task lease heartbeat")
                 generation = int(current["generation"])
             else:
                 sequence = connection.execute("SELECT generation FROM task_lease_generations WHERE job_id=?", (job_id,)).fetchone()
@@ -63,7 +65,7 @@ class TaskLeaseRepository:
         moment = time.time() if now is None else now
         with self._lock, self._connection() as connection:
             result = connection.execute("""UPDATE task_leases SET lease_expires_at=?,heartbeat_at=?
-                WHERE job_id=? AND owner_id=? AND generation=? AND lease_expires_at>? AND cancel_requested=0""", (moment + ttl, moment, job_id, owner_id, generation, moment))
+                WHERE job_id=? AND owner_id=? AND generation=? AND lease_expires_at>? AND heartbeat_at<=? AND cancel_requested=0""", (moment + ttl, moment, job_id, owner_id, generation, moment, moment))
             return result.rowcount == 1
 
     def release(self, job_id: str, owner_id: str, generation: int) -> bool:

@@ -136,6 +136,15 @@ class ProductionControlTests(unittest.TestCase):
             self.assertFalse(leases.release("job", "worker-a", int(first["generation"])))
             self.assertTrue(leases.owns("job", "worker-b", int(second["generation"]), now=112))
 
+    def test_task_lease_heartbeat_cannot_move_backwards(self):
+        with TemporaryDirectory() as temporary:
+            leases = TaskLeaseRepository(Path(temporary) / "leases.sqlite")
+            lease = leases.acquire("job", "worker", ttl=30, now=100)
+            self.assertFalse(leases.renew("job", "worker", int(lease["generation"]), ttl=30, now=99))
+            with self.assertRaisesRegex(TaskLeaseError, "stale task lease heartbeat"):
+                leases.acquire("job", "worker", ttl=30, now=99)
+            self.assertTrue(leases.owns("job", "worker", int(lease["generation"]), now=105))
+
     def test_task_lease_allows_only_one_concurrent_executor(self):
         with TemporaryDirectory() as temporary:
             database = Path(temporary) / "leases.sqlite"; barrier = threading.Barrier(3); winners = []; conflicts = []
