@@ -11,6 +11,10 @@ class ObservabilityTest(unittest.TestCase):
    with TraceRecorder().span("trace","span","",attributes=[]):pass
   for operation in (lambda:CompositeExporter(1),lambda:JsonLinesExporter("/tmp/unused").export(1,{}),lambda:StructuredLogger(io.StringIO()).emit(1,"event",{}),lambda:MetricsRegistry().increment(1),lambda:TraceRecorder().span(1,"span","name").__enter__(),lambda:AlertEvaluator((object(),)),lambda:AlertEvaluator(()).evaluate([])):
    with self.subTest(operation=operation),self.assertRaises(ObservabilityError):operation()
+  for operation in (lambda:JsonLinesExporter(1),lambda:PrometheusSnapshotExporter(1),lambda:MetricsRegistry().increment("metric",labels=((1,"status"),)),lambda:MetricsRegistry().structured_snapshot(request_id=1),lambda:TraceRecorder(clock=lambda:float("nan")).span("trace","span","name").__enter__()):
+   with self.subTest(operation=operation),self.assertRaises(ObservabilityError):operation()
+  with self.assertRaisesRegex(ObservabilityError,"monotonic"):
+   with TraceRecorder(clock=iter((2.0,1.0)).__next__).span("trace","span","name"):pass
  def test_logs_metrics_and_traces(self):
   sink=io.StringIO();self.assertEqual(StructuredLogger(sink).emit("info","task.completed",{"task_id":"x"})["event"],"task.completed");metrics=MetricsRegistry();metrics.increment("tasks",labels=(("status","completed"),));self.assertEqual(next(iter(metrics.snapshot()["counters"].values())),1);traces=TraceRecorder()
   with traces.span("trace","span","task"):pass

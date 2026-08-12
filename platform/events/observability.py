@@ -54,8 +54,9 @@ def _correlation_fields(fields: Mapping[str, Any]) -> dict[str, str]:
     result: dict[str, str] = {}
     for key in ("request_id", "trace_id"):
         value = fields.get(key)
-        if value is not None and str(value).strip():
-            result[key] = str(value)
+        if value is not None:
+            if not isinstance(value,str) or not value.strip():raise ObservabilityError("correlation identifiers must be strings")
+            result[key] = value.strip()
     return result
 
 
@@ -93,6 +94,7 @@ class JsonLinesExporter:
     """Append-only durable exporter; each write is flushed under a process lock."""
 
     def __init__(self, path: str | Path):
+        if not isinstance(path,(str,Path)):raise ObservabilityError("export path is invalid")
         self.path = Path(path)
         self._lock = RLock()
 
@@ -116,6 +118,7 @@ class PrometheusSnapshotExporter:
     """Atomically publish the latest registry snapshot for textfile scraping."""
 
     def __init__(self, path: str | Path):
+        if not isinstance(path,(str,Path)):raise ObservabilityError("export path is invalid")
         self.path = Path(path)
         self._lock = RLock()
 
@@ -190,7 +193,8 @@ def _normalise_labels(labels: Iterable[tuple[str, Any]]) -> tuple[tuple[str, str
         pairs = tuple(labels)
         if any(not isinstance(item, (list, tuple)) or len(item) != 2 for item in pairs):
             raise ObservabilityError("metric labels must be key-value pairs")
-        normalised = tuple(sorted((str(item[0]), str(item[1])) for item in pairs))
+        if any(not isinstance(item[0],str) or not item[0] for item in pairs):raise ObservabilityError("metric labels must contain string keys")
+        normalised = tuple(sorted((item[0], str(item[1])) for item in pairs))
     except TypeError as error:
         raise ObservabilityError("metric labels must be key-value pairs") from error
     if len({key for key, _ in normalised}) != len(normalised):
@@ -208,7 +212,7 @@ def _validate_metrics_snapshot(record: Mapping[str, Any]) -> None:
         if not isinstance(items, (list, tuple)):
             raise ObservabilityError("metrics snapshot contains an invalid metric collection")
         for item in items:
-            if not isinstance(item, Mapping) or not _METRIC_NAME.fullmatch(str(item.get("name") or "")):
+            if not isinstance(item, Mapping) or not isinstance(item.get("name"),str) or not _METRIC_NAME.fullmatch(item["name"]):
                 raise ObservabilityError("metrics snapshot contains an invalid metric")
             _normalise_labels(item.get("labels", ()))
             _validate_metric_value(item.get("value"))
@@ -295,10 +299,12 @@ class TraceRecorder:
         if any(not isinstance(value,str) for value in (trace_id,span_id,name)) or not trace_id.strip() or not span_id.strip() or not name.strip():
             raise ObservabilityError("trace_id, span_id and name are required")
         if attributes is not None and not isinstance(attributes,Mapping):raise ObservabilityError("span attributes must be a mapping")
+        if request_id is not None and (not isinstance(request_id,str) or not request_id.strip()):raise ObservabilityError("trace request_id is invalid")
         attributes = dict(attributes or {})
         if _contains_secret(attributes):
             raise ObservabilityError("span attributes contain secrets")
         start = self.clock()
+        if isinstance(start,bool) or not isinstance(start,(int,float)) or not math.isfinite(start):raise ObservabilityError("trace clock must be finite")
         status = "ok"
         try:
             yield
@@ -306,7 +312,9 @@ class TraceRecorder:
             status = "error"
             raise
         finally:
-            span = TraceSpan(trace_id, span_id, name, int((self.clock() - start) * 1000), status, request_id, attributes)
+            end=self.clock()
+            if isinstance(end,bool) or not isinstance(end,(int,float)) or not math.isfinite(end) or end < start:raise ObservabilityError("trace clock must be finite and monotonic")
+            span = TraceSpan(trace_id, span_id, name, int((end - start) * 1000), status, request_id.strip() if request_id else None, attributes)
             with self._lock:
                 self.spans.append(span)
                 self.exporter.export("span", asdict(span))

@@ -3438,3 +3438,5 @@
 - 第二百一十项自动测试与稽查：数字issue/agent/mode及任意executor结果动态失败关闭；调度、整改与流水线关联`14 passed`（另`13 subtests passed`），Python编译与diff门禁通过。
 - 第二百一十一项稽查首败与整改：SkillToolGuard.sanitize以`str(key)`接受数字或空Mapping键，改变调用方结构后仍传入真实工具。现输入对象键在递归消毒前严格要求非空字符串。
 - 第二百一十一项自动测试与稽查：数字/空工具输入键动态失败关闭；安全关联`3 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
+- 第二百一十二项稽查首败与整改：Observability以`str(...)`接受数字request/trace和指标名/标签键，导出path不验证，Trace时钟可返回NaN或倒退并写入异常duration。现持久导出相关身份、路径和时间均严格失败关闭。
+- 第二百一十二项自动测试与稽查：坏path、数字关联ID/标签键、NaN及倒退时钟动态拒绝；可观测性关联`8 passed`（另`18 subtests passed`），Python编译与diff门禁通过。
