@@ -1031,3 +1031,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二十九项：独立短剧pipeline检查点已由直接覆盖改为共享崩溃安全原子JSON持久化，避免中断写造成恢复文件截断。关联`7 passed`，只读稽查通过。
 - BUG072第三十项：行业机器人工作流已绑定创建identity，禁止重复ID覆盖，connect/modify/run统一在副作用前验权。集成`2 passed`，只读稽查通过。
 - BUG072第三十一项：通用任务队列幂等键已由tenant+operation提升为tenant+identity+operation，阻断同租户异用户领取任务或制造冲突。队列/服务关联`11 passed`，只读稽查通过。
+- BUG072第三十二项：短剧pipeline任务领取已由tenant宽范围改为tenant+identity精确领取并校验task_id，阻断误领同租户他人任务。关联`19 passed`，只读稽查通过。

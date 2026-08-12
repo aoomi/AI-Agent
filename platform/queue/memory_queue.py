@@ -65,12 +65,15 @@ class InMemoryTaskQueue:
             self._pending.append(task.task_id)
             return task, False
 
-    def claim(self, tenant_id: str) -> QueuedTask | None:
+    def claim(self, tenant_id: str, identity_id: str | None = None) -> QueuedTask | None:
         with self._lock:
             for _ in range(len(self._pending)):
                 task_id = self._pending.popleft()
                 task = self._tasks[task_id]
                 if task.context.tenant_id != tenant_id:
+                    self._pending.append(task_id)
+                    continue
+                if identity_id is not None and task.context.identity_id != identity_id.strip():
                     self._pending.append(task_id)
                     continue
                 claimed = replace(task, status="running")

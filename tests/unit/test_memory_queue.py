@@ -58,6 +58,13 @@ class InMemoryTaskQueueTest(unittest.TestCase):
         with self.assertRaises(IdentityContextError):
             queue.get("task-1", "tenant-b")
 
+    def test_claim_can_be_restricted_to_identity(self) -> None:
+        queue = InMemoryTaskQueue()
+        queue.enqueue(task(task_id="task-1", identity_id="identity-1"))
+        queue.enqueue(task(task_id="task-2", operation_key="operation-2", identity_id="identity-2"))
+        self.assertEqual(queue.claim("tenant-a", "identity-2").task_id, "task-2")
+        self.assertEqual(queue.claim("tenant-a", "identity-1").task_id, "task-1")
+
     def test_terminal_task_cannot_be_cancelled(self) -> None:
         queue = InMemoryTaskQueue()
         queue.enqueue(task())

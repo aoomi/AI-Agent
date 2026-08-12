@@ -60,7 +60,8 @@ class ShortDramaPipeline:
         task = QueuedTask(task_id, project_id, operation_key, "short_drama.pipeline", context, {"run_id": run_id})
         accepted, replayed = self.queue.enqueue(task)
         if replayed: return self.load(context, project_id, str(accepted.payload["run_id"]))
-        self.queue.claim(context.tenant_id)
+        claimed = self.queue.claim(context.tenant_id, context.identity_id)
+        if claimed is None or claimed.task_id != task_id: raise ShortDramaPipelineError("pipeline task could not be claimed in owner scope")
         artifacts: dict[str, str] = {}
         next_index = 0
         if initial_requirements is not None:
