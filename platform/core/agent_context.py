@@ -101,15 +101,18 @@ class CollaborationContextStore:
         agent_id=self._required(agent_id)[0]
         if task_states is not None and not isinstance(task_states,Mapping):raise AgentContextError("collaboration task states must be a mapping")
         if isinstance(evidence_references,(str,bytes)) or not isinstance(evidence_references,tuple) or isinstance(file_references,(str,bytes)) or not isinstance(file_references,tuple):raise AgentContextError("collaboration references must be tuples")
+        if task_states:
+            if any(not isinstance(task_id,str) or not task_id.strip() for task_id in task_states):raise AgentContextError("collaboration task identifiers are required")
+            allowed = {"pending", "running", "waiting_inspection", "waiting_remediation", "waiting_human", "completed", "failed", "cancelled"}
+            if any(not isinstance(state,str) or state not in allowed for state in task_states.values()): raise AgentContextError("collaboration task state is invalid")
+        parsed_evidence = self._references(evidence_references)
+        parsed_files = self._references(file_references)
         with self._lock:
             context = self._raw(key)
             if agent_id != context["developer_agent_id"]: raise AgentContextError("only the developer agent may mutate collaboration context")
             if task_states:
-                if any(not isinstance(task_id,str) or not task_id.strip() for task_id in task_states):raise AgentContextError("collaboration task identifiers are required")
-                allowed = {"pending", "running", "waiting_inspection", "waiting_remediation", "waiting_human", "completed", "failed", "cancelled"}
-                if any(not isinstance(state,str) or state not in allowed for state in task_states.values()): raise AgentContextError("collaboration task state is invalid")
                 context["task_states"].update(dict(task_states))
-            context["evidence_references"].extend(self._references(evidence_references)); context["file_references"].extend(self._references(file_references))
+            context["evidence_references"].extend(parsed_evidence); context["file_references"].extend(parsed_files)
             return self.get(*key, agent_id=agent_id)
 
     def get(self, tenant_id: str, project_id: str, session_id: str, *, agent_id: str) -> CollaborationContext:

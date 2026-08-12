@@ -59,6 +59,15 @@ class AgentContextStoreTest(unittest.TestCase):
         for states in ({1:"running"},{"task":[]}):
             with self.subTest(states=states),self.assertRaises(AgentContextError):collaboration.update("tenant","project","session",agent_id="dev",task_states=states)
 
+    def test_collaboration_update_validates_every_field_before_mutation(self) -> None:
+        store=CollaborationContextStore()
+        store.create(tenant_id="tenant",project_id="project",session_id="session",developer_agent_id="dev",inspector_agent_id="audit")
+        with self.assertRaises(AgentContextError):
+            store.update("tenant","project","session",agent_id="dev",task_states={"task":"running"},evidence_references=("../escape",))
+        current=store.get("tenant","project","session",agent_id="dev")
+        self.assertEqual(dict(current.task_states),{})
+        self.assertEqual(current.evidence_references,())
+
 
 if __name__ == "__main__":
     unittest.main()
