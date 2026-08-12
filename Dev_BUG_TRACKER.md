@@ -3544,3 +3544,5 @@
 - 第二百六十三项自动测试与稽查：入队对象构造后调用方篡改嵌套状态动态隔离；内存队列、任务服务和投影关联回归、Python编译与diff门禁通过。
 - 第二百六十四项稽查首败与整改：ProviderAdapterDefinition settings虽为顶层MappingProxyType，注册后调用方仍可改写嵌套路由配置，绕过replace/inflight保护直接改变真实执行。现以标准JSON规范化结果建立独立深快照。
 - 第二百六十四项自动测试与稽查：注册定义后调用方篡改嵌套region动态隔离；Provider适配、热插拔与生产集成关联回归、Python编译与diff门禁通过。
+- 第二百六十五项稽查首败与整改：ProviderService配置同样只冻结settings顶层，注册后外部引用可绕过replace与健康检查inflight保护篡改嵌套配置。现以标准JSON规范化结果建立独立深快照。
+- 第二百六十五项自动测试与稽查：服务注册后调用方篡改嵌套region动态隔离；Provider配置、健康检查与热插拔关联回归、Python编译与diff门禁通过。

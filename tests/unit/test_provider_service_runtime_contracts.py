@@ -3,6 +3,11 @@ import unittest
 import threading
 from ai_agent_adapters import ProviderService,ProviderServiceError
 class ProviderServiceRuntimeContractTest(unittest.TestCase):
+ def test_settings_are_deeply_immutable_from_caller_mutation(self):
+  settings={"routing":{"regions":["local"]}}
+  item=ProviderService().register(provider_id="provider",display_name="Provider",kind="video",endpoint="https://example.com",secret_reference="env://KEY",capabilities=("video",),settings=settings)
+  settings["routing"]["regions"][0]="forged"
+  self.assertEqual(item.settings["routing"]["regions"][0],"local")
  def test_settings_require_standard_json(self):
   base=dict(provider_id="provider",display_name="Provider",kind="video",endpoint="https://example.com",secret_reference="env://KEY",capabilities=("video",))
   for settings in ({"value":float("nan")},{"value":object()}):

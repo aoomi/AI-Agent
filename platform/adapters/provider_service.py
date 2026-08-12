@@ -36,13 +36,13 @@ class ProviderService:
             if isinstance(value,(list,tuple)):return any(contains_secret(item) for item in value)
             return False
         if contains_secret(settings or {}):raise ProviderServiceError("provider settings cannot contain secrets")
-        try:json.dumps(dict(settings or {}),allow_nan=False)
+        try:canonical_settings=json.dumps(dict(settings or {}),allow_nan=False)
         except (TypeError,ValueError) as error:raise ProviderServiceError("provider settings must be standard JSON") from error
         with self._lock:
             existing=self.configurations.get(provider_id)
             if existing and not replace:raise ProviderServiceError("provider already exists")
             if existing and provider_id in self._inflight:raise ProviderServiceError("provider has in-flight health check")
-            now=self._now();item=ProviderConfiguration(provider_id,display_name,kind,endpoint,secret_reference,capabilities,enabled,timeout_seconds,MappingProxyType(dict(settings or {})),existing.created_at if existing else now,now);self.configurations[provider_id]=item;self.health[provider_id]=ProviderHealth(provider_id,"unknown",now,None,None,0);return item
+            now=self._now();item=ProviderConfiguration(provider_id,display_name,kind,endpoint,secret_reference,capabilities,enabled,timeout_seconds,MappingProxyType(json.loads(canonical_settings)),existing.created_at if existing else now,now);self.configurations[provider_id]=item;self.health[provider_id]=ProviderHealth(provider_id,"unknown",now,None,None,0);return item
     def unregister(self,provider_id:str)->bool:
         if not isinstance(provider_id,str) or not provider_id.strip():raise ProviderServiceError("provider id is required")
         provider_id=provider_id.strip()
