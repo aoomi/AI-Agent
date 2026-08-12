@@ -84,7 +84,9 @@ class AgentScheduler:
         return self.graph_orchestrator.resume(graph_id, thread_id, approved)
 
     def schedule_remediation(self, instruction: RemediationInstruction) -> ScheduledRemediation:
-        if not instruction.instruction_id.strip() or not instruction.root_task_id.strip() or not instruction.developer_agent_id.strip() or not instruction.issue_ids or instruction.remediation_round < 1:
+        if (not instruction.instruction_id.strip() or not instruction.root_task_id.strip() or not instruction.developer_agent_id.strip()
+                or not instruction.issue_ids or any(not str(issue_id).strip() for issue_id in instruction.issue_ids)
+                or isinstance(instruction.remediation_round,bool) or not isinstance(instruction.remediation_round,int) or instruction.remediation_round < 1):
             raise SchedulerError("remediation instruction contract is invalid")
         with self._lock:
             if instruction.instruction_id in self.remediations: raise SchedulerError("remediation instruction is already scheduled")

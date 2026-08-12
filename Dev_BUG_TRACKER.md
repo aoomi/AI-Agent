@@ -3264,3 +3264,5 @@
 - 第一百二十三项自动测试与稽查：布尔及字符串TTL在acquire/renew均动态失败关闭；租约与生产控制关联测试、Python编译与diff门禁通过。
 - 第一百二十四项稽查首败与整改：ResourceScheduler构造仅比较pool容量/队列上限大小，布尔True及浮点值可进入容量算法。现四类容量与上限统一强制正整数，pool映射同步验证字符串身份。
 - 第一百二十四项自动测试与稽查：布尔容量和浮点队列上限动态失败关闭；资源调度与生产控制关联测试、Python编译与diff门禁通过。
+- 第一百二十五项稽查首败与整改：AgentScheduler整改登记只要求issue_ids元组非空，不验证内部空ID，remediation_round也接受布尔True。现问题标识逐项验证，轮次强制正整数并在共享表写入前失败关闭。
+- 第一百二十五项自动测试与稽查：空issue及布尔round动态拒绝且整改表保持空；调度控制关联`8 passed`（另`2 subtests passed`），Python编译与diff门禁通过。

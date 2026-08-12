@@ -1125,3 +1125,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百二十二项：任务事件投影progress_percent已排除布尔伪整数，避免True被持久解释为1%进度；投影关联回归通过。
 - BUG072第一百二十三项：TaskLease acquire/renew TTL已强制正数并排除布尔/非数值运行时输入，畸形租约不会写入SQLite权威所有权表。租约关联回归通过。
 - BUG072第一百二十四项：资源池容量及pool/tenant/project排队上限已强制正整数并排除布尔/浮点伪值，畸形配置不能构造调度器。生产控制关联回归通过。
+- BUG072第一百二十五项：Agent整改调度已强制issue_ids逐项非空且remediation_round为正整数，匿名问题或布尔轮次不会进入共享整改表。调度关联`8 passed`、`2 subtests passed`。
