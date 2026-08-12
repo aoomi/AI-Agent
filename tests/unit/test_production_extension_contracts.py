@@ -6,6 +6,11 @@ from ai_agent_adapters import ProductionExtensionError, ProductionExtensionRegis
 
 
 class ProductionExtensionContractTest(unittest.TestCase):
+    def test_registration_rejects_runtime_pseudo_controls(self) -> None:
+        with self.assertRaisesRegex(ProductionExtensionError,"trusted builtin"):ProductionExtensionRegistry(trusted_builtin_providers={("point","")})
+        registry=ProductionExtensionRegistry()
+        for kwargs in ({"enabled":1},{"replace":1},{"activate":1},{"metadata":[]},{"metadata":{"required_methods":[1]}}):
+            with self.subTest(kwargs=kwargs),self.assertRaises(ProductionExtensionError):registry.register("storage","local",lambda:object(),**kwargs)
     def test_controls_reject_empty_identifiers(self) -> None:
         registry = ProductionExtensionRegistry()
         registry.register("storage.test", "local", lambda: object())

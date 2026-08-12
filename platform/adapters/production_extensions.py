@@ -36,6 +36,7 @@ class ProductionExtensionRegistry:
     """Keeps the production kernel independent from storage and runtime implementations."""
 
     def __init__(self, *, trusted_builtin_providers: set[tuple[str, str]] | None = None) -> None:
+        if trusted_builtin_providers is not None and (not isinstance(trusted_builtin_providers,set) or any(not isinstance(item,tuple) or len(item)!=2 or any(not isinstance(value,str) or not value.strip() for value in item) for item in trusted_builtin_providers)):raise ProductionExtensionError("trusted builtin provider set is invalid")
         self._lock = RLock()
         self._extensions: dict[tuple[str, str], tuple[ProductionExtension, ExtensionFactory]] = {}
         self._active: dict[str, str] = {}
@@ -75,13 +76,17 @@ class ProductionExtensionRegistry:
         point, provider = extension_point.strip(), provider_id.strip()
         if not point or not provider or not callable(factory):
             raise ProductionExtensionError("extension point, provider and factory are required")
+        if (not isinstance(enabled,bool) or not isinstance(replace,bool) or not isinstance(replace_provider,bool)
+                or activate is not None and not isinstance(activate,bool)):raise ProductionExtensionError("extension control flags must be boolean")
+        if metadata is not None and not isinstance(metadata,Mapping):raise ProductionExtensionError("extension metadata must be a mapping")
         metadata_values = dict(metadata or {})
         if self._contains_sensitive_key(metadata_values):
             raise ProductionExtensionError("extension metadata contain sensitive fields")
         required_value = metadata_values.get("required_methods", ())
         if "required_methods" in metadata_values and not isinstance(required_value, (list, tuple, set)):
             raise ProductionExtensionError(f"invalid required_methods contract: {point}/{provider}")
-        required = tuple(dict.fromkeys(str(name).strip() for name in required_value if str(name).strip()))
+        if any(not isinstance(name,str) or not name.strip() for name in required_value):raise ProductionExtensionError(f"invalid required_methods contract: {point}/{provider}")
+        required = tuple(dict.fromkeys(name.strip() for name in required_value))
         with self._lock:
             point_required = self._point_required_methods.get(point, ())
         if point_required and not required:
