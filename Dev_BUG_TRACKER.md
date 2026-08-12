@@ -3282,3 +3282,5 @@
 - 第一百三十二项自动测试与稽查：坏verifier、两段版本及空授权权限动态拒绝；插件验证安全关联`3 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
 - 第一百三十三项稽查首败与整改：PluginSandboxBroker不验证策略身份/writable/allowlist，run_process把字符串视作Sequence并接受布尔timeout，畸形控制可能延迟到subprocess。现策略构造与进程执行入口严格失败关闭。
 - 第一百三十三项自动测试与稽查：空plugin、整数writable、字符串command及布尔timeout动态拒绝；插件沙箱安全关联`3 passed`（另`4 subtests passed`），Python编译与diff门禁通过。
+- 第一百三十四项稽查首败与整改：SkillToolGuard.authorize未验证role/tool及权限集合元素，sanitize depth还接受布尔True并改变嵌套计数。现授权身份、权限集合及递归深度均在策略判断前严格失败关闭。
+- 第一百三十四项自动测试与稽查：空role、空权限及布尔depth动态拒绝；Skill工具安全关联`3 passed`（另`3 subtests passed`），Python编译与diff门禁通过。

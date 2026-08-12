@@ -6,10 +6,13 @@ class ToolGuardError(PermissionError):pass
 class SkillToolGuard:
  SECRET_KEYS=frozenset({"api_key","secret","token","password","credential","authorization"});HIGH_RISK=frozenset({"workspace.write","process.execute","network.unrestricted","data.delete"})
  def authorize(self,*,role:str,tool:str,declared_permissions:frozenset[str],explicit_grants:frozenset[str]=frozenset())->None:
+  role,tool=str(role).strip(),str(tool).strip()
+  if not role or not tool or any(not isinstance(value,str) or not value.strip() for value in (*declared_permissions,*explicit_grants)):raise ToolGuardError("tool authorization contract is invalid")
   if tool not in declared_permissions:raise ToolGuardError("tool is not declared by Skill")
   if role in {"tester","inspector"} and tool in {"workspace.write","data.delete"}:raise ToolGuardError(f"{role} cannot invoke mutating tools")
   if tool in self.HIGH_RISK and tool not in explicit_grants:raise ToolGuardError("high-risk tool requires explicit grant")
  def sanitize(self,value:Any,*,depth:int=0)->Any:
+  if isinstance(depth,bool) or not isinstance(depth,int) or depth<0:raise ToolGuardError("tool input depth is invalid")
   if depth>12:raise ToolGuardError("tool input nesting is too deep")
   if isinstance(value,str):
    if len(value)>100000 or "\x00" in value:raise ToolGuardError("tool input string is invalid")
