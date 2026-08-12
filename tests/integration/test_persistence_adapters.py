@@ -16,6 +16,8 @@ class PersistenceAdaptersTest(unittest.TestCase):
    with self.assertRaises(PersistenceError):state.put("","n","k",{})
    with self.assertRaises(PersistenceError):objects.put("","key",b"x")
    with self.assertRaises(PersistenceError):queue.enqueue("",{})
+   for operation in (lambda:state.put(1,"n","k",{}),lambda:state.get("t",1,"k"),lambda:objects.put(1,"key",b"x"),lambda:queue.enqueue(1,{}),lambda:queue.claim(1)):
+    with self.subTest(operation=operation),self.assertRaises(PersistenceError):operation()
  def test_queue_rejects_sensitive_payloads(self):
   with tempfile.TemporaryDirectory() as d:
    queue=SQLiteDurableQueue(Path(d)/"queue.db")

@@ -3334,3 +3334,5 @@
 - 第一百五十八项自动测试与稽查：数字provider/capability、tuple能力及坏definition动态失败关闭；Provider关联回归、Python编译与diff门禁通过。
 - 第一百五十九项稽查首败与整改：WorkloadRouter/WorkerRegistry对worker及路由身份直接访问属性/strip，任意对象、数字身份或含空资源类的tuple会泄漏异常或被登记。现内存与SQLite入口共享严格运行时身份契约。
 - 第一百五十九项自动测试与稽查：坏worker对象、数字身份、空资源类及数字路由/删除身份动态失败关闭；专项关联回归、Python编译与diff门禁通过。
+- 第一百六十项稽查首败与整改：私有部署持久适配器用`str(...)`接受数字tenant/namespace/key，SQLite绑定又可能与文本scope产生隐式身份碰撞。现状态、对象和队列所有者边界均要求真实字符串。
+- 第一百六十项自动测试与稽查：五类数字scope读写/领取动态失败关闭；持久化关联回归、Python编译与diff门禁通过。
