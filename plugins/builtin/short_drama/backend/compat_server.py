@@ -8266,6 +8266,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(response_status, response_payload)
         if parsed.path == "/api/projects/version":
             query = parse_qs(parsed.query); project_id = query.get("project_id", [""])[0]; version_id = query.get("version_id", [""])[0]
+            project = self._project(project_id, query.get("tenant_id", [""])[0], query.get("user_id", [""])[0])
+            if not project:
+                return self._json(HTTPStatus.NOT_FOUND, {"error":"project_not_found"})
             if version_id:
                 record = _read_project_version(version_id)
                 if not record or str(record.get("project_id", "")) != project_id:
