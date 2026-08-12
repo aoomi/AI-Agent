@@ -1569,6 +1569,49 @@ def _sanitize_asset_media_projection(data: dict) -> dict:
     return data
 
 
+def _scope_legacy_resource_media(data: dict, *, tenant_id: str, user_id: str, project_id: str) -> dict:
+    """Upgrade legacy resource URLs without reopening the unscoped media route."""
+    resources = {
+        str(item.get("filename") or ""):item
+        for item in _load_resources().get("resources", [])
+        if str(item.get("tenant_id") or "") == tenant_id
+        and str(item.get("user_id") or "") == user_id
+        and str(item.get("project_id") or "") == project_id
+        and str(item.get("scope") or "") in {"project", "project_episode"}
+    }
+
+    def scoped(value: object) -> object:
+        url = str(value or "").strip()
+        if not url.startswith("/api/result-media?"):
+            return value
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        if query.get("subfolder", [""])[0].strip("/") != "resources":
+            return value
+        resource = resources.get(query.get("filename", [""])[0])
+        if not resource:
+            return value
+        return "/api/resources/media?" + urlencode({
+            "id":str(resource.get("id") or ""),
+            "tenant_id":tenant_id,
+            "user_id":user_id,
+            "scope":str(resource.get("scope") or "project"),
+            "project_id":project_id,
+        })
+
+    for key in ("characters", "scenes", "props"):
+        for item in data.get(key, []) if isinstance(data.get(key), list) else []:
+            if not isinstance(item, dict):
+                continue
+            item["image_url"] = scoped(item.get("image_url"))
+            item["clothing_reference_url"] = scoped(item.get("clothing_reference_url"))
+            item["detail_image_urls"] = [scoped(url) for url in item.get("detail_image_urls", [])]
+            for variant in item.get("detail_assets", []) if isinstance(item.get("detail_assets"), list) else []:
+                if isinstance(variant, dict):
+                    variant["image_url"] = scoped(variant.get("image_url"))
+    return data
+
+
 def _write_project_stage(
     project_id: str,
     tenant_id: str,
@@ -1659,6 +1702,9 @@ def _write_project_stage(
             raise ValueError("stale_asset_census")
         if stage_name == "assets":
             incoming_data = _sanitize_asset_media_projection(incoming_data)
+            incoming_data = _scope_legacy_resource_media(
+                incoming_data, tenant_id=tenant_id, user_id=user_id, project_id=project_id,
+            )
         stamp = _iso_now(); revision = int(current_stage.get("revision", 0) or 0) + 1 if isinstance(current_stage, dict) else 1
         stage = {
             "data": incoming_data,
@@ -8170,7 +8216,16 @@ class Handler(BaseHTTPRequestHandler):
             project = self._project(query.get("id", [""])[0], query.get("tenant_id", [""])[0], query.get("user_id", [""])[0])
             if not project:
                 return self._json(HTTPStatus.NOT_FOUND, {"error": "project_not_found"})
-            return self._json(HTTPStatus.OK, {"stage": project.get("stage_state", {}).get(query.get("stage", [""])[0])})
+            stage_name = query.get("stage", [""])[0]
+            stage = project.get("stage_state", {}).get(stage_name)
+            if stage_name == "assets" and isinstance(stage, dict) and isinstance(stage.get("data"), dict):
+                stage = {**stage, "data":_scope_legacy_resource_media(
+                    stage["data"],
+                    tenant_id=query.get("tenant_id", [""])[0],
+                    user_id=query.get("user_id", [""])[0],
+                    project_id=query.get("id", [""])[0],
+                )}
+            return self._json(HTTPStatus.OK, {"stage":stage})
         if parsed.path == "/api/projects/stage/watch":
             query = parse_qs(parsed.query)
             project_id = query.get("id", [""])[0]; tenant_id = query.get("tenant_id", [""])[0]; user_id = query.get("user_id", [""])[0]
@@ -8343,8 +8398,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(HTTPStatus.OK if job else HTTPStatus.NOT_FOUND, job or {"error": "image_not_found"})
         if parsed.path == "/api/videos/result":
             query = parse_qs(parsed.query)
-            subject_key = ":".join(query.get(name, [""])[0] for name in ("tenant_id", "user_id", "project_id", "episode", "shot_number"))
-            matches = [(job_id, job) for job_id, job in _load_video_jobs().get("jobs", {}).items() if job.get("subject_key") == subject_key or job_id == query.get("job_id", [""])[0]]
+            identity = {name:query.get(name, [""])[0].strip() for name in ("tenant_id", "user_id", "project_id")}
+            if not all(identity.values()):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_video_scope"})
+            subject_key = ":".join([*(identity[name] for name in ("tenant_id", "user_id", "project_id")), *(query.get(name, [""])[0] for name in ("episode", "shot_number"))])
+            requested_job_id = query.get("job_id", [""])[0].strip()
+            matches = [(job_id, job) for job_id, job in _load_video_jobs().get("jobs", {}).items() if _job_matches_scope(job, identity) and (job.get("subject_key") == subject_key or bool(requested_job_id and job_id == requested_job_id))]
             job_id, job = max(matches, key=lambda pair:_parse_job_time(pair[1].get("queued_at"))) if matches else ("", None)
             if job and job.get("status") == "generating" and job_id not in ACTIVE_VIDEO_JOBS:
                 terminal_error = "视频任务已中断，请点击继续生成"
