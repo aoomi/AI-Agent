@@ -120,10 +120,11 @@ class ProductionExtensionRegistry:
             probe_configuration = metadata_values.pop("probe_configuration", {})
             if not isinstance(probe_configuration, Mapping):
                 raise ProductionExtensionError(f"invalid provider probe configuration: {point}/{provider}")
+            probe_snapshot = json.loads(json.dumps(dict(probe_configuration), allow_nan=False))
             contract = _ProviderContract(
                 implementation_type=implementation_type,
                 required_methods=required,
-                probe_configuration=MappingProxyType(dict(probe_configuration)),
+                probe_configuration=MappingProxyType(probe_snapshot),
                 trusted_builtin=(point, provider) in self._trusted_builtin_providers,
             )
             self._probe_factory(point, provider, factory, contract)

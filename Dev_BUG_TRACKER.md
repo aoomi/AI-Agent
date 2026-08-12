@@ -3576,3 +3576,5 @@
 - 第二百七十九项自动测试与稽查：update后原values篡改及read返回值篡改均不影响仓储；持久重载、失败写入与会话记忆关联回归、Python编译及diff门禁通过。
 - 第二百八十项稽查首败与整改：AgentContextStore update已隔离调用方输入，但get仍浅拷贝仓储值，读取者可经嵌套列表反向污染共享上下文。现每次读取均从标准JSON生成独立深快照。
 - 第二百八十项自动测试与稽查：get返回后读取者改写嵌套steps不影响后续读取；AgentContext、调度与协作关联回归、Python编译及diff门禁通过。
+- 第二百八十一项稽查首败与整改：ProductionExtension契约probe_configuration仍只冻结顶层，第三方factory探测可改写调用方嵌套配置。现探测前从已验证标准JSON建立独立深快照。
+- 第二百八十一项自动测试与稽查：恶意factory探测改写嵌套region不影响原配置；扩展契约、激活回滚与inflight热插拔关联回归、Python编译及diff门禁通过。

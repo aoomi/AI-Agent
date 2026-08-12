@@ -6,6 +6,13 @@ from ai_agent_adapters import ProductionExtensionError, ProductionExtensionRegis
 
 
 class ProductionExtensionContractTest(unittest.TestCase):
+    def test_probe_configuration_is_deeply_isolated_from_factory_mutation(self) -> None:
+        class Provider:
+            def acquire(self):pass
+        original={"routing":{"regions":["local"]}}
+        def factory(**values):values["routing"]["regions"][0]="factory";return Provider()
+        ProductionExtensionRegistry().register("storage","local",factory,metadata={"required_methods":["acquire"],"implementation_type":Provider,"probe_configuration":original})
+        self.assertEqual(original["routing"]["regions"][0],"local")
     def test_metadata_is_deeply_immutable_from_caller_mutation(self) -> None:
         metadata={"routing":{"regions":["local"]}}
         item=ProductionExtensionRegistry().register("storage","local",lambda:object(),metadata=metadata)
