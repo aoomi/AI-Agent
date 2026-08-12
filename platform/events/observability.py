@@ -78,6 +78,7 @@ class NullExporter:
 class CompositeExporter:
     def __init__(self, exporters: Iterable[RecordExporter]):
         self.exporters = tuple(exporters)
+        if any(not callable(getattr(exporter,"export",None)) for exporter in self.exporters):raise ObservabilityError("exporter contract is invalid")
 
     def export(self, kind: str, record: Mapping[str, Any]) -> None:
         for exporter in self.exporters:
@@ -153,11 +154,14 @@ class PrometheusSnapshotExporter:
 
 class StructuredLogger:
     def __init__(self, sink: TextIO, exporter: RecordExporter | None = None):
+        if not callable(getattr(sink,"write",None)):raise ObservabilityError("log sink contract is invalid")
+        if exporter is not None and not callable(getattr(exporter,"export",None)):raise ObservabilityError("exporter contract is invalid")
         self.sink = sink
         self.exporter = exporter or NullExporter()
         self._lock = RLock()
 
     def emit(self, level: str, event: str, fields: Mapping[str, Any]):
+        if not str(level).strip() or not str(event).strip() or not isinstance(fields,Mapping):raise ObservabilityError("log record contract is invalid")
         if _contains_secret(fields):
             raise ObservabilityError("log fields contain secrets")
         record = {
@@ -206,6 +210,7 @@ def _validate_metrics_snapshot(record: Mapping[str, Any]) -> None:
 
 class MetricsRegistry:
     def __init__(self, exporter: RecordExporter | None = None):
+        if exporter is not None and not callable(getattr(exporter,"export",None)):raise ObservabilityError("exporter contract is invalid")
         self.counters: dict[tuple[str, tuple[tuple[str, str], ...]], float] = {}
         self.gauges: dict[tuple[str, tuple[tuple[str, str], ...]], float] = {}
         self.exporter = exporter or NullExporter()
@@ -272,6 +277,8 @@ class TraceSpan:
 
 class TraceRecorder:
     def __init__(self, clock=time.monotonic, exporter: RecordExporter | None = None):
+        if not callable(clock):raise ObservabilityError("trace clock contract is invalid")
+        if exporter is not None and not callable(getattr(exporter,"export",None)):raise ObservabilityError("exporter contract is invalid")
         self.clock = clock
         self.exporter = exporter or NullExporter()
         self.spans: list[TraceSpan] = []
@@ -279,8 +286,9 @@ class TraceRecorder:
 
     @contextmanager
     def span(self, trace_id: str, span_id: str, name: str, *, request_id: str | None = None, attributes=None):
-        if not trace_id or not span_id:
-            raise ObservabilityError("trace_id and span_id are required")
+        if not str(trace_id).strip() or not str(span_id).strip() or not str(name).strip():
+            raise ObservabilityError("trace_id, span_id and name are required")
+        if attributes is not None and not isinstance(attributes,Mapping):raise ObservabilityError("span attributes must be a mapping")
         attributes = dict(attributes or {})
         if _contains_secret(attributes):
             raise ObservabilityError("span attributes contain secrets")
@@ -312,6 +320,9 @@ class AlertEvaluator:
 
     def __init__(self, rules: Iterable[AlertRule], exporter: RecordExporter | None = None):
         self.rules = tuple(rules)
+        if any(not rule.name.strip() or not _METRIC_NAME.fullmatch(rule.metric) or rule.comparison not in {"gte","gt","lte","lt"} for rule in self.rules):raise ObservabilityError("alert rule contract is invalid")
+        for rule in self.rules:_validate_metric_value(rule.threshold);_normalise_labels(rule.labels)
+        if exporter is not None and not callable(getattr(exporter,"export",None)):raise ObservabilityError("exporter contract is invalid")
         self.exporter = exporter or NullExporter()
 
     def evaluate(self, snapshot: Mapping[str, Any], *, request_id: str | None = None, trace_id: str | None = None):

@@ -1143,3 +1143,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百四十项：AgentState模型与transition目标已强制非空agent身份及封闭生命周期状态，直接构造或运行时字符串不能绕过状态机。生命周期/调度关联`12 passed`。
 - BUG072第一百四十一项：Agent会话context/memory values已强制Mapping，send内容验证类型，session/proposal内部查找同步拒绝空ID；畸形会话控制不会进入模型或共享表。会话/API关联`19 passed`。
 - BUG072第一百四十二项：持久任务批量写入、投影确认/重排/锁、读取及列表控制已验证Mapping/list/布尔/正代际和非空job身份；畸形控制不会访问SQLite权威表。专项`3 passed`、`7 subtests passed`。
+- BUG072第一百四十三项：可观测性logger/metrics/trace/alert/exporter已验证协议、记录身份、Mapping结构、有限阈值和规则集合；畸形遥测不会进入JSONL/Prometheus或告警导出。关联`11 passed`、`6 subtests passed`。

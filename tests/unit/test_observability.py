@@ -3,6 +3,12 @@ from pathlib import Path
 from ai_agent_events import (AlertEvaluator,AlertRule,CompositeExporter,JsonLinesExporter,
  MetricsRegistry,ObservabilityError,PrometheusSnapshotExporter,StructuredLogger,TraceRecorder)
 class ObservabilityTest(unittest.TestCase):
+ def test_runtime_observability_contracts_are_rejected(self):
+  for build in (lambda:CompositeExporter((object(),)),lambda:StructuredLogger(object()),lambda:MetricsRegistry(object()),lambda:TraceRecorder(clock=None),lambda:AlertEvaluator((AlertRule("","metric",1),)),lambda:AlertEvaluator((AlertRule("alert","metric",True),))):
+   with self.subTest(build=build),self.assertRaises(ObservabilityError):build()
+  with self.assertRaises(ObservabilityError):StructuredLogger(io.StringIO()).emit("","event",{})
+  with self.assertRaises(ObservabilityError):
+   with TraceRecorder().span("trace","span","",attributes=[]):pass
  def test_logs_metrics_and_traces(self):
   sink=io.StringIO();self.assertEqual(StructuredLogger(sink).emit("info","task.completed",{"task_id":"x"})["event"],"task.completed");metrics=MetricsRegistry();metrics.increment("tasks",labels=(("status","completed"),));self.assertEqual(next(iter(metrics.snapshot()["counters"].values())),1);traces=TraceRecorder()
   with traces.span("trace","span","task"):pass
