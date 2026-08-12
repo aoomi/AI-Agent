@@ -68,6 +68,7 @@
 - BUG072第二百九十三项整改：私有部署SQLite状态与队列读取严格拒绝NaN/坏JSON，queue payload解析失败回滚并保持pending，阻断坏持久记录造成生命周期跃迁；关联`11 passed, 21 subtests passed`，继续横向稽查。
 - BUG072第二百九十四项整改：DurableTaskRepository权威任务与projection outbox共享严格标准JSON对象解码门禁，阻断NaN或非对象坏记录进入任务API与投影重放；关联`15 passed, 18 subtests passed`，继续横向稽查。
 - BUG072第二百九十五项整改：WorkerRegistry持久worker读取严格验证标准JSON对象、身份、资源与有限容量数值，阻断坏记录进入发现和reserve路由；关联`30 passed, 42 subtests passed`，继续横向稽查。
+- BUG072第二百九十六项整改：OpenAI兼容客户端在外层envelope与字符串content两层严格拒绝NaN等非标准JSON常量，统一在schema前失败关闭；关联`38 passed, 51 subtests passed`，继续横向稽查。
 - BUG071最终闭环：composition、review、export权威证据与Graph状态在同一SQLite事务提交；导出manifest绑定generation、audit batch、视频及manifest哈希。正式三镜静音母版导出8.1秒、243帧、704×1216 H.264且仅video stream，重启后HTTP可读；关联`134 passed`。用户要求的不超过15秒、只验证视频范围已可测试，继续BUG072架构v2.2全仓一致性稽查。
 - BUG070最终闭环：普通生产端点门禁移到派发前；worker只接受进程私有loopback token或精确共享reservation，伪造dispatched头正式403，缺前序请求409且无副作用，合法run-stage composition generation 3通过并确认。关联`130 passed`；继续BUG071静音母版审核导出。
 - BUG069最终闭环：LTX三镜经正式run-stage与同批次video/audio-not-applicable/subtitle-not-applicable台账确认后，显式video-only composition生成8.1秒、243帧、704×1216@30 H.264静音母版；重启恢复、HTTP媒体与队列归零通过，关联`129 passed`。继续BUG070生产端点派发门禁旁路。

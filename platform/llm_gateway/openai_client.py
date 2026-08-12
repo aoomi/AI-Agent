@@ -63,8 +63,9 @@ class OpenAICompatibleClient:
         if not isinstance(response,OpenAITransportResponse) or isinstance(response.status,bool) or not isinstance(response.status,int) or not isinstance(response.body,bytes):raise OpenAIResponseError("model transport response is invalid")
         if response.status<200 or response.status>=300: raise OpenAIClientError(f"model provider HTTP {response.status}")
         try:
-            envelope=json.loads(response.body); content=envelope["choices"][0]["message"]["content"]
-            result=json.loads(content) if isinstance(content,str) else content
+            strict=lambda value:(_ for _ in ()).throw(ValueError(value))
+            envelope=json.loads(response.body,parse_constant=strict); content=envelope["choices"][0]["message"]["content"]
+            result=json.loads(content,parse_constant=strict) if isinstance(content,str) else content
         except (ValueError,KeyError,IndexError,TypeError,json.JSONDecodeError) as error: raise OpenAIResponseError("model provider response is invalid") from error
         if not isinstance(result,Mapping): raise OpenAIResponseError("structured model response must be an object")
         try:canonical_result=json.dumps(dict(result),allow_nan=False)
