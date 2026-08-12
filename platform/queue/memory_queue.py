@@ -47,10 +47,12 @@ class InMemoryTaskQueue:
         self._lock = Lock()
         self._pending: deque[str] = deque()
         self._tasks: dict[str, QueuedTask] = {}
-        self._operation_keys: dict[tuple[str, str, str], str] = {}
+        self._operation_keys: dict[tuple[str, str, str, str], str] = {}
 
     def enqueue(self, task: QueuedTask) -> tuple[QueuedTask, bool]:
-        scope_key = (task.context.tenant_id, task.context.identity_id, task.operation_key)
+        scope_key = (
+            task.context.tenant_id, task.context.identity_id, task.project_id, task.operation_key
+        )
         with self._lock:
             existing_id = self._operation_keys.get(scope_key)
             if existing_id is not None:

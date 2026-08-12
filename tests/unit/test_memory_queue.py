@@ -51,6 +51,17 @@ class InMemoryTaskQueueTest(unittest.TestCase):
         self.assertFalse(first_replayed); self.assertFalse(second_replayed)
         self.assertNotEqual(first.task_id, second.task_id)
 
+    def test_same_identity_different_projects_have_independent_operation_keys(self) -> None:
+        queue = InMemoryTaskQueue()
+        first, first_replayed = queue.enqueue(task())
+        other_project = QueuedTask(
+            task_id="task-2", project_id="project-2", operation_key="operation-1",
+            task_type="contract_test", context=task().context, payload={"input": "value"},
+        )
+        second, second_replayed = queue.enqueue(other_project)
+        self.assertFalse(first_replayed); self.assertFalse(second_replayed)
+        self.assertNotEqual(first.task_id, second.task_id)
+
     def test_claim_and_read_are_tenant_scoped(self) -> None:
         queue = InMemoryTaskQueue()
         queue.enqueue(task())

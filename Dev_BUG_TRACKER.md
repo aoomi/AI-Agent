@@ -3180,3 +3180,5 @@
 - 第八十一项自动测试与稽查：故障memory注入证明消息仍仅系统首条、提案为空；只读目录模拟写失败证明旧memory快照不变。配置、会话与管理API关联`27 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
 - 第八十二项稽查首败与整改：Provider和Model注册已递归过滤敏感settings，但AgentConfiguration仍可持久`access_token`、嵌套Authorization或数组中的client_secret，并通过配置历史和管理API返回。现配置构造边界递归拒绝六类敏感词组合键，创建与更新共用同一门禁。
 - 第八十二项自动测试与稽查：顶层组合token、嵌套Authorization及数组client_secret三类动态拒绝；配置、会话与管理API关联`28 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
+- 第八十三项稽查首败与整改：InMemoryTaskQueue幂等键此前只有tenant+identity+operation，遗漏task自身强制的project_id；同一用户在不同项目使用相同operation_key会错误返回其他项目任务或报冲突。现幂等索引加入project_id，与任务读取、列表和事件投影的项目隔离一致。
+- 第八十三项自动测试与稽查：动态证明同identity同operation跨project可分别入队且task_id独立；队列、服务、集成及E2E关联`18 passed`，Python编译与diff门禁通过。
