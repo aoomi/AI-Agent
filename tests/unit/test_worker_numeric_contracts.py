@@ -141,6 +141,15 @@ class WorkerNumericContractTest(unittest.TestCase):
             self.assertTrue(registry.release_reservation(" request "))
             self.assertTrue(registry.remove(" worker ",1))
 
+    def test_legacy_persisted_worker_identity_is_normalized_on_read(self) -> None:
+        import json,sqlite3
+        with tempfile.TemporaryDirectory() as directory:
+            registry=WorkerRegistry(Path(directory)/"workers.db")
+            payload={"worker_id":" worker ","service_scope":" local ","resource_classes":[" video "],"capacity":1,"active":0,"queue_depth":0,"available_memory":1,"heartbeat_at":1.0,"generation":1,"endpoint":" http://worker "}
+            with sqlite3.connect(registry.database) as connection:connection.execute("INSERT INTO workers VALUES(?,?,?,?)",("worker",json.dumps(payload),1.0,1))
+            worker=registry.list(service_scope="local",now=1.0)[0]
+            self.assertEqual((worker.worker_id,worker.resource_classes,worker.endpoint),("worker",("video",),"http://worker"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3618,3 +3618,4 @@
 - BUG072 / M9.198 / 架构横向稽查第三百一十五项（已关闭，2026-08-12）：DurableTaskRepository批量写入对job_id/task_class分别以原值查重和规范化值落库，`job`与` job `可在同批静默覆盖，空白task_class也延迟失败。现批次入口一次规范化身份、拒绝空值及规范化碰撞，查询/比较/outbox共用同一值；动态证明合法规范化与碰撞失败关闭。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百一十六项（已关闭，2026-08-12）：TaskLeaseRepository仅用strip结果判空，却以未规范化job/owner执行全部SQLite操作并原样返回，带边界空白的同一权威身份会分裂为不同租约，取消也无法命中。现acquire/renew/release/owns/cancel/guard统一复用规范化身份；动态证明跨入口所有权与取消一致。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百一十七项（已关闭，2026-08-12）：WorkerRegistry与WorkloadRouter只用strip验证worker身份/资源/作用域/端点，却存储未规范化快照；后续已规范化route/reserve/remove无法命中，形成幽灵worker。现两个heartbeat边界统一重建规范化WorkerSnapshot，发现、路由、预留与移除复用同一身份；端到端动态验证通过。关联回归、Python编译与diff门禁通过。
+- BUG072 / M9.198 / 架构横向稽查第三百一十八项（已关闭，2026-08-12）：WorkerRegistry新heartbeat已规范化，但历史SQLite payload读取仍原样发布带边界空白的身份，list过滤与reserve路由可继续漏读或产生幽灵worker。现严格持久解析后统一重建canonical WorkerSnapshot；历史空白记录动态恢复并精确匹配作用域。关联回归、Python编译与diff门禁通过。
