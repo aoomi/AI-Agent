@@ -1200,3 +1200,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百九十七项：IdentityContext构造与tenant围栏已统一验证字符串scope/kind，数字request/kind/tenant不会泄漏strip异常或进入事件、队列作用域。身份关联`27 passed`、`27 subtests passed`。
 - BUG072第一百九十八项：SkillRegistry构造已要求Path插件根，get同步拒绝数字skill ID；畸形发现根或查询不会泄漏resolve/strip异常。Skill与映射关联`10 passed`、`4 subtests passed`。
 - BUG072第一百九十九项：任务进度投影已验证PublishedEvent、IdentityContext及字符串project/task查询，数字scope或坏事件不会泄漏属性异常或读取跨域投影。事件关联`14 passed`、`13 subtests passed`。
+- BUG072第二百项：TaskService已验证队列/EventBus依赖、IdentityContext及事件原始payload类型，不再用`str/int`把数字task或字符串进度强制写入权威队列。任务关联`24 passed`、`23 subtests passed`。

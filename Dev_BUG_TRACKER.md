@@ -3414,3 +3414,5 @@
 - 第一百九十八项自动测试与稽查：字符串root与数字skill查询动态失败关闭；Skill与映射关联`10 passed`（另`4 subtests passed`），Python编译与diff门禁通过。
 - 第一百九十九项稽查首败与整改：TaskProgressProjection的_apply/get/list信任事件和IdentityContext模型，并直接对project/task运行时值strip；坏对象或数字scope会泄漏属性异常。现事件消费与所有读取入口在投影表访问前完整验证。
 - 第一百九十九项自动测试与稽查：坏事件/context及数字project动态失败关闭；事件、投影与任务集成关联`14 passed`（另`13 subtests passed`），Python编译与diff门禁通过。
+- 第二百项稽查首败与整改：TaskService不验证queue/events/context，事件消费又以`str/int`宽松转换task/status/progress，数字伪身份或字符串进度可进入权威状态更新。现依赖、scope和原始事件值均在队列副作用前失败关闭。
+- 第二百项自动测试与稽查：坏依赖/context、数字task及字符串progress动态拒绝且任务保持running；任务、队列与集成关联`24 passed`（另`23 subtests passed`），Python编译与diff门禁通过。

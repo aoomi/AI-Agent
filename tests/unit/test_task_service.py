@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from ai_agent_queue import InMemoryTaskQueue, QueuedTask, TaskService
+from ai_agent_queue import InMemoryTaskQueue, QueueConflictError, QueuedTask, TaskService
+from ai_agent_events import EventBus, PublishedEvent
 from ai_agent_tenant import IdentityContext, IdentityContextError
 
 
@@ -31,6 +32,16 @@ class TaskServiceTest(unittest.TestCase):
         self.assertEqual(self.service.cancel_task(context("tenant-a"), "task-a").status, "cancelled")
         self.queue.claim("tenant-a"); self.queue.finish("task-b", "failed")
         self.assertEqual(self.service.resume_task(context("tenant-a"), "task-b").status, "queued")
+
+    def test_runtime_dependencies_context_and_event_payload_are_rejected(self) -> None:
+        for build in (lambda:TaskService(object()),lambda:TaskService(InMemoryTaskQueue(),object())):
+            with self.subTest(build=build),self.assertRaises(QueueConflictError):build()
+        with self.assertRaises(QueueConflictError):self.service.list_tasks(object())
+        events=EventBus();queue=InMemoryTaskQueue();queue.enqueue(QueuedTask("task","project","operation","type",context("tenant-a"),{}));queue.claim("tenant-a")
+        TaskService(queue,events)
+        for payload in ({"task_id":1,"current_status":"paused","progress_percent":1},{"task_id":"task","current_status":"paused","progress_percent":"1"}):
+            with self.subTest(payload=payload),self.assertRaises(QueueConflictError):events.publish(PublishedEvent("event","TASK_STATUS_CHANGED","project",context("tenant-a"),payload))
+        self.assertEqual(queue.get("task","tenant-a").status,"running")
 
 
 if __name__ == "__main__": unittest.main()
