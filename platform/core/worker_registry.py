@@ -37,7 +37,9 @@ class WorkerRegistry:
         with sqlite3.connect(self.database, timeout=30) as connection:
             connection.execute("""INSERT INTO workers VALUES(?,?,?,?) ON CONFLICT(worker_id) DO UPDATE SET
                 payload_json=excluded.payload_json,heartbeat_at=excluded.heartbeat_at,generation=excluded.generation
-                WHERE excluded.generation>=workers.generation""", (worker.worker_id, payload, worker.heartbeat_at, worker.generation))
+                WHERE excluded.generation>workers.generation OR (
+                    excluded.generation=workers.generation AND excluded.heartbeat_at>=workers.heartbeat_at
+                )""", (worker.worker_id, payload, worker.heartbeat_at, worker.generation))
             connection.execute("""DELETE FROM worker_reservations WHERE worker_id=? AND worker_generation<>(
                 SELECT generation FROM workers WHERE worker_id=?
             )""", (worker.worker_id, worker.worker_id))

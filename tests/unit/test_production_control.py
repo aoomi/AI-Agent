@@ -165,6 +165,20 @@ class ProductionControlTests(unittest.TestCase):
             self.assertEqual(second.list(service_scope="scope", heartbeat_timeout=10, now=105), [worker])
             self.assertEqual(second.list(service_scope="scope", heartbeat_timeout=10, now=120), [])
 
+    def test_worker_heartbeat_rejects_same_generation_time_regression(self):
+        current = WorkerSnapshot("node", "scope", ("video",), 2, 1, 1, 80, 110, generation=3)
+        stale = WorkerSnapshot("node", "scope", ("video",), 2, 0, 0, 100, 100, generation=3)
+        router = WorkloadRouter(heartbeat_timeout=30)
+        router.heartbeat(current)
+        with self.assertRaisesRegex(WorkloadRoutingError, "stale worker heartbeat"):
+            router.heartbeat(stale)
+        self.assertEqual(router.route("video", now=115), current)
+        with TemporaryDirectory() as temporary:
+            registry = WorkerRegistry(Path(temporary) / "workers.sqlite")
+            registry.heartbeat(current)
+            registry.heartbeat(stale)
+            self.assertEqual(registry.list(now=115), [current])
+
     def test_worker_dispatch_reservations_are_atomic_across_registry_instances(self):
         with TemporaryDirectory() as temporary:
             database = Path(temporary) / "workers.sqlite"

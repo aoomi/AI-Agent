@@ -46,6 +46,8 @@ class WorkloadRouter:
             previous = self._workers.get(worker.worker_id)
             if previous and worker.generation < previous.generation:
                 raise WorkloadRoutingError("stale worker generation")
+            if previous and worker.generation == previous.generation and worker.heartbeat_at < previous.heartbeat_at:
+                raise WorkloadRoutingError("stale worker heartbeat")
             self._workers[worker.worker_id] = worker
         return worker
 
