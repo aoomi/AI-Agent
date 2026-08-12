@@ -3498,3 +3498,5 @@
 - 第二百四十项自动测试与稽查：NaN/任意对象schema在transport前拒绝，NaN响应动态拒绝；LLM客户端与会话关联回归、Python编译与diff门禁通过。
 - 第二百四十一项稽查首败与整改：通用LangGraphOrchestrator只验证inputs Mapping且信任executor输出，NaN或任意对象可进入checkpointer或返回上层。现Graph调用前后均强制标准JSON。
 - 第二百四十一项自动测试与稽查：NaN/任意对象inputs与NaN executor结果动态拒绝；Graph单元与集成关联回归、Python编译与diff门禁通过。
+- 第二百四十二项稽查首败与整改：ProviderAdapterRegistry将任意Mapping inputs直接传入真实executor，NaN或任意对象可在提供方边界才失败。现在解析密钥和调用executor前强制标准JSON。
+- 第二百四十二项自动测试与稽查：NaN/任意对象inputs动态拒绝；Provider适配与生产集成关联回归、Python编译与diff门禁通过。

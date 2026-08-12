@@ -16,6 +16,8 @@ class ProviderAdapterRegistryTest(unittest.TestCase):
             with self.subTest(kwargs=kwargs),self.assertRaises(ProviderAdapterError):ProviderAdapterDefinition(**values)
         registry=ProviderAdapterRegistry(Secrets());registry.register(ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30),Executor())
         with self.assertRaisesRegex(ProviderAdapterError,"mapping inputs"):registry.invoke("p","generate.image",[])
+        for inputs in ({"value":float("nan")},{"value":object()}):
+            with self.subTest(inputs=inputs),self.assertRaisesRegex(ProviderAdapterError,"standard JSON"):registry.invoke("p","generate.image",inputs)
     def test_registers_and_invokes_each_real_provider_kind(self):
         registry=ProviderAdapterRegistry(Secrets())
         for kind in ("text","image","video","audio"):
