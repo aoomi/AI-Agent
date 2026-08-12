@@ -1068,3 +1068,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第六十五项：Provider配置注册的敏感字段门禁已递归覆盖嵌套settings，阻止凭据进入配置快照和管理API响应。
 - BUG072第六十六项：ProviderAdapter底层定义同步递归过滤嵌套settings，直接构造路径不能绕过敏感配置门禁。
 - BUG072第六十七项：模型注册settings已递归过滤敏感字段，管理API和直接构造均不能把凭据写入模型注册快照。
+- BUG072第六十八项：SQLite worker发现入口已与内存路由统一校验身份、能力、容量及generation，畸形heartbeat不能成为跨实例权威事实。

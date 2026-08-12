@@ -36,6 +36,10 @@ class WorkerRegistry:
                 raise
 
     def heartbeat(self, worker: WorkerSnapshot) -> WorkerSnapshot:
+        if not worker.worker_id.strip() or not worker.service_scope.strip() or not worker.resource_classes:
+            raise WorkloadRoutingError("invalid worker identity")
+        if worker.capacity <= 0 or worker.active < 0 or worker.queue_depth < 0 or worker.available_memory < 0 or worker.generation < 1:
+            raise WorkloadRoutingError("invalid worker capacity")
         payload = json.dumps(asdict(worker), ensure_ascii=False, sort_keys=True)
         with sqlite3.connect(self.database, timeout=30) as connection:
             connection.execute("""INSERT INTO workers VALUES(?,?,?,?) ON CONFLICT(worker_id) DO UPDATE SET

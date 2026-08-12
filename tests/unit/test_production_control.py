@@ -188,6 +188,14 @@ class ProductionControlTests(unittest.TestCase):
             registry.heartbeat(stale)
             self.assertEqual(registry.list(now=115), [current])
 
+    def test_worker_registry_rejects_invalid_discovery_snapshots(self):
+        with TemporaryDirectory() as temporary:
+            registry = WorkerRegistry(Path(temporary) / "workers.sqlite")
+            invalid = WorkerSnapshot("node", "", ("video",), 0, 0, 0, 100, 100, generation=0)
+            with self.assertRaisesRegex(WorkloadRoutingError, "invalid worker"):
+                registry.heartbeat(invalid)
+            self.assertEqual(registry.list(now=100), [])
+
     def test_worker_dispatch_reservations_are_atomic_across_registry_instances(self):
         with TemporaryDirectory() as temporary:
             database = Path(temporary) / "workers.sqlite"
