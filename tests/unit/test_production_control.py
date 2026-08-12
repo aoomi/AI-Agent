@@ -141,6 +141,7 @@ class ProductionControlTests(unittest.TestCase):
             leases = TaskLeaseRepository(Path(temporary) / "leases.sqlite")
             lease = leases.acquire("job", "worker", ttl=30, now=100)
             self.assertFalse(leases.renew("job", "worker", int(lease["generation"]), ttl=30, now=99))
+            self.assertFalse(leases.renew("job", "worker", int(lease["generation"]), ttl=1, now=101))
             with self.assertRaisesRegex(TaskLeaseError, "stale task lease heartbeat"):
                 leases.acquire("job", "worker", ttl=30, now=99)
             self.assertTrue(leases.owns("job", "worker", int(lease["generation"]), now=105))

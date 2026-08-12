@@ -65,7 +65,8 @@ class TaskLeaseRepository:
         moment = time.time() if now is None else now
         with self._lock, self._connection() as connection:
             result = connection.execute("""UPDATE task_leases SET lease_expires_at=?,heartbeat_at=?
-                WHERE job_id=? AND owner_id=? AND generation=? AND lease_expires_at>? AND heartbeat_at<=? AND cancel_requested=0""", (moment + ttl, moment, job_id, owner_id, generation, moment, moment))
+                WHERE job_id=? AND owner_id=? AND generation=? AND lease_expires_at>? AND heartbeat_at<=?
+                AND lease_expires_at<=? AND cancel_requested=0""", (moment + ttl, moment, job_id, owner_id, generation, moment, moment, moment + ttl))
             return result.rowcount == 1
 
     def release(self, job_id: str, owner_id: str, generation: int) -> bool:
