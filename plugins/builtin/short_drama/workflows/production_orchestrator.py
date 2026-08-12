@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
 import operator
 from pathlib import Path
 import sqlite3
@@ -185,9 +186,13 @@ class ProductionOrchestrator:
         self.report(identity, canonical, "running")
         try:
             try:
-                output = executor(dict(inputs))
+                canonical_inputs = json.dumps(dict(inputs), allow_nan=False)
+            except (TypeError, ValueError) as error:
+                raise ValueError("stage inputs must be standard JSON") from error
+            try:
+                output = executor(json.loads(canonical_inputs))
             except ConnectionError:
-                output = executor(dict(inputs))
+                output = executor(json.loads(canonical_inputs))
             if not isinstance(output, Mapping):
                 raise ValueError("stage executor returned invalid output")
         except Exception as error:

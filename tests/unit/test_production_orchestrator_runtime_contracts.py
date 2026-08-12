@@ -29,5 +29,22 @@ class ProductionOrchestratorRuntimeContractsTest(unittest.TestCase):
             for evidence in ({"projection_revision":True},{"projection_revision":-1},{"stage_generation":True},{"stage_generation":-1}):
                 with self.subTest(evidence=evidence),self.assertRaises(ValueError):brain.report(IDENTITY,"requirements","running",**evidence)
 
+    def test_retry_receives_pristine_nested_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            brain=ProductionOrchestrator(Path(directory)/"graph.sqlite")
+            seen=[]
+            def executor(inputs):
+                seen.append(inputs["routing"]["regions"][0])
+                if len(seen)==1:
+                    inputs["routing"]["regions"][0]="mutated"
+                    raise ConnectionError("retry")
+                return {"ok":True}
+            brain.register_stage("requirements",executor)
+            original={"routing":{"regions":["local"]}}
+            result=brain.execute(IDENTITY,"requirements",original)
+            self.assertEqual(seen,["local","local"])
+            self.assertEqual(original,{"routing":{"regions":["local"]}})
+            self.assertEqual(result["output"],{"ok":True})
+
 
 if __name__ == "__main__":unittest.main()

@@ -3586,3 +3586,4 @@
 - 第二百八十四项自动测试与稽查：首尝试改写region并抛可重试错误后，第二次仍收到local；重试、fallback、熔断及限流关联回归、Python编译及diff门禁通过。
 - 第二百八十五项稽查首败与整改：AgentScheduler把executor返回的ExecutionResult.values写入上下文后仍原样返回，执行器可事后改写嵌套结果并造成返回对象与仓储分叉。现状态转换前强制标准JSON并重建独立ExecutionResult快照。
 - 第二百八十五项自动测试与稽查：scheduler完成后执行器原values改写嵌套steps不影响上下文；串并行调度、暂停恢复与人工接管关联回归、Python编译及diff门禁通过。
+- BUG072 / M9.198 / 架构横向稽查第二百八十六项（已关闭，2026-08-12）：短剧ProductionOrchestrator虽然对暂态ConnectionError重试，但两次把由同一调用方嵌套引用浅拷贝出的inputs交给可替换stage executor；首个失败执行器可污染第二次尝试及原请求，破坏生产节点重放事实。现执行前强制标准JSON并固定权威快照，每次attempt独立重建深副本；动态测试证明首尝试篡改region后第二次仍收到local且调用方对象不变。关联`117 passed, 19 subtests passed`，Python编译、文档状态及diff门禁通过。
