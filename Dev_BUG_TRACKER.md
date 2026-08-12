@@ -3108,3 +3108,5 @@
 - 第三十三项自动测试与稽查：动态证明异identity状态事件拒绝且原running任务不变，任务队列、服务及HTTP追踪关联`16 passed`；Python编译与diff门禁通过。
 - 第三十四项稽查首败与整改：AgentConfiguration的expected_version CAS在无锁字典上执行get→比较→append，并发两请求可同时通过version=1并各自追加version=2，破坏单调版本和确认提案边界。现统一RLock覆盖create、完整update CAS事务、get及history快照。
 - 第三十四项自动测试与稽查：双线程同expected_version竞态仅一个成功，最终版本2且历史恰两条；配置、会话与协作关联`22 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
+- 第三十五项稽查首败与整改：PluginRegistry生命周期、升级与回滚均为无锁读改写，多线程管理请求可从同一旧状态重复转换并覆盖历史。现统一RLock覆盖发现、状态转换、升级、回滚、读取与列表快照，状态检查和提交成为同一临界区。
+- 第三十五项自动测试与稽查：插件生命周期及平台启动关联`9 passed`；Python编译与diff门禁通过。只读确认RLock允许内部get复用且不包围安装器等外部长耗时操作。

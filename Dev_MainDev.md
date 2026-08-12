@@ -1034,3 +1034,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第三十二项：短剧pipeline任务领取已由tenant宽范围改为tenant+identity精确领取并校验task_id，阻断误领同租户他人任务。关联`19 passed`，只读稽查通过。
 - BUG072第三十三项：任务事件投影已补齐identity门禁，异身份事件不能改写同租户任务状态或进度；关联`16 passed`，只读稽查通过。
 - BUG072第三十四项：AgentConfiguration版本CAS已用统一RLock覆盖读取、比较与追加，同expected_version并发仅一方提交，配置提案不再产生重复版本。关联`22 passed`、`3 subtests passed`，只读稽查通过。
+- BUG072第三十五项：插件生命周期、升级与回滚读改写已统一串行化，避免并发管理请求从同一旧状态重复提交。关联`9 passed`，只读稽查通过。
