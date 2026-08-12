@@ -1176,3 +1176,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百七十三项：资源调度claim/cancel的resource、job及tenant/user/project身份已强制字符串并规范化，数字伪scope不再被隐式转换成票据所有者。专项回归通过。
 - BUG072第一百七十四项：SQLite worker预留request/resource/service/owner及释放ID已强制字符串身份，数字伪scope不会被隐式转换并写入跨实例权威预留表。专项回归通过。
 - BUG072第一百七十五项：行业工作流run的thread_id已强制字符串，数字线程不会被隐式转换后进入LangGraph检查点命名空间。专项回归通过。
+- BUG072第一百七十六项：Agent会话绑定与创建已验证Agent/Skill模型和字符串agent/owner身份，畸形对话入口不会泄漏属性异常或查询共享配置。会话关联回归通过。

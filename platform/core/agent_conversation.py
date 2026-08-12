@@ -134,10 +134,12 @@ class AgentConversationService:
         self._active_proposals: set[str] = set()
 
     def bind(self, agent: AgentInstance, skill: SkillDefinition) -> None:
+        if not isinstance(agent,AgentInstance) or not isinstance(skill,SkillDefinition):raise ConversationError("agent and Skill binding are invalid")
         if agent.skill_id != skill.skill_id: raise ConversationError("agent does not belong to Skill")
         with self._lock:self._bindings[agent.agent_id] = (agent, skill)
 
     def open_session(self, agent_id: str, created_by_identity_id: str, context: Mapping[str, Any] | None = None) -> ConversationSession:
+        if not isinstance(agent_id,str) or not agent_id.strip() or not isinstance(created_by_identity_id,str):raise ConversationError("conversation agent and identity are required")
         if context is not None and not isinstance(context, Mapping):raise ConversationError("conversation context must be a mapping")
         configuration = self.configurations.get(agent_id)
         identity_id = created_by_identity_id.strip()
@@ -226,6 +228,7 @@ class AgentConversationService:
             with self._lock:self._active_proposals.discard(proposal_id)
 
     def _confirm_active(self, proposal: ConversationProposal, confirmed_by_identity_id: str) -> ConversationProposal:
+        if not isinstance(confirmed_by_identity_id,str):raise ConversationError("confirmed_by_identity_id is required")
         identity_id = confirmed_by_identity_id.strip()
         if not identity_id: raise ConversationError("confirmed_by_identity_id is required")
         self._owned_session(proposal.session_id, identity_id)
