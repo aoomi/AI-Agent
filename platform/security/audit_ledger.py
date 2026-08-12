@@ -20,11 +20,13 @@ class SecurityAuditLedger:
   with self._lock:
    previous=self._entries[-1].entry_hash if self._entries else "0"*64;created=datetime.now(timezone.utc).isoformat();entry_id=f"security-audit-{uuid4().hex}";payload="|".join((entry_id,tenant_id,actor_id,action,resource_id,outcome,created,previous));digest=sha256(payload.encode()).hexdigest();entry=SecurityAuditEntry(entry_id,tenant_id,actor_id,action,resource_id,outcome,created,previous,digest);self._entries.append(entry);return entry
  def run(self,*,tenant_id:str,actor_id:str,action:str,resource_id:str,operation:Callable[[],Any])->Any:
+  if not callable(operation):raise SecurityAuditError("audit operation must be callable")
   self.append(tenant_id=tenant_id,actor_id=actor_id,action=action,resource_id=resource_id,outcome="started")
   try:result=operation()
   except Exception:self.append(tenant_id=tenant_id,actor_id=actor_id,action=action,resource_id=resource_id,outcome="failed");raise
   self.append(tenant_id=tenant_id,actor_id=actor_id,action=action,resource_id=resource_id,outcome="completed");return result
  def export(self,*,tenant_id:str,actor_id:str)->bytes:
+  if not str(tenant_id).strip() or not str(actor_id).strip():raise SecurityAuditError("audit export identity is required")
   with self._lock:data=json.dumps([asdict(e) for e in self._entries if e.tenant_id==tenant_id],sort_keys=True,separators=(",",":")).encode()
   self.append(tenant_id=tenant_id,actor_id=actor_id,action="audit.export",resource_id=tenant_id,outcome="completed");return data
  def verify(self)->bool:

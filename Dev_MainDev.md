@@ -1107,3 +1107,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百零四项：ModelRegistry读取、启停和选择已拒绝空model/preferred ID、非布尔enabled及空能力需求，坏管理请求不再伪装未知模型或无候选。模型、配置与会话关联`31 passed`、`3 subtests passed`，Python编译与只读diff稽查通过。
 - BUG072第一百零五项：基础Skill manifest metadata已递归拒绝六类敏感组合键，基础/行业Skill读取同步拒绝空ID；凭据不能进入Skill注册快照或机器人系统提示配置。Skill与行业机器人关联`7 passed`，Python编译与只读diff稽查通过。
 - BUG072第一百零六项：AgentMapper绑定及双向读取已强制非空Skill/Agent身份，匿名映射不再进入双向索引或伪装未映射。映射、注册与Agent API关联`9 passed`，Python编译与只读diff稽查通过。
+- BUG072第一百零七项：SecurityAuditLedger.run已在started审计前验证operation可调用，export同步强制tenant/actor身份；坏审计调用不会写入伪started记录或导出匿名租户数据。安全审计与发布关联`6 passed`，Python编译与只读diff稽查通过。
