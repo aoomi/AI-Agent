@@ -3274,3 +3274,5 @@
 - 第一百二十八项自动测试与稽查：坏executor、空/重复robot及未知mode动态拒绝，原workflow保持version1；行业工作流关联`4 passed`（另`4 subtests passed`），Python编译与diff门禁通过。
 - 第一百二十九项稽查首败与整改：AgentCollaborationService最大整改轮次只做范围比较，布尔True和浮点可绕过或泄漏非契约异常，且验证晚于配置读取。现轮次在任何配置查询前强制1—100真实整数。
 - 第一百二十九项自动测试与稽查：布尔及浮点轮次动态失败关闭且零配置访问；协作关联`9 passed`（另`8 subtests passed`），Python编译与diff门禁通过。
+- 第一百三十项稽查首败与整改：TaskProgressProjection已拒绝布尔进度，但其下游InMemoryTaskQueue.apply_status_event仍把True视为1并可同时推进任务生命周期，形成双层契约不一致。现队列权威写入同步强制真实整数。
+- 第一百三十项自动测试与稽查：布尔进度动态失败关闭且任务保持running；队列、服务、投影与隔离关联测试、Python编译与diff门禁通过。

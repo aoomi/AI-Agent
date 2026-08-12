@@ -196,7 +196,7 @@ class InMemoryTaskQueue:
                 raise QueueConflictError("project scope mismatch")
             if task.status != status and (task.status, status) not in STATUS_TRANSITIONS:
                 raise QueueConflictError("task status event transition is forbidden")
-            if not 0 <= progress_percent <= 100:
+            if isinstance(progress_percent, bool) or not isinstance(progress_percent, int) or not 0 <= progress_percent <= 100:
                 raise QueueConflictError("progress_percent is invalid")
             updated = replace(task, status=status, payload={**dict(task.payload), "progress_percent": progress_percent})
             self._tasks[task_id] = updated

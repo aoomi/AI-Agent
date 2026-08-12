@@ -133,6 +133,12 @@ class InMemoryTaskQueueTest(unittest.TestCase):
             queue.apply_status_event("task-1", "tenant-a", "identity-1", "project-1", "unknown", 1)  # type: ignore[arg-type]
         self.assertEqual(queue.get("task-1", "tenant-a").status, "running")
 
+    def test_status_event_rejects_boolean_progress_without_mutation(self) -> None:
+        queue = InMemoryTaskQueue(); queue.enqueue(task()); queue.claim("tenant-a")
+        with self.assertRaisesRegex(QueueConflictError, "progress_percent"):
+            queue.apply_status_event("task-1", "tenant-a", "identity-1", "project-1", "paused", True)  # type: ignore[arg-type]
+        self.assertEqual(queue.get("task-1", "tenant-a").status, "running")
+
 
 if __name__ == "__main__":
     unittest.main()
