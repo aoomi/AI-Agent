@@ -103,6 +103,15 @@ class AgentConversationServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(ConversationError, "sensitive fields"): service.confirm(proposal.proposal_id, "owner")
         self.assertEqual(service.proposals(session.session_id, "owner")[0].status, "failed")
 
+    def test_sensitive_memory_update_is_not_persisted(self) -> None:
+        skill, agent = self.configured(); memory = ConversationMemoryStore()
+        client = ModelClient({"reply":"ok", "memory_updates":{"profiles":[{"client_secret":"plaintext"}]}})
+        service = AgentConversationService(self.models, self.configurations, client, memory_store=memory); service.bind(agent, skill)
+        session = service.open_session(agent.agent_id, "owner", {"project_id":"project"})
+        with self.assertRaisesRegex(ConversationError, "sensitive fields"): service.send(session.session_id, "remember", "owner")
+        self.assertEqual(memory.read("owner", "project"), {})
+        self.assertEqual(len(service.messages(session.session_id, "owner")), 1)
+
     def test_memory_persistence_failure_has_no_partial_conversation_commit(self) -> None:
         skill, agent = self.configured()
         client = ModelClient({

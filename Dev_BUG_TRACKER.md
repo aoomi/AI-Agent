@@ -3190,3 +3190,5 @@
 - 第八十六项自动测试与稽查：顶层、对象嵌套和数组嵌套敏感证据均失败关闭；协作与管理API关联`12 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
 - 第八十七项稽查首败与整改：ConversationProposal.requested_changes和确认后的applied_result会被管理API返回，但模型与任务executor原可把Authorization/access_token等嵌套凭据写入两类长期快照。现提案构建前和执行结果发布前均递归拒绝六类敏感组合键；执行结果拒绝沿既有异常路径把提案标为failed。
 - 第八十七项自动测试与稽查：敏感模型提案零消息/零提案提交，敏感executor结果不发布且提案failed；配置、会话与管理API关联`25 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
+- 第八十八项稽查首败与整改：ConversationMemoryStore会跨会话持久化并直接注入后续系统提示词，但模型memory_updates原只校验Mapping类型，可写入嵌套client_secret等凭据。现响应校验阶段复用递归敏感键门禁，拒绝发生在memory及消息提交前。
+- 第八十八项自动测试与稽查：数组嵌套client_secret动态证明memory为空且会话仍仅系统首条；配置、会话与管理API关联`26 passed`（另`6 subtests passed`），Python编译与diff门禁通过。

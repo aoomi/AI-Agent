@@ -171,6 +171,8 @@ class AgentConversationService:
         if not isinstance(reply, str) or not reply.strip(): raise ConversationError("model response reply is invalid")
         memory_updates = raw.get("memory_updates")
         if memory_updates is not None and not isinstance(memory_updates, Mapping): raise ConversationError("model memory_updates are invalid")
+        if memory_updates is not None and self._contains_sensitive_key(memory_updates):
+            raise ConversationError("model memory_updates contain sensitive fields")
         needs_clarification = raw.get("needs_clarification", False)
         if not isinstance(needs_clarification, bool): raise ConversationError("model clarification control is invalid")
         selected_skill_id = raw.get("selected_skill_id")
