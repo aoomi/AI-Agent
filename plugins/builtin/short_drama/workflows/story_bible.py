@@ -27,6 +27,8 @@ def _first(item: Mapping[str, Any], keys: tuple[str, ...]) -> str:
 
 class StoryBible:
     def __init__(self, database: Path) -> None:
+        if not isinstance(database, Path):
+            raise StoryBibleError("story bible database must be a Path")
         self.database = database.resolve(); self.database.parent.mkdir(parents=True, exist_ok=True); self._lock = RLock()
         with self._connection() as connection:
             connection.executescript("""

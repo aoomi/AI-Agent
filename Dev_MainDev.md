@@ -1255,3 +1255,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百五十二项：跨worker生产派发请求身份已移除`default=str`宽松转换并强制标准JSON，坏请求不会占用reservation或生成不稳定single-flight标识。
 - BUG072第二百五十三项：StoryBible完整输入已在SQLite事务前强制标准JSON，非标准事实或实体不会造成部分权威故事状态。
 - BUG072第二百五十四项：短剧TextArtifact已强制标准JSON规范化和指纹，非标准提供方输出不会进入需求至资产目录流水线。
+- BUG072第二百五十五项：StoryBible数据库构造已强制Path运行时契约，与其他SQLite权威仓储一致在文件系统副作用前失败关闭。

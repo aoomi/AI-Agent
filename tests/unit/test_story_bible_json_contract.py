@@ -6,6 +6,13 @@ import pytest
 from short_drama_workflows.story_bible import StoryBible, StoryBibleError
 
 
+def test_story_bible_rejects_non_path_database_before_filesystem_side_effects(tmp_path):
+    target = tmp_path / "story.sqlite"
+    with pytest.raises(StoryBibleError, match="must be a Path"):
+        StoryBible(str(target))
+    assert not target.exists()
+
+
 @pytest.mark.parametrize("invalid", [float("nan"), object()])
 def test_story_bible_rejects_non_standard_json_without_persisting(invalid):
     with TemporaryDirectory() as temporary:
