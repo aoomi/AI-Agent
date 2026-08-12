@@ -32,6 +32,13 @@ class SQLiteDurableQueue:
  def __init__(self,path:Path):path.parent.mkdir(parents=True,exist_ok=True);self.db=sqlite3.connect(path,check_same_thread=False);self._lock=RLock();self.db.execute("CREATE TABLE IF NOT EXISTS queue(id TEXT PRIMARY KEY,tenant TEXT,payload TEXT,status TEXT)");self.db.commit()
  def enqueue(self,tenant,payload):
   if not str(tenant).strip():raise PersistenceError("queue tenant is required")
+  if not isinstance(payload,dict):raise PersistenceError("queue payload must be an object")
+  forbidden=("secret","token","password","api_key","authorization","credential")
+  def contains_sensitive(value):
+   if isinstance(value,dict):return any(any(word in str(key).lower() for word in forbidden) or contains_sensitive(item) for key,item in value.items())
+   if isinstance(value,(list,tuple,set,frozenset)):return any(contains_sensitive(item) for item in value)
+   return False
+  if contains_sensitive(payload):raise PersistenceError("queue payload contains sensitive fields")
   item=DurableQueueItem(f"queue-{uuid4().hex}",tenant,payload,"pending")
   with self._lock:self.db.execute("INSERT INTO queue VALUES(?,?,?,?)",(item.item_id,tenant,json.dumps(payload),item.status));self.db.commit()
   return item

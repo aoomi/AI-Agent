@@ -3208,3 +3208,5 @@
 - 第九十五项自动测试与稽查：空provider、空capability及三类部分owner查询全部动态拒绝；provider审计与生产集成`7 passed`，Python编译与diff门禁通过。
 - 第九十六项稽查首败与整改：PublishedEvent payload会广播给任意进程内订阅者并进入任务投影，但原模型只检查非空，可携带access_token、嵌套Authorization或client_secret扩散到观测/状态消费者。现事件构造边界递归拒绝六类敏感组合键。
 - 第九十六项自动测试与稽查：顶层、对象嵌套和数组嵌套三类敏感事件均在publish前拒绝；事件总线、任务投影与TaskService关联`16 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
+- 第九十七项稽查首败与整改：SQLiteDurableQueue会把任意payload直接JSON持久化并跨实例恢复，原边界仅校验tenant，可写入access_token、Authorization或client_secret。现enqueue强制dict并在INSERT前递归拒绝六类敏感组合键。
+- 第九十七项自动测试与稽查：顶层、对象嵌套和数组嵌套三类敏感payload均零落盘；持久适配器与私有部署韧性关联`6 passed`（另`3 subtests passed`），Python编译与diff门禁通过。

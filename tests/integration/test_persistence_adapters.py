@@ -14,4 +14,9 @@ class PersistenceAdaptersTest(unittest.TestCase):
    with self.assertRaises(PersistenceError):state.put("","n","k",{})
    with self.assertRaises(PersistenceError):objects.put("","key",b"x")
    with self.assertRaises(PersistenceError):queue.enqueue("",{})
+ def test_queue_rejects_sensitive_payloads(self):
+  with tempfile.TemporaryDirectory() as d:
+   queue=SQLiteDurableQueue(Path(d)/"queue.db")
+   for payload in ({"access_token":"plaintext"},{"headers":{"Authorization":"Bearer plaintext"}},{"profiles":[{"client_secret":"plaintext"}]}):
+    with self.subTest(payload=payload),self.assertRaisesRegex(PersistenceError,"sensitive fields"):queue.enqueue("t",payload)
 if __name__=="__main__":unittest.main()
