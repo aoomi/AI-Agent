@@ -55,7 +55,12 @@ class StoryBible:
         return values  # type: ignore[return-value]
 
     def update(self, identity: Mapping[str, Any], stage: str, data: Mapping[str, Any]) -> dict[str, Any]:
-        scope = self._identity(identity); episodes = self._episodes(stage, data); violations = self.validate(episodes)
+        scope = self._identity(identity)
+        try:
+            json.dumps(dict(data), ensure_ascii=False, sort_keys=True, allow_nan=False)
+        except (TypeError, ValueError) as error:
+            raise StoryBibleError("story bible data must be standard JSON") from error
+        episodes = self._episodes(stage, data); violations = self.validate(episodes)
         if violations: raise StoryBibleError("；".join(violations))
         with self._lock, self._connection() as connection:
             existing_numbers = {int(row["episode"]) for row in connection.execute("SELECT episode FROM story_episode_facts WHERE tenant_id=? AND user_id=? AND project_id=?", scope)}
@@ -68,7 +73,7 @@ class StoryBible:
                 title = _first(item, ("title", "episode_title")); event = _first(item, ("core_event", "event", "plot", "summary", "content"))
                 values = (*scope, episode, title, event, _first(item, ("story_stage", "phase", "story_phase")), _first(item, ("ability_progression", "ability_stage", "power_stage")),
                           _first(item, ("irreversible_change", "change")), _first(item, ("hook", "ending_hook", "cliffhanger")), stage,
-                          hashlib.sha256(json.dumps(item, ensure_ascii=False, sort_keys=True).encode()).hexdigest(), datetime.now(UTC).isoformat())
+                          hashlib.sha256(json.dumps(item, ensure_ascii=False, sort_keys=True, allow_nan=False).encode()).hexdigest(), datetime.now(UTC).isoformat())
                 connection.execute("""
                     INSERT INTO story_episode_facts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(tenant_id,user_id,project_id,episode) DO UPDATE SET title=excluded.title,event=excluded.event,phase=excluded.phase,
@@ -127,7 +132,7 @@ class StoryBible:
                     INSERT INTO story_entities VALUES (?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(tenant_id,user_id,project_id,entity_type,entity_key) DO UPDATE SET canonical_name=excluded.canonical_name,
                     attributes_json=excluded.attributes_json,source_stage=excluded.source_stage,updated_at=excluded.updated_at
-                """, (*scope, entity_type, key, name, json.dumps(dict(item), ensure_ascii=False, sort_keys=True), stage, datetime.now(UTC).isoformat()))
+                """, (*scope, entity_type, key, name, json.dumps(dict(item), ensure_ascii=False, sort_keys=True, allow_nan=False), stage, datetime.now(UTC).isoformat()))
 
     def read(self, identity: Mapping[str, Any]) -> dict[str, Any]:
         scope = self._identity(identity)
