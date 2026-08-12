@@ -107,6 +107,9 @@ class ProductionCapabilityRegistry:
         with self._lock:
             targets = [key for key in self._providers if key[0] == capability and (provider_id is None or key[1] == provider_id)]
             if not targets: raise ProductionCapabilityError(f"capability is not installed: {capability}")
+            active = [key for key in targets if self._inflight.get(key, 0)]
+            if not enabled and active:
+                raise ProductionCapabilityError(f"capability provider has in-flight invocations: {active[0][0]}/{active[0][1]}")
             updated_items = []
             for key in targets:
                 definition, handler = self._providers[key]
@@ -117,6 +120,8 @@ class ProductionCapabilityRegistry:
     def health(self, capability: str, provider_id: str, healthy: bool) -> ProductionCapability:
         with self._lock:
             definition, handler = self._entry(capability, provider_id, include_unavailable=True)
+            if not healthy and self._inflight.get((capability, provider_id), 0):
+                raise ProductionCapabilityError(f"capability provider has in-flight invocations: {capability}/{provider_id}")
             updated = ProductionCapability(definition.capability, definition.provider_id, definition.enabled, definition.metadata, definition.priority, healthy)
             self._providers[(capability, provider_id)] = (updated, handler)
             return updated

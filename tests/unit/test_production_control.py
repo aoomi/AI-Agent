@@ -410,6 +410,10 @@ class ProductionControlTests(unittest.TestCase):
             registry.invoke("text.outline")
         with self.assertRaisesRegex(ProductionCapabilityError, "in-flight"):
             registry.unregister("text.outline", "node-a")
+        with self.assertRaisesRegex(ProductionCapabilityError, "in-flight"):
+            registry.enable("text.outline", False, "node-a")
+        with self.assertRaisesRegex(ProductionCapabilityError, "in-flight"):
+            registry.health("text.outline", "node-b", False)
         release.set()
         for worker in workers: worker.join(timeout=2)
         self.assertEqual({item["provider"] for item in results}, {"node-a", "node-b"})
