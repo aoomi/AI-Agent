@@ -7324,19 +7324,18 @@ def _validated_review_export_authority(body: dict, command: dict, episodes: list
             ))
             production_evidence = selected_record.get("production_evidence")
             audit_evidence = selected_record.get("audit_evidence")
-            if source_version == "enhanced":
-                try:
-                    _canonical_evidence_json(production_evidence, f"episode {episode} authoritative production evidence")
-                    _canonical_evidence_json(audit_evidence, f"episode {episode} authoritative audit evidence")
-                except RuntimeError:
-                    rejected.append(episode)
-                    continue
+            try:
+                _canonical_evidence_json(production_evidence, f"episode {episode} authoritative production evidence")
+                _canonical_evidence_json(audit_evidence, f"episode {episode} authoritative audit evidence")
+            except RuntimeError:
+                rejected.append(episode)
+                continue
             authoritative_media[episode] = {
                 "source_version":source_version, "content_fingerprint":selected_record["content_fingerprint"],
                 "audit_batch_id":selected_record["audit_batch_id"],
                 "generation":int(selected_record.get("generation") or 0),
-                "production_evidence":production_evidence if production_evidence is not None else {"status":"not_available", "reason":"legacy_base_scope"},
-                "audit_evidence":audit_evidence if audit_evidence is not None else {"status":"not_applicable", "reason":"legacy_base_scope"},
+                "production_evidence":production_evidence,
+                "audit_evidence":audit_evidence,
             }
     if rejected:
         raise ValueError(f"review_export export requires authoritative confirmed audit and media: {rejected}")

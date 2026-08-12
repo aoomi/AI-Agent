@@ -18,6 +18,15 @@ def load_backend(name: str):
     return module
 
 
+def commit_base_media(module, identity: dict, fingerprint: str, batch: str, episode: int = 1) -> None:
+    record = {**identity, "stage":"composition", "scope_type":"episode", "scope_id":str(episode),
+              "generation":1, "content_fingerprint":fingerprint, "audit_batch_id":batch,
+              "production_evidence":{"path":f"episode-{episode}.mp4"},
+              "audit_evidence":{"status":"not_applicable"}}
+    module.PRODUCTION_LEDGER.commit_stage_authorities([record])
+    module.PRODUCTION_LEDGER.confirm({**identity, "stage":"composition", "scope_type":"episode", "scope_id":str(episode)})
+
+
 def test_review_audit_batches_unique_episodes_and_preserves_evidence() -> None:
     module = load_backend("review_export_audit")
     calls = []
@@ -81,8 +90,7 @@ def test_review_export_audit_disabled_allows_only_confirmed_base_media() -> None
     identity = {"tenant_id":"t", "user_id":"u", "project_id":"p"}
     with TemporaryDirectory() as temporary:
         module.PRODUCTION_LEDGER = module.ProductionLedger(Path(temporary) / "ledger.sqlite")
-        module.PRODUCTION_LEDGER.upsert({**identity, "stage":"composition", "scope_type":"episode", "scope_id":"1", "lifecycle":"pending_confirmation", "content_fingerprint":"media-fp", "audit_batch_id":"media-batch"})
-        module.PRODUCTION_LEDGER.confirm({**identity, "stage":"composition", "scope_type":"episode", "scope_id":"1"})
+        commit_base_media(module, identity, "media-fp", "media-batch")
         result = module._run_server_production_stage({**identity, "stage":"review_export", "operation":"export", "command":{"source_version":"base", "items":[{"episode":1, "path":"one.mp4", "content_fingerprint":"media-fp"}], "audit_required":False}})
     assert result["manifest_url"] == "manifest.json"
     assert calls == ["/api/exports/create"]
@@ -95,12 +103,10 @@ def test_review_export_only_accepts_matching_authoritative_audit_and_media() -> 
     identity = {"tenant_id":"tenant-a", "user_id":"user-a", "project_id":"project-a"}
     with TemporaryDirectory() as temporary:
         module.PRODUCTION_LEDGER = module.ProductionLedger(Path(temporary) / "ledger.sqlite")
-        for payload in (
-            {"stage":"review_export", "scope_type":"episode", "scope_id":"review:1", "content_fingerprint":"audit-fp", "audit_batch_id":"audit-batch"},
-            {"stage":"composition", "scope_type":"episode", "scope_id":"1", "content_fingerprint":"media-fp", "audit_batch_id":"media-batch"},
-        ):
-            module.PRODUCTION_LEDGER.upsert({**identity, **payload, "lifecycle":"pending_confirmation"})
-            module.PRODUCTION_LEDGER.confirm({**identity, "stage":payload["stage"], "scope_type":payload["scope_type"], "scope_id":payload["scope_id"]})
+        payload = {"stage":"review_export", "scope_type":"episode", "scope_id":"review:1", "content_fingerprint":"audit-fp", "audit_batch_id":"audit-batch"}
+        module.PRODUCTION_LEDGER.upsert({**identity, **payload, "lifecycle":"pending_confirmation"})
+        module.PRODUCTION_LEDGER.confirm({**identity, "stage":payload["stage"], "scope_type":payload["scope_type"], "scope_id":payload["scope_id"]})
+        commit_base_media(module, identity, "media-fp", "media-batch")
         command = {
             "source_version":"base",
             "items":[{"episode":1, "path":"one.mp4", "content_fingerprint":"media-fp"}],
@@ -149,9 +155,7 @@ def test_review_export_source_version_never_cross_matches_base_and_enhanced() ->
     identity = {"tenant_id":"t", "user_id":"u", "project_id":"p"}
     with TemporaryDirectory() as temporary:
         module.PRODUCTION_LEDGER = module.ProductionLedger(Path(temporary) / "ledger.sqlite")
-        base_payload = {"stage":"composition", "scope_type":"episode", "scope_id":"1", "content_fingerprint":"base-fp", "audit_batch_id":"base-batch"}
-        module.PRODUCTION_LEDGER.upsert({**identity, **base_payload, "lifecycle":"pending_confirmation"})
-        module.PRODUCTION_LEDGER.confirm({**identity, "stage":"composition", "scope_type":"episode", "scope_id":"1"})
+        commit_base_media(module, identity, "base-fp", "base-batch")
         enhanced_key = {**identity, "stage":"review_export", "scope_type":"episode", "scope_id":"upscale:1"}
         enhanced_generation = module.PRODUCTION_LEDGER.reserve_upscale_generation(enhanced_key)
         module.PRODUCTION_LEDGER.commit_upscale_authority({**enhanced_key, "generation":enhanced_generation, "content_fingerprint":"enhanced-fp", "audit_batch_id":"enhanced-batch", "production_evidence":{"provider":"upscaler"}, "audit_evidence":{"final":{"status":"pass", "evidence":{"score":1}}}})
@@ -172,9 +176,8 @@ def test_review_export_legacy_evidence_defaults_are_base_only() -> None:
         module.PRODUCTION_LEDGER.upsert({**identity, "stage":"composition", "scope_type":"episode", "scope_id":"1", "lifecycle":"pending_confirmation", "content_fingerprint":"base-fp", "audit_batch_id":"base-batch"})
         module.PRODUCTION_LEDGER.confirm({**identity, "stage":"composition", "scope_type":"episode", "scope_id":"1"})
         module.PRODUCTION_LEDGER.upsert_projection({**identity, "stage":"review_export", "scope_type":"episode", "scope_id":"upscale:1", "lifecycle":"completed", "content_fingerprint":"enhanced-fp", "audit_batch_id":"enhanced-batch", "production_evidence":{"forged":True}})
-        base = module._validated_review_export_authority(identity, {"source_version":"base", "items":[{"episode":1, "content_fingerprint":"base-fp"}], "audit_results":[]}, [1], audit_required=False)
-        assert base[1]["production_evidence"] == {"status":"not_available", "reason":"legacy_base_scope"}
-        assert base[1]["audit_evidence"] == {"status":"not_applicable", "reason":"legacy_base_scope"}
+        with pytest.raises(ValueError, match="authoritative confirmed audit and media"):
+            module._validated_review_export_authority(identity, {"source_version":"base", "items":[{"episode":1, "content_fingerprint":"base-fp"}], "audit_results":[]}, [1], audit_required=False)
         with pytest.raises(ValueError, match="authoritative confirmed audit and media"):
             module._validated_review_export_authority(identity, {"source_version":"enhanced", "items":[{"episode":1, "content_fingerprint":"enhanced-fp", "audit_batch_id":"enhanced-batch"}], "audit_results":[]}, [1], audit_required=False)
 
@@ -186,8 +189,7 @@ def test_review_export_multi_episode_missing_one_media_is_zero_side_effect() -> 
     identity = {"tenant_id":"t", "user_id":"u", "project_id":"p"}
     with TemporaryDirectory() as temporary:
         module.PRODUCTION_LEDGER = module.ProductionLedger(Path(temporary) / "ledger.sqlite")
-        module.PRODUCTION_LEDGER.upsert({**identity, "stage":"composition", "scope_type":"episode", "scope_id":"1", "lifecycle":"pending_confirmation", "content_fingerprint":"one-fp", "audit_batch_id":"one-batch"})
-        module.PRODUCTION_LEDGER.confirm({**identity, "stage":"composition", "scope_type":"episode", "scope_id":"1"})
+        commit_base_media(module, identity, "one-fp", "one-batch")
         with pytest.raises(ValueError, match=r"\[2\]"):
             module._run_server_production_stage({**identity, "stage":"review_export", "operation":"export", "command":{"source_version":"base", "audit_required":False, "items":[{"episode":1, "path":"one.mp4", "content_fingerprint":"one-fp"}, {"episode":2, "path":"two.mp4", "content_fingerprint":"two-fp"}]}})
     assert calls == []
