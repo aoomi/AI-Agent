@@ -24,6 +24,7 @@ class WorkerNumericContractTest(unittest.TestCase):
             router.route("video", estimated_memory=True)  # type: ignore[arg-type]
 
     def test_registry_rejects_pseudo_numeric_controls(self) -> None:
+        with self.assertRaises(WorkloadRoutingError):WorkerRegistry("workers.db")
         with tempfile.TemporaryDirectory() as directory:
             registry = WorkerRegistry(Path(directory) / "workers.db")
             for operation in (
@@ -31,6 +32,7 @@ class WorkerNumericContractTest(unittest.TestCase):
                 lambda: registry.reap(heartbeat_timeout=True),
                 lambda: registry.reserve("request", "video", estimated_memory=True),
                 lambda: registry.reserve("request", "video", reservation_ttl=True),
+                lambda: registry.list(service_scope=1),
             ):
                 with self.subTest(operation=operation), self.assertRaises(WorkloadRoutingError):
                     operation()
@@ -85,11 +87,18 @@ class WorkerNumericContractTest(unittest.TestCase):
                 with self.subTest(operation=operation), self.assertRaisesRegex(WorkloadRoutingError, "clock"):
                     operation()
             with self.assertRaisesRegex(WorkloadRoutingError,"endpoint"):router.heartbeat(self._worker(endpoint=1))
+            with self.assertRaisesRegex(WorkloadRoutingError,"endpoint"):registry.heartbeat(self._worker(endpoint=1))
 
     def test_router_requires_generation_bump_for_topology_changes(self) -> None:
         router=WorkloadRouter();router.heartbeat(self._worker())
         with self.assertRaisesRegex(WorkloadRoutingError,"new generation"):router.heartbeat(self._worker(capacity=2,heartbeat_at=2.0))
         self.assertEqual(router.heartbeat(self._worker(capacity=2,heartbeat_at=2.0,generation=2)).generation,2)
+
+    def test_registry_requires_generation_bump_for_topology_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            registry=WorkerRegistry(Path(directory)/"workers.db");registry.heartbeat(self._worker())
+            with self.assertRaisesRegex(WorkloadRoutingError,"new generation"):registry.heartbeat(self._worker(endpoint="new",heartbeat_at=2.0))
+            self.assertEqual(registry.heartbeat(self._worker(endpoint="new",heartbeat_at=2.0,generation=2)).generation,2)
 
 
 if __name__ == "__main__":

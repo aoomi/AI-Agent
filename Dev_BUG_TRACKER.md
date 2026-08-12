@@ -3452,3 +3452,5 @@
 - 第二百一十七项自动测试与稽查：userinfo、8443端口及迭代器command动态拒绝；插件沙箱关联`3 passed`（另`12 subtests passed`），Python编译与diff门禁通过。
 - 第二百一十八项稽查首败与整改：WorkloadRouter heartbeat未验证endpoint类型，且同generation可改变服务scope、资源类、容量或endpoint，绕过代际发现围栏。现不可变拓扑变化统一要求generation递增。
 - 第二百一十八项自动测试与稽查：数字endpoint和同代capacity变更动态拒绝，升代变更成功；worker发现关联`7 passed`（另`39 subtests passed`），Python编译与diff门禁通过。
+- 第二百一十九项稽查首败与整改：SQLite WorkerRegistry仍未验证database Path、service_scope/endpoint，且同generation可覆盖拓扑，与内存WorkloadRouter代际契约不一致。现持久发现入口同步严格围栏。
+- 第二百一十九项自动测试与稽查：字符串database、数字service/endpoint及同代endpoint变更动态拒绝，升代变更成功；跨实例发现关联`8 passed`（另`40 subtests passed`），Python编译与diff门禁通过。

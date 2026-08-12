@@ -14,6 +14,7 @@ from .workload_router import WorkerSnapshot, WorkloadRoutingError
 
 class WorkerRegistry:
     def __init__(self, database: Path) -> None:
+        if not isinstance(database,Path):raise WorkloadRoutingError("worker database must be a Path")
         self.database = database.resolve(); self.database.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self.database, timeout=30, isolation_level=None) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -41,6 +42,7 @@ class WorkerRegistry:
                 or not worker.worker_id.strip() or not worker.service_scope.strip() or not isinstance(worker.resource_classes,tuple)
                 or not worker.resource_classes or any(not isinstance(value,str) or not value.strip() for value in worker.resource_classes)):
             raise WorkloadRoutingError("invalid worker identity")
+        if not isinstance(worker.endpoint,str):raise WorkloadRoutingError("invalid worker endpoint")
         integer_fields=(worker.capacity,worker.active,worker.queue_depth,worker.available_memory,worker.generation)
         if (any(isinstance(value,bool) or not isinstance(value,int) for value in integer_fields)
                 or worker.capacity <= 0 or worker.active < 0 or worker.active > worker.capacity or worker.queue_depth < 0 or worker.available_memory < 0 or worker.generation < 1
@@ -48,6 +50,10 @@ class WorkerRegistry:
             raise WorkloadRoutingError("invalid worker capacity")
         payload = json.dumps(asdict(worker), ensure_ascii=False, sort_keys=True)
         with sqlite3.connect(self.database, timeout=30) as connection:
+            previous=connection.execute("SELECT payload_json,generation FROM workers WHERE worker_id=?",(worker.worker_id,)).fetchone()
+            if previous and worker.generation==int(previous[1]):
+                current=self._worker(previous[0])
+                if (worker.service_scope,worker.resource_classes,worker.capacity,worker.endpoint)!=(current.service_scope,current.resource_classes,current.capacity,current.endpoint):raise WorkloadRoutingError("worker identity requires a new generation")
             connection.execute("""INSERT INTO workers VALUES(?,?,?,?) ON CONFLICT(worker_id) DO UPDATE SET
                 payload_json=excluded.payload_json,heartbeat_at=excluded.heartbeat_at,generation=excluded.generation
                 WHERE excluded.generation>workers.generation OR (
@@ -59,6 +65,8 @@ class WorkerRegistry:
         return worker
 
     def list(self, *, heartbeat_timeout: float = 30, service_scope: str = "", now: float | None = None) -> list[WorkerSnapshot]:
+        if not isinstance(service_scope,str):raise WorkloadRoutingError("invalid worker service scope")
+        service_scope=service_scope.strip()
         if isinstance(heartbeat_timeout,bool) or not isinstance(heartbeat_timeout,(int,float)) or not math.isfinite(heartbeat_timeout) or heartbeat_timeout <= 0: raise WorkloadRoutingError("invalid worker heartbeat timeout")
         moment = time.time() if now is None else now
         if isinstance(moment,bool) or not isinstance(moment,(int,float)) or not math.isfinite(moment): raise WorkloadRoutingError("invalid worker clock")
