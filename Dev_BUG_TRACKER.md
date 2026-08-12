@@ -3248,3 +3248,5 @@
 - 第一百一十五项自动测试与稽查：两类非法memory及三类非法timeout动态拒绝，调度快照保持零排队；资源调度与生产控制关联`99 passed`（另`11 subtests passed`），Python编译与diff门禁通过。
 - 第一百一十六项稽查首败与整改：ProviderAuditLedger只比较指标<0，布尔/浮点可成为token、耗时或成本；request非Mapping延迟到dict转换，artifact_ids与checksums也可长度错位或为空。现四类指标、请求结构及产物证明在哈希和账本追加前完整验证。
 - 第一百一十六项自动测试与稽查：三类非法指标、非Mapping请求、错位及空产物证明动态失败关闭；Provider审计关联`5 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
+- 第一百一十七项稽查首败与整改：SecurityAuditLedger保留期只比较小于30，布尔True和浮点可绕过静态整数契约建立账本。现构造边界强制至少30天的真实整数。
+- 第一百一十七项自动测试与稽查：布尔、浮点及不足30天三类值动态失败关闭；安全审计关联测试、Python编译与diff门禁通过。

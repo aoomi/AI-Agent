@@ -13,7 +13,7 @@ class SecurityAuditEntry:
  entry_id:str;tenant_id:str;actor_id:str;action:str;resource_id:str;outcome:str;created_at:str;previous_hash:str;entry_hash:str
 class SecurityAuditLedger:
  def __init__(self,retention_days:int=365):
-  if retention_days<30:raise SecurityAuditError("audit retention must be at least 30 days")
+  if isinstance(retention_days,bool) or not isinstance(retention_days,int) or retention_days<30:raise SecurityAuditError("audit retention must be an integer of at least 30 days")
   self.retention_days=retention_days;self._entries:list[SecurityAuditEntry]=[];self._lock=RLock()
  def append(self,*,tenant_id:str,actor_id:str,action:str,resource_id:str,outcome:str)->SecurityAuditEntry:
   if not all(str(value).strip() for value in (tenant_id,actor_id,action,resource_id,outcome)):raise SecurityAuditError("audit fields are required")
