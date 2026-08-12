@@ -3564,11 +3564,22 @@ def _execute_agent_job(job_id: str) -> None:
         if not isinstance(job, dict) or job_id in ACTIVE_AGENT_JOBS: return
         job.update({"status":"running", "started_at":datetime.now(UTC).isoformat(), "heartbeat_at":datetime.now(UTC).isoformat()})
         store["jobs"][job_id] = job; _save_agent_jobs(store); ACTIVE_AGENT_JOBS.add(job_id)
+    heartbeat_stop = threading.Event()
+    def heartbeat() -> None:
+        while not heartbeat_stop.wait(5):
+            with AGENT_JOB_LOCK:
+                store = _load_agent_jobs(); current = store.setdefault("jobs", {}).get(job_id)
+                if not isinstance(current, dict) or current.get("status") != "running": return
+                current["heartbeat_at"] = datetime.now(UTC).isoformat(); _save_agent_jobs(store)
+    heartbeat_thread = threading.Thread(target=heartbeat, daemon=True, name=f"system-agent-heartbeat-{job_id[:8]}")
+    heartbeat_thread.start()
     try:
         result = _run_system_agent(str(job["agent"]), str(job["task"]), dict(job.get("context", {})))
         update = {"status":"completed", "result":result, "finished_at":datetime.now(UTC).isoformat()}
     except Exception as error:
         update = {"status":"failed", "error":str(error)[:500], "finished_at":datetime.now(UTC).isoformat()}
+    finally:
+        heartbeat_stop.set(); heartbeat_thread.join(timeout=1)
     with AGENT_JOB_LOCK:
         store = _load_agent_jobs(); current = store.setdefault("jobs", {}).get(job_id, {})
         current.update(update); current["heartbeat_at"] = datetime.now(UTC).isoformat()
@@ -8200,7 +8211,6 @@ class Handler(BaseHTTPRequestHandler):
             if not all(expected): return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_agent_job_scope"})
             if not job or actual != expected: return self._json(HTTPStatus.NOT_FOUND, {"error":"agent_job_not_found"})
             payload = {key:value for key, value in job.items() if key not in {"context"}}
-            payload["heartbeat_at"] = datetime.now(UTC).isoformat()
             return self._json(HTTPStatus.OK, payload)
         if parsed.path == "/api/assets/3d/status":
             query = parse_qs(parsed.query)
