@@ -1173,3 +1173,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百七十项：行业工作流身份、操作、机器人tuple与连接字段已强制字符串运行时契约，数字被隐式字符串化或列表机器人进入Graph的路径已关闭。专项回归通过。
 - BUG072第一百七十一项：ProductionCapability注册及全部控制身份已强制字符串类型，数字capability/provider不会泄漏strip异常或进入提供方热插拔表。专项回归通过。
 - BUG072第一百七十二项：ProductionExtension注册、读取、激活、创建和卸载身份已强制字符串类型，数字扩展点/提供方不会泄漏strip异常或进入基础设施注册表。专项回归通过。
+- BUG072第一百七十三项：资源调度claim/cancel的resource、job及tenant/user/project身份已强制字符串并规范化，数字伪scope不再被隐式转换成票据所有者。专项回归通过。

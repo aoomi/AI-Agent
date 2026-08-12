@@ -93,16 +93,17 @@ class ResourceScheduler:
     @contextmanager
     def claim(self, resource_class: str, job_id: str, *, estimated_memory: int = 0, timeout: float | None = None,
               tenant_id: str = "", user_id: str = "", project_id: str = "") -> Iterator[ResourceTicket]:
-        if (resource_class not in RESOURCE_PRIORITIES or not str(job_id).strip()
+        if (not isinstance(resource_class,str) or not isinstance(job_id,str) or resource_class not in RESOURCE_PRIORITIES or not job_id.strip()
                 or isinstance(estimated_memory, bool) or not isinstance(estimated_memory, int) or estimated_memory < 0):
             raise ResourceSchedulerError("invalid resource request")
         if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0):
             raise ResourceSchedulerError("resource timeout must be positive")
         pool = self.resource_pools[resource_class]
-        scope = tuple(str(value or "").strip() for value in (tenant_id, user_id, project_id))
+        if any(not isinstance(value,str) for value in (tenant_id,user_id,project_id)):raise ResourceSchedulerError("tenant_id, user_id and project_id must be strings")
+        scope = tuple(value.strip() for value in (tenant_id, user_id, project_id))
         if any(scope) and not all(scope):
             raise ResourceSchedulerError("tenant_id, user_id and project_id must be supplied together")
-        ticket = ResourceTicket(f"resource-{uuid4().hex}", str(job_id), resource_class, RESOURCE_PRIORITIES[resource_class], estimated_memory, time.time(), pool, *scope)
+        ticket = ResourceTicket(f"resource-{uuid4().hex}", job_id.strip(), resource_class, RESOURCE_PRIORITIES[resource_class], estimated_memory, time.time(), pool, *scope)
         deadline = time.monotonic() + timeout if timeout is not None else None
         with self._condition:
             if sum(1 for item in self._queue if item.pool == pool) >= self.pool_queue_limits[pool]:
@@ -137,8 +138,9 @@ class ResourceScheduler:
                 self._condition.notify_all()
 
     def cancel_job(self, job_id: str, *, tenant_id: str = "", user_id: str = "", project_id: str = "") -> int:
-        if not str(job_id).strip():raise ResourceSchedulerError("invalid resource cancellation")
-        scope = tuple(str(value or "").strip() for value in (tenant_id, user_id, project_id))
+        if not isinstance(job_id,str) or not job_id.strip():raise ResourceSchedulerError("invalid resource cancellation")
+        if any(not isinstance(value,str) for value in (tenant_id,user_id,project_id)):raise ResourceSchedulerError("tenant_id, user_id and project_id must be strings")
+        job_id=job_id.strip();scope = tuple(value.strip() for value in (tenant_id, user_id, project_id))
         if any(scope) and not all(scope):raise ResourceSchedulerError("tenant_id, user_id and project_id must be supplied together")
         with self._condition:
             targets = [ticket.ticket_id for ticket in self._queue if ticket.job_id == job_id and (not all(scope) or (ticket.tenant_id,ticket.user_id,ticket.project_id)==scope)]

@@ -27,6 +27,16 @@ class ResourceSchedulerContractTest(unittest.TestCase):
                     pass
         self.assertEqual(scheduler.snapshot()["queued"], [])
 
+    def test_resource_identity_controls_require_strings(self) -> None:
+        scheduler=ResourceScheduler()
+        for operation in (
+            lambda:scheduler.claim(1,"job").__enter__(), lambda:scheduler.claim("video",1).__enter__(),
+            lambda:scheduler.claim("video","job",tenant_id=1).__enter__(), lambda:scheduler.cancel_job(1),
+            lambda:scheduler.cancel_job("job",project_id=1),
+        ):
+            with self.subTest(operation=operation),self.assertRaises(ResourceSchedulerError):operation()
+        self.assertEqual(scheduler.snapshot()["queued"],[])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3360,3 +3360,5 @@
 - 第一百七十一项自动测试与稽查：五类数字capability/provider控制动态失败关闭；专项回归、Python编译与diff门禁通过。
 - 第一百七十二项稽查首败与整改：ProductionExtension register/_required_id直接strip扩展身份，数字point/provider会泄漏AttributeError。现全部基础设施注册与生命周期入口共用字符串身份门禁。
 - 第一百七十二项自动测试与稽查：五类数字extension/provider控制动态失败关闭；专项回归、Python编译与diff门禁通过。
+- 第一百七十三项稽查首败与整改：ResourceScheduler使用`str(...)`接受数字job/scope并写入票据，取消比较又混用原始job值，形成不可取消或身份碰撞。现claim/cancel全部身份按真实字符串规范化后匹配。
+- 第一百七十三项自动测试与稽查：五类数字resource/job/scope动态失败关闭且队列保持空；专项回归、Python编译与diff门禁通过。
