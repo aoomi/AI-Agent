@@ -3394,3 +3394,5 @@
 - 第一百八十八项自动测试与稽查：数字写入/导出动态失败关闭，空白身份规范化后哈希链仍有效；安全审计关联`6 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
 - 第一百八十九项稽查首败与整改：SkillToolGuard用`str(...)`接受数字role/tool，权限容器仅靠迭代假设，sanitize又允许NaN/Infinity进入工具输入。现授权结构与有限数值在任何能力判定或工具调用前严格失败关闭。
 - 第一百八十九项自动测试与稽查：数字角色、列表权限、空权限、布尔depth及NaN动态拒绝；安全关联`3 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
+- 第一百九十项稽查首败与整改：PluginSandboxBroker直接访问任意policy属性并对身份strip，策略根、白名单容器、write、路径和URL依赖静态类型，畸形控制会泄漏底层异常。现构造和全部外部资源入口严格验证运行时契约。
+- 第一百九十项自动测试与稽查：坏policy/身份/root/allowlist/write/path/URL动态失败关闭；安全关联`3 passed`（另`11 subtests passed`），Python编译与diff门禁通过。

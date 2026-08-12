@@ -4,10 +4,12 @@ from ai_agent_security import PluginSandboxBroker,PluginSandboxError,PluginSandb
 class PluginSandboxTest(unittest.TestCase):
  def test_policy_and_process_runtime_contracts_are_rejected(self):
   root=Path(self.tmp.name)
-  for policy in (PluginSandboxPolicy("","tenant",root,root),PluginSandboxPolicy("plugin","tenant",root,root,writable=1)):
+  for policy in (object(),PluginSandboxPolicy("","tenant",root,root),PluginSandboxPolicy(1,"tenant",root,root),PluginSandboxPolicy("plugin","tenant","root",root),PluginSandboxPolicy("plugin","tenant",root,root,writable=1),PluginSandboxPolicy("plugin","tenant",root,root,allowed_hosts=[])):
    with self.subTest(policy=policy),self.assertRaises(PluginSandboxError):PluginSandboxBroker(policy)
   for command,timeout in (("/usr/bin/true",30),(("/usr/bin/true",),True)):
    with self.subTest(command=command,timeout=timeout),self.assertRaises(PluginSandboxError):self.broker.run_process(command,timeout_seconds=timeout)
+  for call in (lambda:self.broker.resolve_plugin_file(1),lambda:self.broker.resolve_data_file("x",write=1),lambda:self.broker.validate_network(1)):
+   with self.subTest(call=call),self.assertRaises(PluginSandboxError):call()
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();root=Path(self.tmp.name);(root/"plugin").mkdir();self.broker=PluginSandboxBroker(PluginSandboxPolicy("plugin","tenant",root/"plugin",root/"data",True,frozenset({"api.example.com"}),frozenset({"/usr/bin/true"})))
  def tearDown(self):self.tmp.cleanup()
