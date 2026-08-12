@@ -3050,3 +3050,5 @@
 - 第四项自动测试与稽查：运行队列、待执行队列、本地活动、Comfy离线四种情况均拒绝，只有全空时放行；视频/H3/生产控制关联`120 passed`，Python编译与diff门禁通过。只读确认门禁发生在状态切换与线程创建之前，非释放窗口没有模型副作用。
 - 第五项稽查首败与整改：LangGraph阶段执行器是另一类provider，但原`execute()`取出executor后即释放锁，运行中仍可replace、disable或unregister，与架构热插拔保护不一致。现按规范stage维护活动执行计数；替换、禁用和卸载在inflight非零时统一失败关闭，执行成功、provider异常和重试异常均在`finally`释放。
 - 第五项自动测试与稽查：慢阶段执行器并发动态证明三种热变更均拒绝，自然终态后替换成功且原结果未被污染；生产控制、事件围栏和原子台账关联`101 passed`，Python编译与diff门禁通过。只读确认用户executor在锁外执行，计数只保护注册变更，不扩大锁范围或形成死锁。
+- 第六项稽查首败与整改：启动恢复器把`waiting_memory`与`generating`一并当作中断运行态，重启即调用prompt核销并改failed，违背“持久子状态、释放后再准入”。现恢复时保留waiting_memory，规范化stage=queued、清PID并刷新心跳；不调用prompt取消、不登记ACTIVE运行体，后续只由Comfy空队列门禁重新准入。真正generating仍按原协议核销并失败关闭。
+- 第六项自动测试与稽查：持久waiter重启动态证明状态保持waiting_memory/queued且prompt核销函数零调用；视频、H3与生产控制关联`122 passed`，diff门禁通过。只读确认重启不把waiter冒充running，也不会绕过释放窗口直接启动线程。
