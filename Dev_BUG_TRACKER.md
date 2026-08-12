@@ -3140,3 +3140,5 @@
 - 第四十九项自动测试与稽查：会话生命周期与管理API关联`13 passed`；Python编译与diff门禁通过。只读确认模型和executor不持锁且finally释放活动集合。
 - 第五十项稽查首败与整改：AgentCollaborationService会话/handoff/report/instruction四表无锁，同handoff可并发执行两次稽查，同report可重复调度整改并推进两轮。现共享表和状态迁移统一RLock；inspection按handoff、remediation按report建立single-flight，外部稽查器和调度器锁外执行，finally释放。
 - 第五十项自动测试与稽查：协作单元、管理API和独立集成关联`11 passed`（另`3 subtests passed`）；Python编译与diff门禁通过。只读确认列表均返回锁内快照。
+- 第五十一项稽查首败与整改：IndustryWorkflowService工作流/执行器表无锁，运行中仍可bind替换executor，且同workflow可并发compile/invoke。现创建、拓扑修改、执行器快照与注册原子化；run按workflow及其robot登记活动围栏，运行中禁止重复run、modify/connect和executor替换，finally释放。
+- 第五十一项自动测试与稽查：行业工作流及LangGraph串并行/分支/恢复关联`6 passed`；Python编译与diff门禁通过。只读确认orchestrator外部执行锁外运行且缺executor不泄漏活动标记。
