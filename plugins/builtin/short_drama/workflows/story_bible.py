@@ -52,12 +52,16 @@ class StoryBible:
 
     @staticmethod
     def _identity(identity: Mapping[str, Any]) -> tuple[str, str, str]:
-        values = tuple(str(identity.get(key, "")).strip() for key in ("tenant_id", "user_id", "project_id"))
+        if not isinstance(identity,Mapping):raise StoryBibleError("tenant_id, user_id and project_id are required")
+        raw = tuple(identity.get(key) for key in ("tenant_id", "user_id", "project_id"))
+        if any(not isinstance(value,str) for value in raw):raise StoryBibleError("tenant_id, user_id and project_id are required")
+        values = tuple(value.strip() for value in raw)
         if not all(values): raise StoryBibleError("tenant_id, user_id and project_id are required")
         return values  # type: ignore[return-value]
 
     def update(self, identity: Mapping[str, Any], stage: str, data: Mapping[str, Any]) -> dict[str, Any]:
         scope = self._identity(identity)
+        if stage not in {"outline","script","storyboard"} or not isinstance(data,Mapping):raise StoryBibleError("story bible stage or data is invalid")
         try:
             json.dumps(dict(data), ensure_ascii=False, sort_keys=True, allow_nan=False)
         except (TypeError, ValueError) as error:
@@ -89,7 +93,13 @@ class StoryBible:
     @staticmethod
     def _episodes(stage: str, data: Mapping[str, Any]) -> list[dict[str, Any]]:
         candidates = data.get("episodes") if stage == "outline" else data.get("scripts") if stage == "script" else data.get("shots") if stage == "storyboard" else []
-        items = [dict(item) for item in candidates] if isinstance(candidates, list) else []
+        if candidates is not None and not isinstance(candidates,list):raise StoryBibleError("story episodes must be an array")
+        items = []
+        for item in candidates or []:
+            if not isinstance(item,Mapping):raise StoryBibleError("story episode is invalid")
+            number=item.get("episode")
+            if isinstance(number,bool) or not isinstance(number,int):raise StoryBibleError("story episode number must be a positive integer")
+            items.append(dict(item))
         if stage == "storyboard":
             # A storyboard contains many shots for the same episode.  The story
             # bible validates episode identity, not shot cardinality.
