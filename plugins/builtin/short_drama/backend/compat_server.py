@@ -3592,11 +3592,13 @@ def _start_agent_job(job_id: str) -> None:
 
 def _recover_agent_jobs() -> None:
     with AGENT_JOB_LOCK:
-        store = _load_agent_jobs(); recoverable = []
+        store = _load_agent_jobs(); recoverable = []; changed = False
         for job_id, job in store.get("jobs", {}).items():
-            if job.get("status") in {"queued", "running"}:
-                job["status"] = "queued"; job["recovered_at"] = datetime.now(UTC).isoformat(); recoverable.append(job_id)
-        if recoverable: _save_agent_jobs(store)
+            if job.get("status") == "queued":
+                job["recovered_at"] = datetime.now(UTC).isoformat(); recoverable.append(job_id); changed = True
+            elif job.get("status") == "running":
+                job.update(status="failed", error="服务重启，系统 AI 任务已中断；请显式重试", finished_at=datetime.now(UTC).isoformat(), heartbeat_at=datetime.now(UTC).isoformat()); changed = True
+        if changed: _save_agent_jobs(store)
     for job_id in recoverable: _start_agent_job(job_id)
 
 
@@ -9063,7 +9065,13 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
                 body.get("asset_subject") or name, _project_character_names(body)
             ):
                 return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_scene_asset_subject", "detail":"场景资产必须是可复用的纯空地点，不能是人物动作或人物状态"})
-            subject_key = ":".join(str(value or "") for value in (body.get("project_id"), body.get("asset_kind"), body.get("asset_subject") or name))
+            asset_subject = str(body.get("asset_subject") or name)
+            # All angles of one asset share a single backend subject lock.  The
+            # frontend may reconnect while a synchronous request is still
+            # running; allowing a second angle to enter here creates two truths
+            # for the same card and breaks result reconciliation.
+            locked_asset_subject = asset_subject.split(":", 1)[0] if requested_phase == "variant" else asset_subject
+            subject_key = ":".join(str(value or "") for value in (body.get("project_id"), body.get("asset_kind"), locked_asset_subject))
             _cleanup_invalid_image_tasks()
             with IMAGE_JOB_LOCK:
                 active_job_id = ACTIVE_IMAGE_SUBJECTS.get(subject_key)
