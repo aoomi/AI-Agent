@@ -206,6 +206,18 @@ class ProductionControlTests(unittest.TestCase):
             self.assertEqual(second.list(service_scope="scope", heartbeat_timeout=10, now=105), [worker])
             self.assertEqual(second.list(service_scope="scope", heartbeat_timeout=10, now=120), [])
 
+    def test_worker_registry_rejects_invalid_control_contracts(self):
+        with TemporaryDirectory() as temporary:
+            registry = WorkerRegistry(Path(temporary) / "workers.sqlite")
+            for operation in (
+                lambda: registry.list(heartbeat_timeout=0),
+                lambda: registry.remove("", 1),
+                lambda: registry.remove("worker", 0),
+                lambda: registry.release_reservation(""),
+                lambda: registry.reap(heartbeat_timeout=-1),
+            ):
+                with self.assertRaises(WorkloadRoutingError): operation()
+
     def test_worker_heartbeat_rejects_same_generation_time_regression(self):
         current = WorkerSnapshot("node", "scope", ("video",), 2, 1, 1, 80, 110, generation=3)
         stale = WorkerSnapshot("node", "scope", ("video",), 2, 0, 0, 100, 100, generation=3)

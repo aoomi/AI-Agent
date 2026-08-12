@@ -53,6 +53,7 @@ class WorkerRegistry:
         return worker
 
     def list(self, *, heartbeat_timeout: float = 30, service_scope: str = "", now: float | None = None) -> list[WorkerSnapshot]:
+        if heartbeat_timeout <= 0: raise WorkloadRoutingError("invalid worker heartbeat timeout")
         moment = time.time() if now is None else now
         with sqlite3.connect(self.database, timeout=30) as connection:
             rows = connection.execute("SELECT payload_json FROM workers WHERE heartbeat_at>=?", (moment - heartbeat_timeout,)).fetchall()
@@ -62,6 +63,9 @@ class WorkerRegistry:
         return [worker for worker in workers if not service_scope or worker.service_scope == service_scope]
 
     def remove(self, worker_id: str, generation: int) -> bool:
+        worker_id = worker_id.strip()
+        if not worker_id or isinstance(generation, bool) or generation < 1:
+            raise WorkloadRoutingError("invalid worker removal")
         with sqlite3.connect(self.database, timeout=30) as connection:
             connection.execute("DELETE FROM worker_reservations WHERE worker_id=? AND worker_generation=?", (worker_id, generation))
             result = connection.execute("DELETE FROM workers WHERE worker_id=? AND generation=?", (worker_id, generation))
@@ -122,8 +126,10 @@ class WorkerRegistry:
                 connection.rollback(); raise
 
     def release_reservation(self, request_id: str) -> bool:
+        request_id = str(request_id).strip()
+        if not request_id: raise WorkloadRoutingError("invalid worker reservation release")
         with sqlite3.connect(self.database, timeout=30) as connection:
-            result = connection.execute("DELETE FROM worker_reservations WHERE request_id=?", (str(request_id).strip(),))
+            result = connection.execute("DELETE FROM worker_reservations WHERE request_id=?", (request_id,))
             return result.rowcount == 1
 
     def reservation_snapshot(self, *, now: float | None = None) -> list[dict[str, object]]:
@@ -137,6 +143,7 @@ class WorkerRegistry:
         return [dict(zip(keys, row, strict=True)) for row in rows]
 
     def reap(self, *, heartbeat_timeout: float = 30, now: float | None = None) -> int:
+        if heartbeat_timeout <= 0: raise WorkloadRoutingError("invalid worker heartbeat timeout")
         moment = time.time() if now is None else now
         with sqlite3.connect(self.database, timeout=30) as connection:
             connection.execute("DELETE FROM worker_reservations WHERE expires_at<=? OR worker_id IN (SELECT worker_id FROM workers WHERE heartbeat_at<?)", (moment, moment - heartbeat_timeout))
