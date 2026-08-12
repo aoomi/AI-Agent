@@ -64,7 +64,9 @@ class ResourceScheduler:
         for pool in set(self.resource_pools.values()):
             self.tenant_queue_limits.setdefault(pool, self.pool_queue_limits[pool])
             self.project_queue_limits.setdefault(pool, self.tenant_queue_limits[pool])
-        if any(not pool.strip() for pool in self.resource_pools.values()) or any(capacity <= 0 for capacity in self.pool_capacities.values()) or any(limit <= 0 for limits in (self.pool_queue_limits, self.tenant_queue_limits, self.project_queue_limits) for limit in limits.values()):
+        numeric_values=(*self.pool_capacities.values(),*self.pool_queue_limits.values(),*self.tenant_queue_limits.values(),*self.project_queue_limits.values())
+        if (any(not isinstance(pool,str) or not pool.strip() for pool in self.resource_pools.values())
+                or any(isinstance(value,bool) or not isinstance(value,int) or value<=0 for value in numeric_values)):
             raise ValueError("resource pool names and capacities must be valid")
         self.serialized_pools = set(serialized_pools if serialized_pools is not None else {"global"})
         self._condition = Condition(RLock())
