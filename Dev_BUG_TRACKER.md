@@ -3154,3 +3154,4 @@
 - 第五十七项稽查首败与整改：内存路由和SQLite worker发现仅拒绝更旧generation，同generation乱序晚到heartbeat可覆盖更新容量、负载和时间戳，违背epoch内晚到响应隔离。现同generation强制heartbeat_at单调，两种实现均丢弃倒退快照并保留当前权威值，避免时钟短暂回拨终止心跳循环。
 - 第五十七项自动测试与稽查：新增内存与SQLite同代乱序heartbeat动态回归；同步修正四处被完整owner读取契约淘汰的旧测试fixture，生产控制、派发证明和持久任务owner组合`93 passed`，Python编译及diff门禁通过。
 - 第五十八项稽查首败与整改：DurableTaskRepository单条upsert在owner强化时遗留两次连续upsert_many，同一写请求执行两次事务；普通任务第二次虽因payload相同跳过，但增加竞争窗口，若执行钩子或时钟语义变化会重复副作用。现单条写只提交一次，并以执行器计数动态锁定。
+- 第五十九项稽查首败与整改：跨worker reservation ID虽已纳入owner哈希，但远端只按ID/worker/resource/scope验真，无法直接证明请求body的owner与预留owner一致。现SQLite reservation迁移新增owner_scope，派发写入、幂等冲突检查、快照和远端验真均精确绑定请求所有者；无owner探活保持空scope兼容。

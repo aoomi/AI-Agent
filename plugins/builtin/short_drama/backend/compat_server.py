@@ -7204,13 +7204,14 @@ def _forward_production_request(path: str, body: dict, dispatched: bool) -> tupl
     _heartbeat_local_worker()
     explicit_request_id = str(body.get("request_id") or body.get("job_id") or "").strip()
     owner_scope = tuple(str(body.get(key) or "").strip() for key in ("tenant_id", "user_id", "project_id"))
+    owner_scope_key = "\x1f".join(owner_scope) if any(owner_scope) else ""
     request_id = "dispatch-" + hashlib.sha256(json.dumps(
         {"path":path, "owner_scope":owner_scope, "request_id":explicit_request_id, "body":None if explicit_request_id else body},
         ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
     ).encode("utf-8")).hexdigest()
     worker = WORKER_REGISTRY.reserve(
         request_id, resource_class, estimated_memory=max(0, int(body.get("estimated_memory") or 0)),
-        service_scope=WORKER_SCOPE, heartbeat_timeout=30, reservation_ttl=1950,
+        service_scope=WORKER_SCOPE, owner_scope=owner_scope_key, heartbeat_timeout=30, reservation_ttl=1950,
     )
     try:
         if worker.worker_id == WORKER_ID:
@@ -7260,6 +7261,7 @@ def _authenticated_dispatched_request(path: str, body: dict, headers: object) ->
         and str(item.get("worker_id")) == worker_id
         and str(item.get("resource_class")) == resource_class
         and str(item.get("service_scope")) == WORKER_SCOPE
+        and str(item.get("owner_scope")) == ("\x1f".join(str(body.get(key) or "").strip() for key in ("tenant_id", "user_id", "project_id")) if any(str(body.get(key) or "").strip() for key in ("tenant_id", "user_id", "project_id")) else "")
         for item in WORKER_REGISTRY.reservation_snapshot()
     )
     if not valid:

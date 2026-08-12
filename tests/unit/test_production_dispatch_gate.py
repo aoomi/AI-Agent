@@ -56,3 +56,17 @@ def test_dispatch_proof_rejects_forgery_and_accepts_exact_reservation():
             module._authenticated_dispatched_request("/api/videos/merge", {}, {
                 "X-Production-Dispatched":"1", "X-Production-Reservation":"other", "X-Production-Worker":module.WORKER_ID,
             })
+
+
+def test_dispatch_proof_is_bound_to_request_owner_scope():
+    spec = importlib.util.spec_from_file_location("dispatch_owner_contract", ROOT / "plugins/builtin/short_drama/backend/compat_server.py")
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    with tempfile.TemporaryDirectory() as temporary:
+        registry = WorkerRegistry(Path(temporary) / "workers.sqlite"); module.WORKER_REGISTRY = registry
+        registry.heartbeat(WorkerSnapshot(module.WORKER_ID, module.WORKER_SCOPE, ("video",), 1, 0, 0, 100, __import__("time").time()))
+        owner = {"tenant_id":"tenant", "user_id":"user", "project_id":"project"}
+        registry.reserve("request-owner", "video", service_scope=module.WORKER_SCOPE, owner_scope="tenant\x1fuser\x1fproject", reservation_ttl=60)
+        headers = {"X-Production-Dispatched":"1", "X-Production-Reservation":"request-owner", "X-Production-Worker":module.WORKER_ID}
+        assert module._authenticated_dispatched_request("/api/videos/merge", owner, headers) is True
+        with pytest.raises(PermissionError, match="missing or expired"):
+            module._authenticated_dispatched_request("/api/videos/merge", {**owner, "user_id":"other"}, headers)

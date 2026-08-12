@@ -21,11 +21,14 @@ class WorkerRegistry:
                 connection.execute("""CREATE TABLE IF NOT EXISTS worker_reservations (
                     request_id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, worker_generation INTEGER NOT NULL,
                     resource_class TEXT NOT NULL, estimated_memory INTEGER NOT NULL, service_scope TEXT NOT NULL DEFAULT '',
+                    owner_scope TEXT NOT NULL DEFAULT '',
                     reserved_at REAL NOT NULL, expires_at REAL NOT NULL
                 )""")
                 columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(worker_reservations)")}
                 if "service_scope" not in columns:
                     connection.execute("ALTER TABLE worker_reservations ADD COLUMN service_scope TEXT NOT NULL DEFAULT ''")
+                if "owner_scope" not in columns:
+                    connection.execute("ALTER TABLE worker_reservations ADD COLUMN owner_scope TEXT NOT NULL DEFAULT ''")
                 connection.execute("CREATE INDEX IF NOT EXISTS worker_reservations_worker ON worker_reservations(worker_id,expires_at)")
                 connection.commit()
             except Exception:
@@ -62,6 +65,7 @@ class WorkerRegistry:
 
     def reserve(self, request_id: str, resource_class: str, *, estimated_memory: int = 0,
                 service_scope: str = "", heartbeat_timeout: float = 30, reservation_ttl: float = 15,
+                owner_scope: str = "",
                 now: float | None = None) -> WorkerSnapshot:
         """Atomically reserve one dispatch slot across all registry instances."""
         request_id, resource_class = str(request_id).strip(), str(resource_class).strip()
@@ -76,13 +80,13 @@ class WorkerRegistry:
                     SELECT 1 FROM workers w WHERE w.worker_id=worker_reservations.worker_id
                     AND w.generation=worker_reservations.worker_generation
                 )""")
-                existing = connection.execute("""SELECT w.payload_json,r.resource_class,r.estimated_memory,r.service_scope
+                existing = connection.execute("""SELECT w.payload_json,r.resource_class,r.estimated_memory,r.service_scope,r.owner_scope
                     FROM worker_reservations r JOIN workers w
                     ON w.worker_id=r.worker_id AND w.generation=r.worker_generation
                     WHERE r.request_id=? AND r.expires_at>? AND w.heartbeat_at>=?""",
                     (request_id, moment, moment - heartbeat_timeout)).fetchone()
                 if existing:
-                    if (str(existing[1]), int(existing[2]), str(existing[3])) != (resource_class, estimated_memory, service_scope):
+                    if (str(existing[1]), int(existing[2]), str(existing[3]), str(existing[4])) != (resource_class, estimated_memory, service_scope, owner_scope):
                         raise WorkloadRoutingError("worker reservation request_id contract conflict")
                     connection.commit(); return self._worker(existing[0])
                 rows = connection.execute("SELECT payload_json FROM workers WHERE heartbeat_at>=?", (moment - heartbeat_timeout,)).fetchall()
@@ -103,9 +107,10 @@ class WorkerRegistry:
                     raise WorkloadRoutingError("no healthy worker reservation capacity; apply backpressure")
                 worker = min(eligible)[-1]
                 connection.execute("""INSERT INTO worker_reservations
-                    (request_id,worker_id,worker_generation,resource_class,estimated_memory,service_scope,reserved_at,expires_at)
-                    VALUES(?,?,?,?,?,?,?,?)""", (
+                    (request_id,worker_id,worker_generation,resource_class,estimated_memory,service_scope,owner_scope,reserved_at,expires_at)
+                    VALUES(?,?,?,?,?,?,?,?,?)""", (
                     request_id, worker.worker_id, worker.generation, resource_class, estimated_memory, service_scope,
+                    owner_scope,
                     moment, moment + reservation_ttl,
                 ))
                 connection.commit(); return worker
@@ -121,10 +126,10 @@ class WorkerRegistry:
         moment = time.time() if now is None else now
         with sqlite3.connect(self.database, timeout=30) as connection:
             rows = connection.execute("""SELECT r.request_id,r.worker_id,r.worker_generation,r.resource_class,
-                r.estimated_memory,r.service_scope,r.reserved_at,r.expires_at FROM worker_reservations r JOIN workers w
+                r.estimated_memory,r.service_scope,r.owner_scope,r.reserved_at,r.expires_at FROM worker_reservations r JOIN workers w
                 ON w.worker_id=r.worker_id AND w.generation=r.worker_generation
                 WHERE r.expires_at>? ORDER BY r.reserved_at,r.request_id""", (moment,)).fetchall()
-        keys = ("request_id", "worker_id", "worker_generation", "resource_class", "estimated_memory", "service_scope", "reserved_at", "expires_at")
+        keys = ("request_id", "worker_id", "worker_generation", "resource_class", "estimated_memory", "service_scope", "owner_scope", "reserved_at", "expires_at")
         return [dict(zip(keys, row, strict=True)) for row in rows]
 
     def reap(self, *, heartbeat_timeout: float = 30, now: float | None = None) -> int:
