@@ -25,7 +25,7 @@ class SkillToolGuard:
   if value is None or isinstance(value,(bool,int,float)):return value
   raise ToolGuardError("tool input type is unsupported")
  def redact(self,value:Any)->Any:
-  if isinstance(value,Mapping):return {str(k):("[REDACTED]" if str(k).lower() in self.SECRET_KEYS else self.redact(v)) for k,v in value.items()}
+  if isinstance(value,Mapping):return {str(k):("[REDACTED]" if any(word in str(k).lower() for word in self.SECRET_KEYS) else self.redact(v)) for k,v in value.items()}
   if isinstance(value,(list,tuple)):return [self.redact(v) for v in value]
   if isinstance(value,str):return re.sub(r"(?i)(bearer\s+|sk-[A-Za-z0-9_-]{8,})\S*","[REDACTED]",value)
   return value
