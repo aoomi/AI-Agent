@@ -75,8 +75,11 @@ class ResourceScheduler:
     @contextmanager
     def claim(self, resource_class: str, job_id: str, *, estimated_memory: int = 0, timeout: float | None = None,
               tenant_id: str = "", user_id: str = "", project_id: str = "") -> Iterator[ResourceTicket]:
-        if resource_class not in RESOURCE_PRIORITIES or not str(job_id).strip() or estimated_memory < 0:
+        if (resource_class not in RESOURCE_PRIORITIES or not str(job_id).strip()
+                or isinstance(estimated_memory, bool) or not isinstance(estimated_memory, int) or estimated_memory < 0):
             raise ResourceSchedulerError("invalid resource request")
+        if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
+            raise ResourceSchedulerError("resource timeout must be positive")
         pool = self.resource_pools[resource_class]
         scope = tuple(str(value or "").strip() for value in (tenant_id, user_id, project_id))
         if any(scope) and not all(scope):

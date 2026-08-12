@@ -3244,3 +3244,5 @@
 - 第一百一十三项自动测试与稽查：八类匿名控制及伪布尔enabled动态拒绝，原扩展仍启用；生产扩展控制关联`100 passed`（另`14 subtests passed`），Python编译与diff门禁通过。
 - 第一百一十四项稽查首败与整改：AgentConfigurationStore的get/history接受空agent并伪装unknown，get版本及update expected_version依赖静态类型而可接受零、负数或布尔值进入查找/CAS。现读写控制在历史表访问前统一验证身份和正整数版本。
 - 第一百一十四项自动测试与稽查：匿名读取/历史及三类非法版本动态失败关闭；Agent配置和会话关联`22 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
+- 第一百一十五项稽查首败与整改：ResourceScheduler.claim只比较estimated_memory<0，布尔和浮点可进入资源票据；timeout也接受零、负数或布尔值，制造立即超时或含混等待。现内存估算强制非负整数、超时强制正数，均在队列追加前失败关闭。
+- 第一百一十五项自动测试与稽查：两类非法memory及三类非法timeout动态拒绝，调度快照保持零排队；资源调度与生产控制关联`99 passed`（另`11 subtests passed`），Python编译与diff门禁通过。
