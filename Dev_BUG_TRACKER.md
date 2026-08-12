@@ -3302,3 +3302,5 @@
 - 第一百四十二项自动测试与稽查：七类畸形控制及布尔TTL动态拒绝；持久任务owner关联`3 passed`（另`7 subtests passed`），Python编译与diff门禁通过。
 - 第一百四十三项稽查首败与整改：Observability各构造未统一验证sink/exporter/clock协议，logger和trace允许空事件/name及非Mapping字段，AlertRule也延迟到evaluate才发现坏comparison/threshold。现注册与写入前完整失败关闭。
 - 第一百四十三项自动测试与稽查：六类坏构造、空日志事件及坏span动态拒绝；可观测性单元/集成关联`11 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
+- 第一百四十四项稽查首败与整改：SQLiteStateStore/Queue依赖json.dumps默认允许NaN且泄漏TypeError，LocalObjectStore对content也依赖Path.write_bytes延迟验证。现持久化边界统一拒绝非标准JSON与非二进制内容并映射契约错误。
+- 第一百四十四项自动测试与稽查：NaN state、任意对象queue及字符串object动态失败关闭；私有部署关联`8 passed`（另`9 subtests passed`），Python编译与diff门禁通过。

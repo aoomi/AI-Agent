@@ -24,4 +24,9 @@ class PersistenceAdaptersTest(unittest.TestCase):
    state=SQLiteStateStore(Path(d)/"state.db")
    for value in ({"access_token":"plaintext"},{"headers":{"Authorization":"Bearer plaintext"}},{"profiles":[{"client_secret":"plaintext"}]}):
     with self.subTest(value=value),self.assertRaisesRegex(PersistenceError,"sensitive fields"):state.put("t","n","k",value)
+ def test_persistence_rejects_non_json_and_non_binary_runtime_values(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);state=SQLiteStateStore(root/"state.db");queue=SQLiteDurableQueue(root/"queue.db");objects=LocalObjectStore(root/"objects")
+   for operation in (lambda:state.put("t","n","k",{"value":float("nan")}),lambda:queue.enqueue("t",{"value":object()}),lambda:objects.put("t","key","text")):
+    with self.subTest(operation=operation),self.assertRaises(PersistenceError):operation()
 if __name__=="__main__":unittest.main()

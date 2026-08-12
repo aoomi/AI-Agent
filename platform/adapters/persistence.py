@@ -16,7 +16,9 @@ class SQLiteStateStore:
    if isinstance(item,(list,tuple,set,frozenset)):return any(contains_sensitive(child) for child in item)
    return False
   if contains_sensitive(value):raise PersistenceError("state value contains sensitive fields")
-  with self._lock:self.db.execute("INSERT OR REPLACE INTO state VALUES(?,?,?,?)",(tenant,namespace,key,json.dumps(value,sort_keys=True)));self.db.commit()
+  try:encoded=json.dumps(value,sort_keys=True,allow_nan=False)
+  except (TypeError,ValueError) as error:raise PersistenceError("state value must be JSON serializable") from error
+  with self._lock:self.db.execute("INSERT OR REPLACE INTO state VALUES(?,?,?,?)",(tenant,namespace,key,encoded));self.db.commit()
  def get(self,tenant,namespace,key):
   if not all(str(item).strip() for item in (tenant,namespace,key)):raise PersistenceError("state owner and key are required")
   with self._lock:row=self.db.execute("SELECT value FROM state WHERE tenant=? AND namespace=? AND key=?",(tenant,namespace,key)).fetchone()
@@ -25,6 +27,7 @@ class SQLiteStateStore:
 class LocalObjectStore:
  def __init__(self,root:Path):self.root=root.resolve();self.root.mkdir(parents=True,exist_ok=True)
  def put(self,tenant,key,content):
+  if not isinstance(content,(bytes,bytearray,memoryview)):raise PersistenceError("object content must be bytes")
   target=self._path(tenant,key);target.parent.mkdir(parents=True,exist_ok=True);tmp=target.with_suffix(target.suffix+f".{uuid4().hex}.tmp");tmp.write_bytes(content);tmp.replace(target);return str(target.relative_to(self.root))
  def get(self,tenant,key):return self._path(tenant,key).read_bytes()
  def _path(self,tenant,key):
@@ -45,8 +48,10 @@ class SQLiteDurableQueue:
    if isinstance(value,(list,tuple,set,frozenset)):return any(contains_sensitive(item) for item in value)
    return False
   if contains_sensitive(payload):raise PersistenceError("queue payload contains sensitive fields")
+  try:encoded=json.dumps(payload,allow_nan=False)
+  except (TypeError,ValueError) as error:raise PersistenceError("queue payload must be JSON serializable") from error
   item=DurableQueueItem(f"queue-{uuid4().hex}",tenant,payload,"pending")
-  with self._lock:self.db.execute("INSERT INTO queue VALUES(?,?,?,?)",(item.item_id,tenant,json.dumps(payload),item.status));self.db.commit()
+  with self._lock:self.db.execute("INSERT INTO queue VALUES(?,?,?,?)",(item.item_id,tenant,encoded,item.status));self.db.commit()
   return item
  def claim(self,tenant):
   if not str(tenant).strip():raise PersistenceError("queue tenant is required")
