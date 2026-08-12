@@ -3560,3 +3560,5 @@
 - 第二百七十一项自动测试与稽查：span执行中调用方篡改嵌套steps动态隔离；trace、JSONL与Prometheus关联回归、Python编译及diff门禁通过。
 - 第二百七十二项稽查首败与整改：提案executor结果只冻结顶层applied_result，执行器可在确认落状态后改写嵌套结果。现非配置提案以已验证标准JSON生成独立深快照再发布applied终态。
 - 第二百七十二项自动测试与稽查：确认后执行器原结果嵌套steps篡改动态隔离；会话提案、执行失败与配置确认关联回归、Python编译及diff门禁通过。
+- 第二百七十三项稽查首败与整改：ProviderAdapter invoke仅冻结inputs顶层，真实executor可改写嵌套输入并反向污染调用方请求对象。现网络/密钥副作用前以标准JSON建立独立调用快照。
+- 第二百七十三项自动测试与稽查：恶意executor改写嵌套region后原请求保持不变；Provider适配、韧性调用与生产集成关联回归、Python编译及diff门禁通过。

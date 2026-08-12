@@ -15,6 +15,13 @@ class ProviderAdapterRegistryTest(unittest.TestCase):
         definition=ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30,settings=settings)
         settings["routing"]["regions"][0]="forged"
         self.assertEqual(definition.settings["routing"]["regions"][0],"local")
+    def test_executor_input_is_deeply_isolated_from_caller(self):
+        class MutatingExecutor:
+            def execute(self,_capability,inputs,**_kwargs):inputs["routing"]["regions"][0]="provider";return {"ok":True}
+        inputs={"routing":{"regions":["local"]}};registry=ProviderAdapterRegistry(Secrets())
+        registry.register(ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30),MutatingExecutor())
+        registry.invoke("p","generate.image",inputs)
+        self.assertEqual(inputs["routing"]["regions"][0],"local")
     def test_definition_and_invoke_runtime_contracts_are_rejected(self):
         for kwargs in ({"capabilities":frozenset({" "})},{"capabilities":("generate.image",)},{"provider_id":1},{"timeout_seconds":True},{"enabled":1},{"settings":[]}):
             values=dict(provider_id="p",kind="image",capabilities=frozenset({"generate.image"}),secret_reference="vault://text",timeout_seconds=30);values.update(kwargs)

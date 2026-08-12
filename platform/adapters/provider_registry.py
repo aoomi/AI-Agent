@@ -86,8 +86,9 @@ class ProviderAdapterRegistry:
         if not isinstance(provider_id,str) or not isinstance(capability,str):raise ProviderAdapterError("provider, capability and mapping inputs are required")
         provider_id,capability=provider_id.strip(),capability.strip()
         if not provider_id or not capability or not isinstance(inputs,Mapping):raise ProviderAdapterError("provider, capability and mapping inputs are required")
-        try:json.dumps(dict(inputs),allow_nan=False)
+        try:canonical_inputs=json.dumps(dict(inputs),allow_nan=False)
         except (TypeError,ValueError) as error:raise ProviderAdapterError("provider inputs must be standard JSON") from error
+        input_snapshot=json.loads(canonical_inputs)
         with self._lock:
             try:definition,executor=self._providers[provider_id]
             except KeyError as error:raise ProviderAdapterError(f"unknown provider: {provider_id}") from error
@@ -97,7 +98,7 @@ class ProviderAdapterRegistry:
         try:
             secret=self._resolver.resolve(definition.secret_reference)
             if not isinstance(secret,str) or not secret:raise ProviderAdapterError("provider secret could not be resolved")
-            output=executor.execute(capability,MappingProxyType(dict(inputs)),secret=secret,timeout_seconds=definition.timeout_seconds)
+            output=executor.execute(capability,MappingProxyType(input_snapshot),secret=secret,timeout_seconds=definition.timeout_seconds)
             if output is None:raise ProviderAdapterError("provider returned no output")
             return ProviderInvocation(provider_id,definition.kind,capability,output)
         finally:
