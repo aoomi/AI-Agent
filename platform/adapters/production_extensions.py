@@ -166,6 +166,8 @@ class ProductionExtensionRegistry:
         return definition
 
     def unregister(self, extension_point: str, provider_id: str | None = None) -> bool:
+        extension_point = self._required_id("extension point", extension_point)
+        provider_id = self._optional_id("provider", provider_id)
         candidate_snapshot: tuple[str, ProductionExtension, ExtensionFactory, _ProviderContract | None] | None = None
         with self._lock:
             targets = [key for key in self._extensions if key[0] == extension_point and (provider_id is None or key[1] == provider_id)]
@@ -210,6 +212,10 @@ class ProductionExtensionRegistry:
             return bool(targets)
 
     def enable(self, extension_point: str, enabled: bool, provider_id: str | None = None) -> ProductionExtension:
+        extension_point = self._required_id("extension point", extension_point)
+        provider_id = self._optional_id("provider", provider_id)
+        if not isinstance(enabled, bool):
+            raise ProductionExtensionError("enabled must be boolean")
         with self._lock:
             targets = [key for key in self._extensions if key[0] == extension_point and (provider_id is None or key[1] == provider_id)]
             if not targets: raise ProductionExtensionError(f"extension is not installed: {extension_point}")
@@ -229,14 +235,20 @@ class ProductionExtensionRegistry:
             return sorted(updated_items, key=lambda item:item.provider_id)[0]
 
     def has(self, extension_point: str, provider_id: str | None = None) -> bool:
+        extension_point = self._required_id("extension point", extension_point)
+        provider_id = self._optional_id("provider", provider_id)
         with self._lock:
             return any(key[0] == extension_point and (provider_id is None or key[1] == provider_id) for key in self._extensions)
 
     def get(self, extension_point: str, provider_id: str | None = None) -> ProductionExtension:
+        extension_point = self._required_id("extension point", extension_point)
+        provider_id = self._optional_id("provider", provider_id)
         with self._lock:
             return self._entry(extension_point, provider_id)[0]
 
     def activate(self, extension_point: str, provider_id: str) -> ProductionExtension:
+        extension_point = self._required_id("extension point", extension_point)
+        provider_id = self._required_id("provider", provider_id)
         with self._lock:
             active_provider = self._active.get(extension_point)
             if active_provider and active_provider != provider_id and self._inflight.get((extension_point, active_provider), 0):
@@ -260,6 +272,8 @@ class ProductionExtensionRegistry:
             return self._extensions[(extension_point, provider_id)][0]
 
     def create(self, extension_point: str, /, *, provider_id: str | None = None, **configuration: Any) -> Any:
+        extension_point = self._required_id("extension point", extension_point)
+        provider_id = self._optional_id("provider", provider_id)
         with self._lock:
             definition, factory = self._entry(extension_point, provider_id)
             contract = self._contracts.get((extension_point, definition.provider_id))
@@ -294,6 +308,17 @@ class ProductionExtensionRegistry:
             return self._extensions[(extension_point, provider)]
         except KeyError as error:
             raise ProductionExtensionError(f"extension provider is not installed: {extension_point}/{provider}") from error
+
+    @staticmethod
+    def _required_id(field_name: str, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ProductionExtensionError(f"{field_name} is required")
+        return normalized
+
+    @classmethod
+    def _optional_id(cls, field_name: str, value: str | None) -> str | None:
+        return None if value is None else cls._required_id(field_name, value)
 
     def _activate_locked(self, extension_point: str, provider_id: str) -> None:
         for key, (definition, factory) in tuple(self._extensions.items()):

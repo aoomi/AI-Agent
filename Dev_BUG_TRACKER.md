@@ -3240,3 +3240,5 @@
 - 第一百一十一项自动测试与稽查：空task/tenant/identity/project及两类非法运行时状态均动态拒绝且原任务保持running；队列、服务、集成、E2E及scope隔离关联`23 passed`（另`15 subtests passed`），Python编译与diff门禁通过。
 - 第一百一十二项稽查首败与整改：ProductionCapabilityRegistry的unregister/has/get/enable/health/invoke接受空白能力或提供方并伪装未安装，enabled/healthy/allow_fallback还接受整数等伪布尔值。现六类公开控制统一规范化身份，三类布尔参数在注册表读取或真实handler执行前严格失败关闭。
 - 第一百一十二项自动测试与稽查：八类匿名控制及三类伪布尔值动态拒绝，原provider启用与健康状态不变；生产能力控制关联`100 passed`（另`14 subtests passed`），Python编译与diff门禁通过。
+- 第一百一十三项稽查首败与整改：ProductionExtensionRegistry的unregister/enable/has/get/activate/create接受空白扩展点或提供方并伪装未安装，enable还接受整数等伪布尔值。现六类公开控制统一规范化身份并在探针、注册表读取或factory执行前失败关闭。
+- 第一百一十三项自动测试与稽查：八类匿名控制及伪布尔enabled动态拒绝，原扩展仍启用；生产扩展控制关联`100 passed`（另`14 subtests passed`），Python编译与diff门禁通过。
