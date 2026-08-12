@@ -352,7 +352,7 @@ class ProductionLedger:
                 if isinstance(expected_revision,bool) or not isinstance(expected_revision,int):raise ProductionLedgerError("expected_revision must be an integer")
                 if expected_revision != current_revision:
                     raise ProductionLedgerError("production scope CAS conflict")
-            progress = json.loads(current["progress_json"]) if current else {"completed": 0, "total": 1}
+            progress = _load_json(current["progress_json"], "production progress", expected=dict) if current else {"completed": 0, "total": 1}
             progress = {key: value for key, value in progress.items() if key not in UPSCALE_EVIDENCE_FIELDS}
             incoming_progress = payload.get("progress")
             if incoming_progress is not None and not isinstance(incoming_progress, Mapping):
@@ -508,7 +508,7 @@ class ProductionLedger:
                 expected_revision = _integer(expected_revision, "expected_revision")
                 if expected_revision != current_revision:
                     raise ProductionLedgerError("production scope CAS conflict")
-            confirmation = json.loads(current["confirmation_json"]) if current and current["confirmation_json"] else None
+            confirmation = _load_json(current["confirmation_json"], "production confirmation", expected=dict) if current and current["confirmation_json"] else None
             next_fingerprint = str(payload.get("content_fingerprint", current["content_fingerprint"] if current else ""))
             next_audit_batch_id = str(payload.get("audit_batch_id", current["audit_batch_id"] if current else ""))
             generation_changed = bool(current) and (
@@ -519,7 +519,7 @@ class ProductionLedger:
                 confirmation = None
             elif "confirmation" in payload:
                 confirmation = payload.get("confirmation")
-            current_progress = json.loads(current["progress_json"]) if current else {"completed": 0, "total": 1}
+            current_progress = _load_json(current["progress_json"], "production progress", expected=dict) if current else {"completed": 0, "total": 1}
             incoming_progress = payload.get("progress")
             # Evidence belongs to the exact fingerprint + audit-batch generation.
             # A projection from the same generation may omit/null evidence without
@@ -564,8 +564,8 @@ class ProductionLedger:
                 "progress_json": _json(progress),
                 "checkpoint": str(payload.get("checkpoint", current["checkpoint"] if current else "")),
                 "error": next_error,
-                "confirmation_scope_json": _json(payload.get("confirmation_scope", json.loads(current["confirmation_scope_json"]) if current else {"scope_type": scope_type, "scope_ids": [scope_id]})),
-                "impact_scope_json": _json(payload.get("impact_scope", json.loads(current["impact_scope_json"]) if current else [])),
+                "confirmation_scope_json": _json(payload.get("confirmation_scope", _load_json(current["confirmation_scope_json"], "confirmation scope", expected=dict) if current else {"scope_type": scope_type, "scope_ids": [scope_id]})),
+                "impact_scope_json": _json(payload.get("impact_scope", _load_json(current["impact_scope_json"], "impact scope", expected=list) if current else [])),
                 "created_at": created_at, "updated_at": _now(),
                 "generation": _integer(payload.get("generation", current["generation"] if current else 0), "generation"),
                 "revision": current_revision + 1,
@@ -634,7 +634,7 @@ class ProductionLedger:
                 requested_lifecycle = _string(projected.get("lifecycle") or "idle", "lifecycle", allow_empty=False)
                 if requested_lifecycle not in LIFECYCLES:
                     raise ProductionLedgerError(f"invalid lifecycle: {requested_lifecycle}")
-                current_confirmation = json.loads(current["confirmation_json"]) if current and current["confirmation_json"] else None
+                current_confirmation = _load_json(current["confirmation_json"], "production confirmation", expected=dict) if current and current["confirmation_json"] else None
                 incoming_fingerprint = str(projected.get("content_fingerprint", current["content_fingerprint"] if current else ""))
                 incoming_batch = str(projected.get("audit_batch_id", current["audit_batch_id"] if current else ""))
                 same_confirmed_generation = bool(
@@ -664,7 +664,7 @@ class ProductionLedger:
             incoming_progress = payload.get("progress")
             if incoming_progress is not None and not isinstance(incoming_progress, Mapping):
                 raise ProductionLedgerError("progress must be an object")
-            current_progress = json.loads(current["progress_json"]) if current else {"completed": 0, "total": 1}
+            current_progress = _load_json(current["progress_json"], "production progress", expected=dict) if current else {"completed": 0, "total": 1}
             progress = {key: value for key, value in current_progress.items() if key not in UPSCALE_EVIDENCE_FIELDS}
             if isinstance(incoming_progress, Mapping):
                 for name, value in incoming_progress.items():
@@ -788,8 +788,8 @@ class ProductionLedger:
             if _is_upscale_scope(stage, scope_type, scope_id):
                 if generation < 1 or not row["content_fingerprint"] or not row["audit_batch_id"]:
                     raise ProductionLedgerError("upscale scope has no authoritative generation")
-                _nonempty_evidence(json.loads(row["production_evidence_json"]) if row["production_evidence_json"] else None, "production_evidence")
-                _nonempty_evidence(json.loads(row["audit_evidence_json"]) if row["audit_evidence_json"] else None, "audit_evidence")
+                _nonempty_evidence(_load_json(row["production_evidence_json"], "production evidence") if row["production_evidence_json"] else None, "production_evidence")
+                _nonempty_evidence(_load_json(row["audit_evidence_json"], "audit evidence") if row["audit_evidence_json"] else None, "audit_evidence")
             confirmation = {
                 "content_fingerprint": row["content_fingerprint"], "audit_batch_id": row["audit_batch_id"],
                 "generation": generation, "confirmed_by": user_id, "confirmed_at": _now(),

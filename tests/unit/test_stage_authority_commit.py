@@ -106,3 +106,15 @@ def test_corrupt_ledger_json_fails_closed_on_records_and_versions():
             connection.execute("UPDATE production_versions SET snapshot_json='[]'")
         with pytest.raises(ProductionLedgerError,match="version snapshot is invalid"):
             ledger.versions(IDENTITY)
+
+
+def test_corrupt_existing_ledger_json_blocks_mutation_before_commit():
+    with TemporaryDirectory() as temporary:
+        ledger=ProductionLedger(Path(temporary)/"ledger.sqlite")
+        original=ledger.commit_stage_authorities([authority(1)])[0]
+        with ledger._connection() as connection:connection.execute("UPDATE production_scopes SET progress_json='NaN'")
+        with pytest.raises(ProductionLedgerError,match="production progress is invalid"):
+            ledger.upsert_projection({**IDENTITY,"stage":"composition","scope_type":"episode","scope_id":"1","lifecycle":"running"})
+        with ledger._connection() as connection:
+            row=connection.execute("SELECT generation,revision FROM production_scopes").fetchone()
+        assert tuple(row)==(original["generation"],original["revision"])
