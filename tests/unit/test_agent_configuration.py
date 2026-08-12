@@ -104,6 +104,12 @@ class AgentConfigurationStoreTest(unittest.TestCase):
                     updated_by_identity_id="owner", settings=settings,
                 )
 
+    def test_settings_require_standard_json(self) -> None:
+        skill=self.skills["system_main_developer"];agent,_=self.agents.register(skill)
+        for settings in ({"value":float("nan")},{"value":object()}):
+            with self.subTest(settings=settings),self.assertRaisesRegex(AgentConfigurationError,"standard JSON"):
+                self.store.create(agent=agent,skill=skill,model_id="model-full",updated_by_identity_id="owner",settings=settings)
+
     def test_skill_prompt_version_must_be_a_non_empty_string(self) -> None:
         from dataclasses import replace
         from types import MappingProxyType

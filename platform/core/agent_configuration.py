@@ -8,6 +8,7 @@ from types import MappingProxyType
 from threading import RLock
 from typing import Any, Mapping
 from uuid import uuid4
+import json
 
 from ai_agent_discovery import AgentInstance, IndustrySkillDefinition, ProcessRobotInstance, SkillDefinition
 from ai_agent_llm_gateway import ModelDefinition, ModelRegistry, ModelRequirements
@@ -177,6 +178,8 @@ class AgentConfigurationStore:
             raise AgentConfigurationError("updated_by_identity_id is required")
         if AgentConfigurationStore._contains_sensitive_key(settings):
             raise AgentConfigurationError("agent settings contain sensitive fields")
+        try:json.dumps(dict(settings),allow_nan=False)
+        except (TypeError,ValueError) as error:raise AgentConfigurationError("agent settings must be standard JSON") from error
         role = skill.metadata["agent_role"]
         permissions = skill.metadata["permissions"]
         return AgentConfiguration(

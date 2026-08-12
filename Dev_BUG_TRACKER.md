@@ -3480,3 +3480,5 @@
 - 第二百三十一项自动测试与稽查：NaN及任意对象adapter settings动态拒绝；Provider适配与短剧绑定关联回归、Python编译与diff门禁通过。
 - 第二百三十二项稽查首败与整改：ProductionCapability/Extension metadata只验证Mapping、敏感键和个别字段，NaN或任意对象可进入可替换生产注册表。现除扩展契约专用implementation_type外均要求标准JSON。
 - 第二百三十二项自动测试与稽查：两类metadata的NaN及任意对象动态拒绝；生产控制关联回归、Python编译与diff门禁通过。
+- 第二百三十三项稽查首败与整改：AgentConfiguration只屏蔽敏感settings键，非标准JSON值可进入版本历史并破坏管理API序列化。现create/update共享的build边界在写历史前严格验证。
+- 第二百三十三项自动测试与稽查：NaN及任意对象settings动态拒绝；Agent配置与管理API关联回归、Python编译与diff门禁通过。
