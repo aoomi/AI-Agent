@@ -3220,3 +3220,5 @@
 - 第一百零一项自动测试与稽查：空run、空remediation ID及空instruction动态失败关闭；调度控制、Agent流水线与协作集成关联`11 passed`，Python编译与diff门禁通过。
 - 第一百零二项稽查首败与整改：PluginRecord自身校验必填字段，但Registry.discover在查重前不规范化，其他get/transition/upgrade/rollback也接受空或空白ID并伪装未发现；坏控制请求无法区分。现所有生命周期边界在注册表访问前统一strip并验证身份、版本及目标。
 - 第一百零二项自动测试与稽查：六类匿名发现/读取/转换/升级/回滚动态失败关闭；插件生命周期与Agent管理API关联`10 passed`，Python编译与diff门禁通过。
+- 第一百零三项稽查首败与整改：AgentRegistry的scoped/get/for_skill/update_status接受空或未规范化ID并伪装未知，register也未在共享索引前验证Skill身份；同一空白变体可造成不可追溯控制。现五类边界统一strip并失败关闭必填身份。
+- 第一百零三项自动测试与稽查：空agent、skill、scoped tenant、status目标及注册Skill五类动态拒绝；Agent注册、调度流水线和行业机器人关联`15 passed`，Python编译与diff门禁通过。

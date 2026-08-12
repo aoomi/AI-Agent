@@ -43,11 +43,14 @@ class AgentRegistry:
             robot=ProcessRobotInstance(f"robot-{uuid4().hex}",skill_id,name,scope[0],scope[1]);self._scoped[scope]=robot;self._scoped_by_id[robot.agent_id]=robot;return robot,False
 
     def scoped(self, tenant_id:str, project_id:str, skill_id:str)->ProcessRobotInstance:
+        scope=tuple(str(value).strip() for value in (tenant_id,project_id,skill_id))
+        if not all(scope):raise AgentRegistryError("tenant, project and Skill are required")
         with self._lock:
-            try:return self._scoped[(tenant_id,project_id,skill_id)]
+            try:return self._scoped[scope]
             except KeyError as error:raise AgentRegistryError("scoped process robot does not exist") from error
 
     def register(self, skill: SkillDefinition) -> tuple[AgentInstance, bool]:
+        if not skill.skill_id.strip() or not skill.name.strip():raise AgentRegistryError("Skill identity is required")
         with self._lock:
             existing_id = self._by_skill.get(skill.skill_id)
             if existing_id is not None: return self._by_id[existing_id], True
@@ -58,6 +61,8 @@ class AgentRegistry:
         return tuple(self.register(skill)[0] for skill in skills)
 
     def get(self, agent_id: str) -> AgentInstance:
+        agent_id=agent_id.strip()
+        if not agent_id:raise AgentRegistryError("agent_id is required")
         with self._lock:
             try: return self._by_id[agent_id]
             except KeyError as error:
@@ -65,11 +70,15 @@ class AgentRegistry:
                 except KeyError:raise AgentRegistryError(f"unknown agent_id: {agent_id}") from error
 
     def for_skill(self, skill_id: str) -> AgentInstance:
+        skill_id=skill_id.strip()
+        if not skill_id:raise AgentRegistryError("skill_id is required")
         with self._lock:
             try: return self._by_id[self._by_skill[skill_id]]
             except KeyError as error: raise AgentRegistryError(f"unknown skill_id: {skill_id}") from error
 
     def update_status(self, agent_id: str, status: str) -> AgentInstance:
+        agent_id,status=agent_id.strip(),status.strip()
+        if not agent_id:raise AgentRegistryError("agent_id is required")
         if status not in self.STATUSES:raise AgentRegistryError("agent status is invalid")
         with self._lock:
             current = self.get(agent_id); updated = replace(current, status=status)

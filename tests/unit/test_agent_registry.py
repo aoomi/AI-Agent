@@ -33,6 +33,16 @@ class AgentRegistryTest(unittest.TestCase):
         registry=AgentRegistry();agent,_=registry.register(skill())
         with self.assertRaisesRegex(AgentRegistryError,"status"):registry.update_status(agent.agent_id,"unknown")
 
+    def test_anonymous_agent_and_skill_controls_are_rejected(self) -> None:
+        registry=AgentRegistry()
+        for operation in (
+            lambda:registry.get(""), lambda:registry.for_skill(""),
+            lambda:registry.scoped("", "project", "skill"),
+            lambda:registry.update_status("", "idle"),
+            lambda:registry.register(skill("", "Writer")),
+        ):
+            with self.assertRaisesRegex(AgentRegistryError,"required"):operation()
+
 
 if __name__ == "__main__":
     unittest.main()
