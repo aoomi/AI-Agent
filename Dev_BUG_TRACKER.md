@@ -3306,3 +3306,5 @@
 - 第一百四十四项自动测试与稽查：NaN state、任意对象queue及字符串object动态失败关闭；私有部署关联`8 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
 - 第一百四十五项稽查首败与整改：AgentContext update和CollaborationContext update依赖Mapping/tuple静态类型，列表状态或字符串引用可迭代后产生含混行为，agent读取也未先规范化。现两类共享上下文在访问状态表前完整验证运行时结构。
 - 第一百四十五项自动测试与稽查：列表values/task_states及字符串references动态拒绝；上下文与scope隔离关联`10 passed`（另`8 subtests passed`），Python编译与diff门禁通过。
+- 第一百四十六项稽查首败与整改：AgentConfigurationStore不验证models协议，create/update settings依赖Mapping假设，可选model空字符串被静默回退，Skill能力/权限允许空元素。现构造、版本写入和Skill解析均在历史变更前失败关闭。
+- 第一百四十六项自动测试与稽查：坏registry与列表settings动态拒绝；配置和会话关联`23 passed`（另`3 subtests passed`），Python编译与diff门禁通过。

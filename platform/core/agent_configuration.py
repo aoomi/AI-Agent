@@ -35,6 +35,7 @@ class AgentConfiguration:
 
 class AgentConfigurationStore:
     def __init__(self, models: ModelRegistry) -> None:
+        if not callable(getattr(models,"select",None)):raise AgentConfigurationError("model registry contract is invalid")
         self._models = models
         self._history: dict[str, list[AgentConfiguration]] = {}
         self._lock = RLock()
@@ -48,6 +49,7 @@ class AgentConfigurationStore:
         updated_by_identity_id: str,
         settings: Mapping[str, Any] | None = None,
     ) -> AgentConfiguration:
+        if settings is not None and not isinstance(settings,Mapping):raise AgentConfigurationError("agent settings must be a mapping")
         with self._lock:
             if agent.agent_id in self._history:
                 raise AgentConfigurationError(f"configuration already exists: {agent.agent_id}")
@@ -74,6 +76,8 @@ class AgentConfigurationStore:
         agent_id = self._required_id("agent_id", agent_id)
         if isinstance(expected_version, bool) or not isinstance(expected_version, int) or expected_version <= 0:
             raise AgentConfigurationError("expected_version must be a positive integer")
+        if settings is not None and not isinstance(settings,Mapping):raise AgentConfigurationError("agent settings must be a mapping")
+        if model_id is not None and not model_id.strip():raise AgentConfigurationError("model_id is required when supplied")
         with self._lock:
             current = self.get(agent_id)
             if current.configuration_version != expected_version:
@@ -116,8 +120,8 @@ class AgentConfigurationStore:
 
     def _resolve_model(self, skill: SkillDefinition, model_id: str) -> ModelDefinition:
         raw_capabilities = skill.metadata.get("required_model_capabilities")
-        if not isinstance(raw_capabilities, list) or not all(
-            isinstance(value, str) for value in raw_capabilities
+        if not isinstance(raw_capabilities, list) or not raw_capabilities or not all(
+            isinstance(value, str) and value.strip() for value in raw_capabilities
         ):
             raise AgentConfigurationError("Skill model capabilities are invalid")
         return self._models.select(
@@ -132,7 +136,7 @@ class AgentConfigurationStore:
         if role not in {"developer", "tester", "inspector"}:
             raise AgentConfigurationError("Skill agent_role is invalid")
         permissions = skill.metadata.get("permissions")
-        if not isinstance(permissions, list):
+        if not isinstance(permissions, list) or any(not isinstance(value,str) or not value.strip() for value in permissions):
             raise AgentConfigurationError("Skill permissions are invalid")
         if role in {"tester", "inspector"} and "workspace.write" in permissions:
             raise AgentConfigurationError(f"{role} Skill cannot write workspace")

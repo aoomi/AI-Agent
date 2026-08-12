@@ -13,6 +13,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class AgentConfigurationStoreTest(unittest.TestCase):
+    def test_runtime_configuration_contracts_are_rejected(self) -> None:
+        with self.assertRaisesRegex(AgentConfigurationError,"registry contract"):AgentConfigurationStore(object())
+        skill=self.skills["system_main_developer"];agent,_=self.agents.register(skill)
+        with self.assertRaisesRegex(AgentConfigurationError,"settings must be a mapping"):self.store.create(agent=agent,skill=skill,model_id="model-full",updated_by_identity_id="owner",settings=[])
     def setUp(self) -> None:
         self.skills = {
             skill.skill_id: skill for skill in SkillRegistry(ROOT / "plugins/builtin").scan()
