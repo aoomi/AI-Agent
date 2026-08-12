@@ -3368,3 +3368,5 @@
 - 第一百七十五项自动测试与稽查：数字thread动态失败关闭且Graph零调用；专项回归、Python编译与diff门禁通过。
 - 第一百七十六项稽查首败与整改：AgentConversation bind/open_session信任Agent/Skill及字符串身份静态类型，坏对象或数字owner会在属性/strip访问或配置查询处泄漏异常。现绑定与会话创建在共享资源访问前完整验证。
 - 第一百七十六项自动测试与稽查：坏Agent/Skill及数字agent/owner动态失败关闭；会话关联回归、Python编译与diff门禁通过。
+- 第一百七十七项稽查首败与整改：AgentConfiguration create/update在锁内直接访问agent/skill属性，create model_id也依赖下游选择器处理，坏对象可能泄漏异常或延迟失败。现写入入口在历史表访问前验证模型契约。
+- 第一百七十七项自动测试与稽查：坏Agent/Skill及数字model动态失败关闭；配置关联回归、Python编译与diff门禁通过。

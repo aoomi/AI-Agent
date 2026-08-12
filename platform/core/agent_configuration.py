@@ -49,6 +49,8 @@ class AgentConfigurationStore:
         updated_by_identity_id: str,
         settings: Mapping[str, Any] | None = None,
     ) -> AgentConfiguration:
+        if not isinstance(agent,AgentInstance) or not isinstance(skill,SkillDefinition):raise AgentConfigurationError("agent and Skill contracts are invalid")
+        if not isinstance(model_id,str) or not model_id.strip():raise AgentConfigurationError("model_id is required")
         if settings is not None and not isinstance(settings,Mapping):raise AgentConfigurationError("agent settings must be a mapping")
         with self._lock:
             if agent.agent_id in self._history:
@@ -74,6 +76,7 @@ class AgentConfigurationStore:
         agent: AgentInstance,
     ) -> AgentConfiguration:
         agent_id = self._required_id("agent_id", agent_id)
+        if not isinstance(agent,AgentInstance) or not isinstance(skill,SkillDefinition):raise AgentConfigurationError("agent and Skill contracts are invalid")
         if isinstance(expected_version, bool) or not isinstance(expected_version, int) or expected_version <= 0:
             raise AgentConfigurationError("expected_version must be a positive integer")
         if settings is not None and not isinstance(settings,Mapping):raise AgentConfigurationError("agent settings must be a mapping")
