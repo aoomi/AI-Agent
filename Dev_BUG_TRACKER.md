@@ -3608,3 +3608,4 @@
 - BUG072 / M9.198 / 架构横向稽查第三百零五项（已关闭，2026-08-12）：MediaPipeline上游转换与timeline验证在访问属性/排序前未验证MediaArtifact/MediaItem，且bool时间戳可被当作整数接受。现两入口强制领域对象并在排序前验证非bool整数范围；伪artifact、伪item与bool时间线动态失败关闭。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百零六项（已关闭，2026-08-12）：DeliveryPipeline公共入口在属性访问前未验证DeliveryArtifact/ReviewDecision，composition还接受文本或空bytes序列，伪对象可泄漏异常或生成伪交付事实。现输入强制非空bytes序列，审核、修复、确认、导出统一验证领域对象、媒体哈希与决策不变量；伪artifact、伪decision及坏媒体动态失败关闭。关联回归、Python编译与diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第三百零七项（已关闭，2026-08-12）：MediaPipeline.regenerate在验证前访问artifact，并接受list、重复/空source id及空能力名，可能泄漏异常或形成含混重生成请求。现副作用前强制MediaArtifact/MediaItem、唯一非空tuple标识及非空能力名；四类伪输入动态失败关闭。关联回归、Python编译与diff门禁通过。
+- BUG072 / M9.198 / 架构横向稽查第三百零八项（已关闭，2026-08-12）：TextPipeline正式调用`short_drama.asset_catalog`，但ShortDramaProviderBindings既未把它登记为必需能力，也把其对象响应误入媒体数组解析，授权provider链无法完成大纲至资产目录。现能力清单与文本响应路由同步登记asset_catalog，并补授权registry动态验证。关联回归、Python编译与diff门禁通过。

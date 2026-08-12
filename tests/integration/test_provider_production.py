@@ -8,7 +8,7 @@ class Secrets:
     def resolve(self,r):return "resolved-secret"
 class Executor:
     def execute(self,c,i,*,secret,timeout_seconds):
-        if c.endswith(("outline","script","storyboard")):return {"episodes":[1],"scenes":[1],"shots":[1]}
+        if c.endswith(("outline","script","storyboard","asset_catalog")):return {"episodes":[1],"scenes":[1],"shots":[1],"characters":[],"props":[],"shot_prompts":[]}
         if c.endswith("composition"):return {"content":b"video","media_type":"video/mp4"}
         if c.endswith("review"):return {"approved":True,"issues":[]}
         return [{"content":b"real","media_type":"application/octet-stream","source_id":"source"}]

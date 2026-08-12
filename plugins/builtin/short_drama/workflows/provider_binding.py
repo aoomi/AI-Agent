@@ -8,7 +8,7 @@ from .media_pipeline import ProviderOutput
 
 class ShortDramaProviderBindingError(ValueError):pass
 class ShortDramaProviderBindings:
-    REQUIRED=("short_drama.outline","short_drama.script","short_drama.storyboard","short_drama.assets","short_drama.image","short_drama.video","short_drama.audio","short_drama.subtitle","short_drama.composition","short_drama.review")
+    REQUIRED=("short_drama.outline","short_drama.script","short_drama.storyboard","short_drama.asset_catalog","short_drama.assets","short_drama.image","short_drama.video","short_drama.audio","short_drama.subtitle","short_drama.composition","short_drama.review")
     def __init__(self,registry:ProviderAdapterRegistry,routes:Mapping[str,str]):
         if not isinstance(registry,ProviderAdapterRegistry) or not isinstance(routes,Mapping) or any(not isinstance(key,str) or not isinstance(value,str) or not value.strip() for key,value in routes.items()):raise ShortDramaProviderBindingError("provider routes are invalid")
         missing=set(self.REQUIRED)-routes.keys()
@@ -25,7 +25,7 @@ class ShortDramaProviderBindings:
     def _invoke(self,capability:str,inputs:Mapping[str,Any])->Any:return self.registry.invoke(self.routes[capability],capability,self._provider_inputs(inputs)).output
     def generate(self,capability:str,inputs:Mapping[str,Any]):
         output=self._invoke(capability,inputs)
-        if capability in {"short_drama.outline","short_drama.script","short_drama.storyboard"}:
+        if capability in {"short_drama.outline","short_drama.script","short_drama.storyboard","short_drama.asset_catalog"}:
             if not isinstance(output,Mapping):raise ShortDramaProviderBindingError("text provider output must be an object")
             return output
         if not isinstance(output,Sequence) or isinstance(output,(str,bytes)):raise ShortDramaProviderBindingError("media provider output must be an array")
