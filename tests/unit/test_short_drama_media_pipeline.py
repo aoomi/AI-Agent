@@ -61,5 +61,11 @@ class MediaPipelineTest(unittest.TestCase):
         invalid=MODULE.MediaItem("a",b"a","audio/wav","a"*64,"voice",1,True,2)
         with self.assertRaisesRegex(MODULE.MediaPipelineError,"range"):MODULE.MediaPipeline.validate_timeline(MODULE.MediaArtifact("audio",(invalid,)))
 
+    def test_regenerate_validates_public_inputs_before_provider_call(self) -> None:
+        pipeline=MODULE.MediaPipeline(Provider())
+        artifact=pipeline.assets({"shots":[1]})
+        for args in ((object(),("shot-1",),"short_drama.assets"),(artifact,["shot-1"],"short_drama.assets"),(artifact,("shot-1","shot-1"),"short_drama.assets"),(artifact,("shot-1",)," ")):
+            with self.subTest(args=args),self.assertRaises(MODULE.MediaPipelineError):pipeline.regenerate(*args)
+
 
 if __name__ == "__main__": unittest.main()

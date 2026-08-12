@@ -70,8 +70,11 @@ class MediaPipeline:
         return self._from_artifact("subtitle", "short_drama.subtitle", audio, "audio")
 
     def regenerate(self, artifact: MediaArtifact, source_ids: tuple[str, ...], capability: str) -> MediaArtifact:
+        if not isinstance(artifact,MediaArtifact) or not artifact.items or any(not isinstance(item,MediaItem) for item in artifact.items): raise MediaPipelineError("regeneration requires media artifact")
+        if not isinstance(source_ids,tuple) or not source_ids or any(not isinstance(source_id,str) or not source_id.strip() for source_id in source_ids) or len(source_ids)!=len(set(source_ids)): raise MediaPipelineError("regeneration source ids are invalid")
+        if not isinstance(capability,str) or not capability.strip(): raise MediaPipelineError("regeneration capability is invalid")
         selected=[item for item in artifact.items if item.source_id in source_ids]
-        if not selected or len(selected)!=len(set(source_ids)): raise MediaPipelineError("regeneration source ids are invalid")
+        if len(selected)!=len(source_ids): raise MediaPipelineError("regeneration source ids are invalid")
         generated=self._generate(artifact.node_type,capability,{"items":[{"source_id":item.source_id,"version":item.version,"checksum_sha256":item.checksum_sha256} for item in selected]})
         replacements={item.source_id:item for item in generated.items}
         merged=tuple(replacements.get(item.source_id,item) if item.source_id not in replacements else MediaItem(replacements[item.source_id].source_id,replacements[item.source_id].content,replacements[item.source_id].media_type,replacements[item.source_id].checksum_sha256,replacements[item.source_id].asset_kind,item.version+1,replacements[item.source_id].start_ms,replacements[item.source_id].end_ms) for item in artifact.items)
