@@ -36,3 +36,12 @@ def test_story_bible_rejects_non_standard_json_without_persisting(invalid):
             )
 
         assert bible.read(identity) == {"episodes": [], "entities": [], "violations": []}
+
+
+def test_story_bible_rejects_corrupt_persisted_entity_attributes():
+    with TemporaryDirectory() as temporary:
+        bible=StoryBible(Path(temporary)/"story.sqlite")
+        identity={"tenant_id":"t","user_id":"u","project_id":"p"}
+        bible.update(identity,"outline",{"characters":[{"name":"苏璃"}]})
+        with bible._connection() as connection:connection.execute("UPDATE story_entities SET attributes_json='NaN'")
+        with pytest.raises(StoryBibleError,match="attributes are invalid"):bible.read(identity)

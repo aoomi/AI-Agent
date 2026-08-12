@@ -140,6 +140,11 @@ class StoryBible:
         scope = self._identity(identity)
         with self._lock, self._connection() as connection:
             episodes = [dict(row) for row in connection.execute("SELECT * FROM story_episode_facts WHERE tenant_id=? AND user_id=? AND project_id=? ORDER BY episode", scope)]
-            entities = [{**dict(row), "attributes":json.loads(row["attributes_json"])} for row in connection.execute("SELECT * FROM story_entities WHERE tenant_id=? AND user_id=? AND project_id=? ORDER BY entity_type,entity_key", scope)]
+            entities = []
+            for row in connection.execute("SELECT * FROM story_entities WHERE tenant_id=? AND user_id=? AND project_id=? ORDER BY entity_type,entity_key", scope):
+                try:attributes=json.loads(row["attributes_json"],parse_constant=lambda value:(_ for _ in ()).throw(ValueError(value)))
+                except (json.JSONDecodeError,ValueError,TypeError) as error:raise StoryBibleError("story entity attributes are invalid") from error
+                if not isinstance(attributes,dict):raise StoryBibleError("story entity attributes are invalid")
+                entities.append({**dict(row),"attributes":attributes})
         for item in entities: item.pop("attributes_json", None)
         return {"episodes":episodes, "entities":entities, "violations":self.validate(episodes)}

@@ -3598,3 +3598,4 @@
 - BUG072 / M9.198 / 架构横向稽查第二百九十五项（已关闭，2026-08-12）：WorkerRegistry读取持久worker payload时宽松JSON解析并直接构造快照，NaN或非法资源/容量记录可进入发现与reserve路由。现读取共享严格标准JSON、对象schema、身份与有限数值门禁；NaN与空资源反例均在路由前失败关闭。关联`30 passed, 42 subtests passed`，Python编译、文档状态及diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第二百九十六项（已关闭，2026-08-12）：OpenAI兼容客户端在外层envelope与字符串content解析时仍接受NaN常量，错误只能在后置规范化或结构访问阶段暴露，响应边界不一致。现两层均使用严格JSON常量拒绝器并统一映射provider response invalid；外层与内层NaN动态反例均在schema前失败关闭。关联`38 passed, 51 subtests passed`，Python编译、文档状态及diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第二百九十七项（已关闭，2026-08-12）：ProductionLedger公共记录与版本读取宽松解析SQLite JSON列，NaN progress或数组snapshot可进入权威API并触发非领域异常。现核心record/version路径共享严格标准JSON与对象/数组schema门禁；两类持久故障注入均以ProductionLedgerError失败关闭。关联`20 passed`，Python编译、文档状态及diff门禁通过。
+- BUG072 / M9.198 / 架构横向稽查第二百九十八项（已关闭，2026-08-12）：StoryBible实体读取宽松解析attributes_json，NaN或非对象坏记录可进入故事事实API。现持久属性严格拒绝非标准JSON并强制对象schema，故障注入以StoryBibleError失败关闭。关联`9 passed`，Python编译、文档状态及diff门禁通过。
