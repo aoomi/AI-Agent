@@ -3042,3 +3042,5 @@
 - 第一项整改：基础设施注册表按extension point/provider原子登记活动创建；全量替换、单provider替换、卸载、禁用与活动provider切换在活动计数非零时统一失败关闭，工厂成功、异常和契约失败均在`finally`释放；卸载在候选探针后再次复核活动计数。
 - 第一项自动测试与稽查：并发慢工厂动态证明五种变更均被`in-flight`拒绝，自然终态后可卸载；provider能力、extension、ProductionLedger、waiting_memory、RecordExporter、Stage登记及静音全链关联`145 passed`，Python编译和diff门禁通过。只读检查确认变更不持锁执行用户工厂，不引入死锁，异常路径计数守恒。
 - 第二项稽查首败：所谓“Graph提交与业务结果同一SQLite写事务”当前仅由`commit_callback`模拟。ProductionLedger写入`production-ledger.sqlite`的临时连接，LangGraph `SqliteSaver`却通过长期连接提交到独立`production-orchestrator.sqlite`；回调异常只能回滚台账，Graph提交成功后若台账最终提交失败则无法回滚，现有测试也只覆盖回调主动抛错，未覆盖Graph已提交后的台账提交失败。这是事实性原子边界违约，继续整改为同库同连接事务并补迁移与故障注入。
+- 第二项整改：ProductionLedger与LangGraph检查点统一落在`production-ledger.sqlite`；事务型SqliteSaver在权威提交窗口把LangGraph执行器线程的全部checkpoint/writes路由到台账持有的同一连接，不自行commit。旧`production-orchestrator.sqlite`的checkpoints/writes在首次构造时以`INSERT OR IGNORE`幂等迁移，原文件保留不删除。composition/review/export与upscale两条权威提交均使用同一transaction context。
+- 第二项自动测试与稽查：故障注入在Graph完成全部写入后主动触发commit fence失败，台账记录与Graph阶段同时不可见；再次读取无半提交。旧库迁移首轮有记录、二轮为0且状态一致。事件代际、upscale、审核导出、Stage、观测与provider关联`208 passed`，Python编译与diff门禁通过；只读检查确认外部连接不由SqliteSaver提交，异常由台账上下文统一rollback，旧库未被改写或删除。
