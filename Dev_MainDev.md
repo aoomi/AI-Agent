@@ -41,6 +41,7 @@
 - BUG072第六项整改：启动恢复不再把waiting_memory误判为中断生成并失败化；保留持久queued子状态、清运行标识，交由Comfy释放门禁重准入。关联`122 passed`，继续横向稽查。
 - BUG072第七项整改：base导出删除legacy缺证默认值，与enhanced一致强制非空权威生产/审核证据；缺证在导出前失败关闭。关联`56 passed`，继续横向稽查。
 - BUG072第八项整改：ProductionLedger通用upsert及非upscale projection补齐expected_revision CAS，与upscale路径一致在事务内拒绝旧快照覆盖；关联`164 passed`，继续横向稽查。
+- BUG072第九项整改：视频结果查询的job_id分支补齐tenant/user/project完整所有者过滤，空身份拒绝且异主查询无恢复副作用；关联`103 passed`，继续横向稽查。
 - BUG071最终闭环：composition、review、export权威证据与Graph状态在同一SQLite事务提交；导出manifest绑定generation、audit batch、视频及manifest哈希。正式三镜静音母版导出8.1秒、243帧、704×1216 H.264且仅video stream，重启后HTTP可读；关联`134 passed`。用户要求的不超过15秒、只验证视频范围已可测试，继续BUG072架构v2.2全仓一致性稽查。
 - BUG070最终闭环：普通生产端点门禁移到派发前；worker只接受进程私有loopback token或精确共享reservation，伪造dispatched头正式403，缺前序请求409且无副作用，合法run-stage composition generation 3通过并确认。关联`130 passed`；继续BUG071静音母版审核导出。
 - BUG069最终闭环：LTX三镜经正式run-stage与同批次video/audio-not-applicable/subtitle-not-applicable台账确认后，显式video-only composition生成8.1秒、243帧、704×1216@30 H.264静音母版；重启恢复、HTTP媒体与队列归零通过，关联`129 passed`。继续BUG070生产端点派发门禁旁路。

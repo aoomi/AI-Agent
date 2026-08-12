@@ -3056,3 +3056,5 @@
 - 第七项自动测试与稽查：历史无证base和projection伪证均拒绝，正式`commit_stage_authorities`生成的base证据、enhanced证据及多集零副作用门禁通过；review/export/原子台账/静音合片关联`56 passed`。只读确认正式BUG071母版已有服务端证据不受影响，旧数据不迁移、不删除，只禁止冒充可导出权威版本。
 - 第八项稽查首败与整改：架构要求`generation + revision` CAS，但通用`ProductionLedger.upsert()`及非upscale projection忽略调用方`expected_revision`，只有upscale projection具备修订号冲突门禁；并发旧快照仍可覆盖新revision。现所有upsert和两类projection在读出当前行后、任何字段合并前统一校验expected_revision；缺省保持现有内部兼容，非法类型及旧revision失败关闭。
 - 第八项自动测试与稽查：通用权威写、非upscale projection分别动态证明正确revision成功、旧revision拒绝且当前记录不变；生产控制、upscale、阶段权威与作用域关联`164 passed`。只读确认CAS发生在同一SQLite事务读取之后，没有TOCTOU窗口，原generation/fingerprint/batch围栏保持。
+- 第九项稽查首败与整改：`GET /api/videos/result`允许只凭任意job_id命中任务，条件为subject匹配“或”job_id匹配，未对job_id分支复核tenant/user/project；知道ID即可跨所有者读取状态、错误和媒体URL，甚至触发孤儿prompt核销。现强制三字段身份非空，并对subject与job_id两种检索共同执行`_job_matches_scope`；空身份400，异主身份不返回任务也不产生恢复副作用。
+- 第九项自动测试与稽查：源码契约覆盖非空身份、统一所有者过滤和显式job_id分支，结合H3、provider、waiting_memory与生产控制关联`103 passed`，Python编译与diff门禁通过。只读确认过滤发生在孤儿检测和任何终态写入之前。
