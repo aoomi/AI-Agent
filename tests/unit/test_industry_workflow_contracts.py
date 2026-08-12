@@ -31,6 +31,15 @@ class IndustryWorkflowContractTest(unittest.TestCase):
   service.execute(None,{"operation":"create","workflow_id":"workflow","industry_id":"industry","robot_ids":("robot",)},"owner")
   with self.assertRaisesRegex(IndustryWorkflowError,"run contract"):
    service.execute(None,{"operation":"run","workflow_id":"workflow","thread_id":1},"owner")
+  for inputs in ({"value":float("nan")},{"value":object()}):
+   with self.subTest(inputs=inputs),self.assertRaisesRegex(IndustryWorkflowError,"inputs must be standard JSON"):
+    service.execute(None,{"operation":"run","workflow_id":"workflow","inputs":inputs},"owner")
+ def test_run_rejects_non_standard_result(self):
+  class BadOrchestrator(Orchestrator):
+   def invoke(self,*args,**kwargs):return {"value":float("nan")}
+  service=IndustryWorkflowService(BadOrchestrator());service.bind_executor("robot",lambda *_:{})
+  service.execute(None,{"operation":"create","workflow_id":"workflow","industry_id":"industry","robot_ids":("robot",)},"owner")
+  with self.assertRaisesRegex(IndustryWorkflowError,"result must be standard JSON"):service.execute(None,{"operation":"run","workflow_id":"workflow"},"owner")
  def test_connection_ids_are_normalized_before_membership(self):
   service=IndustryWorkflowService(Orchestrator());service.execute(None,{"operation":"create","workflow_id":"workflow","industry_id":"industry","robot_ids":("one","two")},"owner")
   result=service.execute(None,{"operation":"connect","workflow_id":"workflow","source_robot_id":" one ","target_robot_id":" two "},"owner")

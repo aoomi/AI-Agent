@@ -3492,3 +3492,5 @@
 - 第二百三十七项自动测试与稽查：context与proposal的NaN/任意对象动态拒绝且无提案副作用；会话与管理API关联回归、Python编译与diff门禁通过。
 - 第二百三十八项稽查首败与整改：AgentScheduler.start在依赖AgentContext.update验证values前已逐个创建上下文，非标准JSON失败会留下部分状态。现完整values契约在首个创建副作用前失败关闭。
 - 第二百三十八项自动测试与稽查：NaN/任意对象pipeline values动态拒绝且无AgentContext副作用；调度与Agent pipeline关联回归、Python编译与diff门禁通过。
+- 第二百三十九项稽查首败与整改：IndustryWorkflow run只验证inputs/result Mapping，NaN或任意对象可进入Graph检查点或管理API返回值。现调用前后均强制标准JSON边界。
+- 第二百三十九项自动测试与稽查：非标准inputs/result动态拒绝；行业工作流与对话集成关联回归、Python编译与diff门禁通过。
