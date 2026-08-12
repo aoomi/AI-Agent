@@ -3188,3 +3188,5 @@
 - 第八十五项自动测试与稽查：顶层、probe嵌套和数组三类凭据均零探针、零注册；基础设施替换与扩展关联`3 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
 - 第八十六项稽查首败与整改：CollaborationEvidence的metadata会通过inspection report和管理API持久暴露，但原边界仅校验Mapping类型，外部inspector可嵌入access_token、Authorization或client_secret。现报告构建在证据发布前递归拒绝六类敏感组合键。
 - 第八十六项自动测试与稽查：顶层、对象嵌套和数组嵌套敏感证据均失败关闭；协作与管理API关联`12 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
+- 第八十七项稽查首败与整改：ConversationProposal.requested_changes和确认后的applied_result会被管理API返回，但模型与任务executor原可把Authorization/access_token等嵌套凭据写入两类长期快照。现提案构建前和执行结果发布前均递归拒绝六类敏感组合键；执行结果拒绝沿既有异常路径把提案标为failed。
+- 第八十七项自动测试与稽查：敏感模型提案零消息/零提案提交，敏感executor结果不发布且提案failed；配置、会话与管理API关联`25 passed`（另`6 subtests passed`），Python编译与diff门禁通过。

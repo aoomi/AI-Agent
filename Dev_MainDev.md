@@ -1087,3 +1087,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第八十四项：生产能力注册表metadata已递归拒绝secret/token/password/api_key/authorization/credential组合键，运行快照和能力目录不再可携带嵌套凭据；register/register_once共用门禁。动态与关联`7 passed`、`3 subtests passed`，Python编译与只读diff稽查通过。
 - BUG072第八十五项：生产基础设施扩展metadata及probe_configuration已在任何工厂探针和注册副作用前递归拒绝六类敏感组合键，扩展目录和契约快照不再能携带凭据。动态与关联`3 passed`、`3 subtests passed`，Python编译与只读diff稽查通过。
 - BUG072第八十六项：开发→稽查协作证据metadata已递归拒绝六类敏感组合键，inspection executor不能把嵌套凭据带入只读报告、handoff查询或管理API。协作与管理API关联`12 passed`、`6 subtests passed`，Python编译与只读diff稽查通过。
+- BUG072第八十七项：智能体模型提案requested_changes与任务执行器applied_result已递归拒绝六类敏感组合键；凭据不能进入待确认提案、对话查询或执行结果快照，失败提案保持failed。配置、会话与管理API关联`25 passed`、`6 subtests passed`，Python编译与只读diff稽查通过。

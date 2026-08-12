@@ -24,6 +24,12 @@ class TaskExecutor:
         return {"task_id": "task-1"}
 
 
+class ResultExecutor(TaskExecutor):
+    def __init__(self, result): self.result = result; self.calls = []
+    def execute(self, configuration, requested_changes, confirmed_by_identity_id):
+        self.calls.append((configuration, dict(requested_changes), confirmed_by_identity_id)); return self.result
+
+
 class FailingMemoryStore(ConversationMemoryStore):
     def update(self, identity_id, project_id, values):
         raise OSError("memory persistence failed")
@@ -82,6 +88,20 @@ class AgentConversationServiceTest(unittest.TestCase):
             service.send(session.session_id, "invalid response", "owner")
         self.assertEqual(len(service.messages(session.session_id, "owner")), 1)
         self.assertEqual(service.proposals(session.session_id, "owner"), ())
+
+    def test_sensitive_proposal_and_executor_result_are_not_published(self) -> None:
+        skill, agent = self.configured()
+        unsafe = ModelClient({"reply":"wait", "proposal":{"proposal_type":"task_execution", "requested_changes":{"headers":{"Authorization":"Bearer plaintext"}}}})
+        service = AgentConversationService(self.models, self.configurations, unsafe); service.bind(agent, skill)
+        session = service.open_session(agent.agent_id, "owner", {"project_id":"project"})
+        with self.assertRaisesRegex(ConversationError, "sensitive fields"): service.send(session.session_id, "run", "owner")
+        self.assertEqual(len(service.messages(session.session_id, "owner")), 1)
+        executor = ResultExecutor({"access_token":"plaintext"})
+        safe = ModelClient({"reply":"wait", "proposal":{"proposal_type":"task_execution", "requested_changes":{"objective":"run"}}})
+        service = AgentConversationService(self.models, self.configurations, safe, executor); service.bind(agent, skill)
+        session = service.open_session(agent.agent_id, "owner", {"project_id":"project"}); _, proposal = service.send(session.session_id, "run", "owner")
+        with self.assertRaisesRegex(ConversationError, "sensitive fields"): service.confirm(proposal.proposal_id, "owner")
+        self.assertEqual(service.proposals(session.session_id, "owner")[0].status, "failed")
 
     def test_memory_persistence_failure_has_no_partial_conversation_commit(self) -> None:
         skill, agent = self.configured()

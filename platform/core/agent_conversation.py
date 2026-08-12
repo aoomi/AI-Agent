@@ -100,6 +100,7 @@ class ConversationMemoryStore:
 
 
 class AgentConversationService:
+    _SENSITIVE_KEY_PARTS = ("secret", "token", "password", "api_key", "authorization", "credential")
     RESPONSE_SCHEMA = MappingProxyType({
         "type": "object", "required": ["reply"],
         "properties": {
@@ -240,6 +241,7 @@ class AgentConversationService:
                 if executor is None: raise ConversationError("real proposal executor is not configured")
                 result = executor.execute(configuration, proposal.requested_changes, identity_id)
                 if not result: raise ConversationError("task executor returned no result")
+                if self._contains_sensitive_key(result): raise ConversationError("task executor result contains sensitive fields")
         except Exception:
             with self._lock:self._proposals[proposal.proposal_id] = replace(proposal, status="failed")
             raise
@@ -274,6 +276,7 @@ class AgentConversationService:
         if proposal_type not in {"configuration_change", "task_execution", "industry_workflow"}: raise ConversationError("model proposal_type is invalid")
         if not isinstance(requested, Mapping) or not requested: raise ConversationError("model requested_changes are invalid")
         requested = dict(requested)
+        if self._contains_sensitive_key(requested): raise ConversationError("proposal requested_changes contain sensitive fields")
         if plan and "plan" not in requested: requested["plan"] = list(plan)
         if configuration.role in {"tester", "inspector"} and proposal_type == "task_execution" and requested.get("read_only") is not True:
             raise ConversationError(f"{configuration.role} task proposal must be read-only")
@@ -299,6 +302,13 @@ class AgentConversationService:
         with self._lock:
             try: return self._bindings[agent_id]
             except KeyError as error: raise ConversationError("agent Skill binding is not configured") from error
+
+    @classmethod
+    def _contains_sensitive_key(cls, value: Any) -> bool:
+        if isinstance(value, Mapping):
+            return any(any(word in str(key).lower() for word in cls._SENSITIVE_KEY_PARTS) or cls._contains_sensitive_key(item) for key, item in value.items())
+        if isinstance(value, (list, tuple, set, frozenset)): return any(cls._contains_sensitive_key(item) for item in value)
+        return False
 
     @staticmethod
     def _now() -> str: return datetime.now(timezone.utc).isoformat()
