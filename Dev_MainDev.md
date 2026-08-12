@@ -1045,3 +1045,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第四十三项：ProviderService配置与健康双表已原子化，慢探针以对象CAS拒绝晚到覆盖，checker保持锁外执行。关联`10 passed`，只读稽查通过。
 - BUG072第四十四项：EventBus订阅表与任务进度投影已并发安全，handler快照锁内复制、回调锁外执行，投影读取不观察撕裂状态。关联`15 passed`，只读稽查通过。
 - BUG072第四十五项：Provider调用审计追加及owner列表快照已并发安全，敏感检查和哈希仍在锁外。关联`5 passed`，只读稽查通过。
+- BUG072第四十六项：AgentScheduler共享注册/整改状态已串行化，同一run新增异常安全single-flight围栏，阻断并发重复执行agent副作用。关联`7 passed`，只读稽查通过。

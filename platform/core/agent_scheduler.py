@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
+from threading import RLock
 from typing import Any, Literal, Protocol
 from uuid import uuid4
 
@@ -64,6 +65,8 @@ class AgentScheduler:
         self.runs: dict[str, PipelineRun] = {}
         self.remediations: dict[str, ScheduledRemediation] = {}
         self.graph_orchestrator: AgentGraphOrchestrator | None = None
+        self._lock = RLock()
+        self._active_runs: set[str] = set()
 
     def use_graph_orchestrator(self, orchestrator: AgentGraphOrchestrator) -> None:
         self.graph_orchestrator = orchestrator
@@ -78,29 +81,25 @@ class AgentScheduler:
         return self.graph_orchestrator.resume(graph_id, thread_id, approved)
 
     def schedule_remediation(self, instruction: RemediationInstruction) -> ScheduledRemediation:
-        if instruction.instruction_id in self.remediations:
-            raise SchedulerError("remediation instruction is already scheduled")
-        remediation = ScheduledRemediation(
-            instruction.instruction_id, instruction.root_task_id, instruction.developer_agent_id,
-            instruction.issue_ids, instruction.remediation_round,
-        )
-        self.remediations[instruction.instruction_id] = remediation
-        return remediation
+        with self._lock:
+            if instruction.instruction_id in self.remediations: raise SchedulerError("remediation instruction is already scheduled")
+            remediation = ScheduledRemediation(instruction.instruction_id, instruction.root_task_id, instruction.developer_agent_id, instruction.issue_ids, instruction.remediation_round)
+            self.remediations[instruction.instruction_id] = remediation; return remediation
 
     def remediation(self, instruction_id: str) -> ScheduledRemediation:
-        try: return self.remediations[instruction_id]
-        except KeyError as error: raise SchedulerError("remediation task does not exist") from error
+        with self._lock:
+            try: return self.remediations[instruction_id]
+            except KeyError as error: raise SchedulerError("remediation task does not exist") from error
 
     def complete_remediation(self, instruction_id: str) -> ScheduledRemediation:
-        remediation = self.remediation(instruction_id)
-        if remediation.status != "pending": raise SchedulerError("remediation task is not pending")
-        completed = replace(remediation, status="completed")
-        self.remediations[instruction_id] = completed
-        return completed
+        with self._lock:
+            remediation = self.remediation(instruction_id)
+            if remediation.status != "pending": raise SchedulerError("remediation task is not pending")
+            completed = replace(remediation, status="completed"); self.remediations[instruction_id] = completed; return completed
 
     def add_executor(self, agent_id: str, executor: AgentExecutor) -> None:
         self.registry.get(agent_id)
-        self.executors[agent_id] = executor
+        with self._lock:self.executors[agent_id] = executor
 
     def start(self, tenant_id: str, project_id: str, agent_ids: tuple[str, ...], values: Mapping[str, Any], *, mode: str = "serial", max_retries: int = 2, auto_run: bool = True) -> PipelineRun:
         if not agent_ids:
@@ -116,6 +115,14 @@ class AgentScheduler:
         return self.run(run.run_id) if auto_run else run
 
     def run(self, run_id: str) -> PipelineRun:
+        with self._lock:
+            if run_id in self._active_runs: raise SchedulerError("pipeline run is already active")
+            self._active_runs.add(run_id)
+        try:return self._run_once(run_id)
+        finally:
+            with self._lock:self._active_runs.discard(run_id)
+
+    def _run_once(self, run_id: str) -> PipelineRun:
         run = self._get(run_id)
         if run.status == "paused": return run
         if run.mode == "parallel": return self._run_parallel(run)
@@ -193,7 +200,6 @@ class AgentScheduler:
         return self.run(run_id)
 
     def _get(self, run_id: str) -> PipelineRun:
-        try:
-            return self.runs[run_id]
-        except KeyError as error:
-            raise SchedulerError("pipeline run does not exist") from error
+        with self._lock:
+            try:return self.runs[run_id]
+            except KeyError as error:raise SchedulerError("pipeline run does not exist") from error

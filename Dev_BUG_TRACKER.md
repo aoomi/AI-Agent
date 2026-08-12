@@ -3130,3 +3130,5 @@
 - 第四十四项自动测试与稽查：EventBus、任务投影、TaskService及HTTP任务追踪关联`15 passed`；Python编译与diff门禁通过。
 - 第四十五项稽查首败与整改：ProviderAuditLedger追加与按owner列表无锁，provider并发完成时list可观察非稳定数组边界。现记录在完成敏感检查与哈希后用RLock原子追加，owner列表同锁生成不可变快照。
 - 第四十五项自动测试与稽查：provider审计与生产集成关联`5 passed`；Python编译与diff门禁通过。
+- 第四十六项稽查首败与整改：AgentScheduler运行表、executor和整改队列被HTTP及协作回调共享但无锁，同run可并发执行两次并重复agent副作用。现共享注册/整改状态统一RLock，并为每个run建立single-flight活动围栏，重复run在executor前失败关闭，所有终态/异常路径释放。
+- 第四十六项自动测试与稽查：调度控制、agent流水线与开发稽查协作集成关联`7 passed`；Python编译与diff门禁通过。只读确认executor在锁外运行且finally释放活动围栏。
