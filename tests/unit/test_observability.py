@@ -106,4 +106,8 @@ class ObservabilityTest(unittest.TestCase):
    target=Path(directory)/"target";target.mkdir()
    for factory in (JsonLinesExporter,PrometheusSnapshotExporter):
     with self.assertRaises(ObservabilityError):factory(target)
+ def test_trace_attributes_are_deeply_snapshotted(self):
+  attributes={"state":{"steps":["running"]}};recorder=TraceRecorder(clock=iter((1.0,2.0)).__next__)
+  with recorder.span("trace","span","name",attributes=attributes):attributes["state"]["steps"][0]="forged"
+  self.assertEqual(recorder.spans[0].attributes["state"]["steps"][0],"running")
 if __name__=="__main__":unittest.main()
