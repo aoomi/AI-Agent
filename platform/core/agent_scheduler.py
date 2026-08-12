@@ -70,6 +70,8 @@ class AgentScheduler:
         self._active_agents: set[str] = set()
 
     def use_graph_orchestrator(self, orchestrator: AgentGraphOrchestrator) -> None:
+        if orchestrator is None or not all(callable(getattr(orchestrator, method, None)) for method in ("compile", "invoke", "resume")):
+            raise SchedulerError("LangGraph orchestrator contract is invalid")
         self.graph_orchestrator = orchestrator
 
     def start_graph(self, *, graph_id: str, thread_id: str, executors: Mapping[str, Any], inputs: Mapping[str, Any], mode: str = "serial", max_attempts: int = 3, require_approval: bool = False) -> Mapping[str, Any]:
@@ -109,6 +111,8 @@ class AgentScheduler:
         if not agent_ids:
             raise SchedulerError("pipeline requires at least one agent")
         if len(set(agent_ids)) != len(agent_ids):raise SchedulerError("pipeline agent_ids must be unique")
+        tenant_id, project_id = tenant_id.strip(), project_id.strip()
+        if not tenant_id or not project_id:raise SchedulerError("pipeline tenant_id and project_id are required")
         if mode not in {"serial", "parallel"}: raise SchedulerError("scheduler mode must be serial or parallel")
         if not 0 <= max_retries <= 10: raise SchedulerError("max_retries must be between 0 and 10")
         for agent_id in agent_ids:

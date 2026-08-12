@@ -3214,3 +3214,5 @@
 - 第九十八项自动测试与稽查：顶层、对象嵌套和数组嵌套三类敏感state均零落盘；持久适配器与私有部署韧性关联`7 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
 - 第九十九项稽查首败与整改：AgentContextStore会在AgentScheduler间共享并返回完整values快照，原update只拒绝空键，可把access_token、Authorization或client_secret扩散给后续机器人。现上下文写入前递归拒绝六类敏感组合键。
 - 第九十九项自动测试与稽查：顶层、对象嵌套和数组嵌套三类敏感values均不进入上下文；上下文、Agent流水线及scope隔离关联`11 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
+- 第一百项稽查首败与整改：AgentScheduler.start依赖ContextStore间接校验tenant/project，可能已为前序agent创建部分上下文才在后续失败；use_graph_orchestrator还接受任意对象，把契约错误延迟到运行。现启动先验证完整scope，编排器注入先验证三方法可调用。
+- 第一百项自动测试与稽查：空tenant、空project和坏orchestrator三类均零执行失败关闭；调度控制、Agent流水线与LangGraph关联`14 passed`，Python编译与diff门禁通过。

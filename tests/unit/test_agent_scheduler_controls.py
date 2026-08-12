@@ -62,5 +62,12 @@ class AgentSchedulerControlsTest(unittest.TestCase):
         with self.assertRaisesRegex(SchedulerError,"unique"):
             self.scheduler.start("tenant","project",(self.first.agent_id,self.first.agent_id),{},auto_run=False)
 
+    def test_pipeline_and_graph_orchestrator_require_valid_identity_contracts(self) -> None:
+        for scope in (("", "project"), ("tenant", "")):
+            with self.assertRaisesRegex(SchedulerError, "tenant_id and project_id"):
+                self.scheduler.start(*scope, (self.first.agent_id,), {}, auto_run=False)
+        with self.assertRaisesRegex(SchedulerError, "contract"):
+            self.scheduler.use_graph_orchestrator(object())
+
 
 if __name__ == "__main__": unittest.main()
