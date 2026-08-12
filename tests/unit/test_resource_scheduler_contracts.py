@@ -8,8 +8,10 @@ from ai_agent_core import ResourceScheduler, ResourceSchedulerError
 
 class ResourceSchedulerContractTest(unittest.TestCase):
     def test_constructor_rejects_pseudo_integer_pool_limits(self) -> None:
-        for kwargs in ({"pool_capacities":{"global":True}},{"pool_queue_limits":{"global":1.5}}):
-            with self.subTest(kwargs=kwargs),self.assertRaisesRegex(ValueError,"pool names and capacities"):
+        for kwargs in ({"pool_capacities":{"global":True}},{"pool_queue_limits":{"global":1.5}},
+                       {"pool_capacities":{"unused":1}}, {"resource_pools":{"unknown":"global"}},
+                       {"serialized_pools":{"unused"}}):
+            with self.subTest(kwargs=kwargs),self.assertRaisesRegex(ValueError,"pool"):
                 ResourceScheduler(**kwargs)  # type: ignore[arg-type]
 
     def test_claim_rejects_invalid_runtime_numeric_controls(self) -> None:

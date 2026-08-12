@@ -3324,3 +3324,5 @@
 - 第一百五十三项自动测试与稽查：NaN/Infinity timeout在入队前动态失败关闭，专项关联回归、Python编译与diff门禁通过。
 - 第一百五十四项稽查首败与整改：LocalObjectStore只围栏全局root，`a/..`租户或`a/../x`键可在resolve后留在root却逃离声明的租户目录。现租户必须为单一安全段，对象键禁止绝对路径和目录折叠，并以解析后的tenant root再次围栏。
 - 第一百五十四项自动测试与稽查：四类跨域/折叠路径动态拒绝，合法嵌套对象仍可跨重启读取；持久化关联回归、Python编译与diff门禁通过。
+- 第一百五十五项稽查首败与整改：ResourceScheduler接受未知resource映射、未被任何资源使用的容量/限额池及悬空serialized pool；多余容量池会在snapshot访问缺失限额时触发KeyError，其余配置则静默无效。现四类映射均与实际资源池闭合集合校验。
+- 第一百五十五项自动测试与稽查：未知资源、悬空容量池和serialized pool动态失败关闭；专项关联回归、Python编译与diff门禁通过。

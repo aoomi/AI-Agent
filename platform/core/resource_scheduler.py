@@ -66,10 +66,17 @@ class ResourceScheduler:
             self.tenant_queue_limits.setdefault(pool, self.pool_queue_limits[pool])
             self.project_queue_limits.setdefault(pool, self.tenant_queue_limits[pool])
         numeric_values=(*self.pool_capacities.values(),*self.pool_queue_limits.values(),*self.tenant_queue_limits.values(),*self.project_queue_limits.values())
-        if (any(not isinstance(pool,str) or not pool.strip() for pool in self.resource_pools.values())
+        configured_pools=set(self.resource_pools.values())
+        limit_maps=(self.pool_capacities,self.pool_queue_limits,self.tenant_queue_limits,self.project_queue_limits)
+        if (any(not isinstance(resource,str) or resource not in RESOURCE_PRIORITIES for resource in (resource_pools or {}))
+                or any(not isinstance(pool,str) or not pool.strip() for limits in limit_maps for pool in limits)
+                or any(set(limits)-configured_pools for limits in limit_maps)
+                or any(not isinstance(pool,str) or not pool.strip() for pool in self.resource_pools.values())
                 or any(isinstance(value,bool) or not isinstance(value,int) or value<=0 for value in numeric_values)):
             raise ValueError("resource pool names and capacities must be valid")
         self.serialized_pools = set(serialized_pools if serialized_pools is not None else {"global"})
+        if any(not isinstance(pool,str) or pool not in configured_pools for pool in self.serialized_pools):
+            raise ValueError("serialized pools must reference configured resource pools")
         self._condition = Condition(RLock())
         self._queue: list[ResourceTicket] = []
         self._active: dict[str, ResourceTicket] = {}
