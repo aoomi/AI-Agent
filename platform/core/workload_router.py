@@ -40,7 +40,9 @@ class WorkloadRouter:
         self._lock = RLock()
 
     def heartbeat(self, worker: WorkerSnapshot) -> WorkerSnapshot:
-        if not worker.worker_id.strip() or not worker.service_scope.strip() or not worker.resource_classes:
+        if (not isinstance(worker,WorkerSnapshot) or not isinstance(worker.worker_id,str) or not isinstance(worker.service_scope,str)
+                or not worker.worker_id.strip() or not worker.service_scope.strip() or not isinstance(worker.resource_classes,tuple)
+                or not worker.resource_classes or any(not isinstance(value,str) or not value.strip() for value in worker.resource_classes)):
             raise WorkloadRoutingError("invalid worker identity")
         integer_fields=(worker.capacity,worker.active,worker.queue_depth,worker.available_memory,worker.generation)
         if (any(isinstance(value,bool) or not isinstance(value,int) for value in integer_fields)
@@ -57,6 +59,7 @@ class WorkloadRouter:
         return worker
 
     def remove(self, worker_id: str, *, generation: int | None = None) -> bool:
+        if not isinstance(worker_id,str):raise WorkloadRoutingError("invalid worker removal")
         worker_id = worker_id.strip()
         if not worker_id or generation is not None and (isinstance(generation, bool) or not isinstance(generation, int) or generation < 1):
             raise WorkloadRoutingError("invalid worker removal")
@@ -79,6 +82,8 @@ class WorkloadRouter:
             return len(stale)
 
     def route(self, resource_class: str, *, estimated_memory: int = 0, service_scope: str = "", worker_id: str = "", now: float | None = None) -> WorkerSnapshot:
+        if any(not isinstance(value,str) for value in (resource_class,service_scope,worker_id)):
+            raise WorkloadRoutingError("invalid worker route")
         resource_class, service_scope, worker_id = resource_class.strip(), service_scope.strip(), worker_id.strip()
         if not resource_class or isinstance(estimated_memory, bool) or not isinstance(estimated_memory, int) or estimated_memory < 0:
             raise WorkloadRoutingError("invalid worker route")

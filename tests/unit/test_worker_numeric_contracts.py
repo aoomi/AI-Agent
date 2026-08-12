@@ -44,6 +44,17 @@ class WorkerNumericContractTest(unittest.TestCase):
                     with self.subTest(worker=worker,target=target),self.assertRaisesRegex(WorkloadRoutingError,"invalid worker capacity"):
                         target.heartbeat(worker)
 
+    def test_worker_identity_contracts_require_exact_runtime_types(self) -> None:
+        router=WorkloadRouter()
+        with tempfile.TemporaryDirectory() as directory:
+            registry=WorkerRegistry(Path(directory)/"workers.db")
+            for worker in (object(), self._worker(worker_id=1), self._worker(resource_classes=("video", ""))):
+                for target in (router,registry):
+                    with self.subTest(worker=worker,target=target),self.assertRaisesRegex(WorkloadRoutingError,"identity"):
+                        target.heartbeat(worker)  # type: ignore[arg-type]
+            for operation in (lambda:router.route(1),lambda:router.remove(1),lambda:registry.remove(1,1)):
+                with self.subTest(operation=operation),self.assertRaises(WorkloadRoutingError):operation()
+
     def test_worker_clocks_and_generations_must_be_finite_exact_numbers(self) -> None:
         router=WorkloadRouter()
         with tempfile.TemporaryDirectory() as directory:

@@ -37,7 +37,9 @@ class WorkerRegistry:
                 raise
 
     def heartbeat(self, worker: WorkerSnapshot) -> WorkerSnapshot:
-        if not worker.worker_id.strip() or not worker.service_scope.strip() or not worker.resource_classes:
+        if (not isinstance(worker,WorkerSnapshot) or not isinstance(worker.worker_id,str) or not isinstance(worker.service_scope,str)
+                or not worker.worker_id.strip() or not worker.service_scope.strip() or not isinstance(worker.resource_classes,tuple)
+                or not worker.resource_classes or any(not isinstance(value,str) or not value.strip() for value in worker.resource_classes)):
             raise WorkloadRoutingError("invalid worker identity")
         integer_fields=(worker.capacity,worker.active,worker.queue_depth,worker.available_memory,worker.generation)
         if (any(isinstance(value,bool) or not isinstance(value,int) for value in integer_fields)
@@ -68,6 +70,7 @@ class WorkerRegistry:
         return [worker for worker in workers if not service_scope or worker.service_scope == service_scope]
 
     def remove(self, worker_id: str, generation: int) -> bool:
+        if not isinstance(worker_id,str):raise WorkloadRoutingError("invalid worker removal")
         worker_id = worker_id.strip()
         if not worker_id or isinstance(generation, bool) or not isinstance(generation, int) or generation < 1:
             raise WorkloadRoutingError("invalid worker removal")
