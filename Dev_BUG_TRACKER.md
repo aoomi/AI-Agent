@@ -3112,3 +3112,5 @@
 - 第三十五项自动测试与稽查：插件生命周期及平台启动关联`9 passed`；Python编译与diff门禁通过。只读确认RLock允许内部get复用且不包围安装器等外部长耗时操作。
 - 第三十六项稽查首败与整改：SkillRegistry热扫描以无锁整表替换`_skills`，并发管理请求可在scan提交与get/all读取间观察不一致快照。现manifest磁盘解析仍在锁外，完成校验后仅以RLock原子发布整表；get/all在同锁内读取不可变快照。
 - 第三十六项自动测试与稽查：Skill发现、映射与平台启动关联`10 passed`；Python编译与diff门禁通过。只读确认坏manifest不会发布半成品注册表。
+- 第三十七项稽查首败与整改：AgentContextStore与CollaborationContextStore被串并行调度器多线程共享，但create/update/get均无锁；并行agent及开发/稽查写读可碰撞、丢字段或在构造快照时观察半更新。现两类store各自用RLock覆盖创建、更新和不可变快照读取，校验与提交在同一临界区。
+- 第三十七项自动测试与稽查：上下文、协作、并行调度、集成流水线及作用域安全关联`13 passed`（另`3 subtests passed`）；Python编译与diff门禁通过。

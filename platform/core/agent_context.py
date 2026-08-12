@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
+from threading import RLock
 from typing import Any, Mapping
 
 
@@ -22,30 +23,27 @@ class AgentContext:
 class AgentContextStore:
     def __init__(self) -> None:
         self._contexts: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self._lock = RLock()
 
     def create(self, tenant_id: str, project_id: str, agent_id: str) -> AgentContext:
         key = self._key(tenant_id, project_id, agent_id)
-        if key in self._contexts:
-            raise AgentContextError("agent context already exists")
-        self._contexts[key] = {}
-        return self.get(*key)
+        with self._lock:
+            if key in self._contexts: raise AgentContextError("agent context already exists")
+            self._contexts[key] = {}; return self.get(*key)
 
     def update(self, tenant_id: str, project_id: str, agent_id: str, values: Mapping[str, Any]) -> AgentContext:
         key = self._key(tenant_id, project_id, agent_id)
-        try:
-            context = self._contexts[key]
-        except KeyError as error:
-            raise AgentContextError("agent context does not exist in this scope") from error
-        context.update(dict(values))
-        return self.get(*key)
+        with self._lock:
+            try: context = self._contexts[key]
+            except KeyError as error: raise AgentContextError("agent context does not exist in this scope") from error
+            context.update(dict(values)); return self.get(*key)
 
     def get(self, tenant_id: str, project_id: str, agent_id: str) -> AgentContext:
         key = self._key(tenant_id, project_id, agent_id)
-        try:
-            values = self._contexts[key]
-        except KeyError as error:
-            raise AgentContextError("agent context does not exist in this scope") from error
-        return AgentContext(*key, MappingProxyType(dict(values)))
+        with self._lock:
+            try: values = self._contexts[key]
+            except KeyError as error: raise AgentContextError("agent context does not exist in this scope") from error
+            return AgentContext(*key, MappingProxyType(dict(values)))
 
     @staticmethod
     def _key(tenant_id: str, project_id: str, agent_id: str) -> tuple[str, str, str]:
@@ -72,32 +70,35 @@ class CollaborationContextStore:
 
     def __init__(self) -> None:
         self._contexts: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self._lock = RLock()
 
     def create(self, *, tenant_id: str, project_id: str, session_id: str, developer_agent_id: str, inspector_agent_id: str) -> CollaborationContext:
         key = self._key(tenant_id, project_id, session_id)
         developer_agent_id, inspector_agent_id = self._required(developer_agent_id, inspector_agent_id)
-        if developer_agent_id == inspector_agent_id: raise AgentContextError("collaboration roles require distinct agents")
-        if key in self._contexts: raise AgentContextError("collaboration context already exists")
-        self._contexts[key] = {"developer_agent_id": developer_agent_id, "inspector_agent_id": inspector_agent_id, "task_states": {}, "evidence_references": [], "file_references": []}
-        return self.get(*key, agent_id=developer_agent_id)
+        with self._lock:
+            if developer_agent_id == inspector_agent_id: raise AgentContextError("collaboration roles require distinct agents")
+            if key in self._contexts: raise AgentContextError("collaboration context already exists")
+            self._contexts[key] = {"developer_agent_id": developer_agent_id, "inspector_agent_id": inspector_agent_id, "task_states": {}, "evidence_references": [], "file_references": []}
+            return self.get(*key, agent_id=developer_agent_id)
 
     def update(self, tenant_id: str, project_id: str, session_id: str, *, agent_id: str, task_states: Mapping[str, str] | None = None, evidence_references: tuple[str, ...] = (), file_references: tuple[str, ...] = ()) -> CollaborationContext:
         key = self._key(tenant_id, project_id, session_id)
-        context = self._raw(key)
-        if agent_id != context["developer_agent_id"]: raise AgentContextError("only the developer agent may mutate collaboration context")
-        if task_states:
-            allowed = {"pending", "running", "waiting_inspection", "waiting_remediation", "waiting_human", "completed", "failed", "cancelled"}
-            if any(state not in allowed for state in task_states.values()): raise AgentContextError("collaboration task state is invalid")
-            context["task_states"].update(dict(task_states))
-        context["evidence_references"].extend(self._references(evidence_references))
-        context["file_references"].extend(self._references(file_references))
-        return self.get(*key, agent_id=agent_id)
+        with self._lock:
+            context = self._raw(key)
+            if agent_id != context["developer_agent_id"]: raise AgentContextError("only the developer agent may mutate collaboration context")
+            if task_states:
+                allowed = {"pending", "running", "waiting_inspection", "waiting_remediation", "waiting_human", "completed", "failed", "cancelled"}
+                if any(state not in allowed for state in task_states.values()): raise AgentContextError("collaboration task state is invalid")
+                context["task_states"].update(dict(task_states))
+            context["evidence_references"].extend(self._references(evidence_references)); context["file_references"].extend(self._references(file_references))
+            return self.get(*key, agent_id=agent_id)
 
     def get(self, tenant_id: str, project_id: str, session_id: str, *, agent_id: str) -> CollaborationContext:
         key = self._key(tenant_id, project_id, session_id)
-        context = self._raw(key)
-        if agent_id not in {context["developer_agent_id"], context["inspector_agent_id"]}: raise AgentContextError("agent cannot access this collaboration context")
-        return CollaborationContext(*key, context["developer_agent_id"], context["inspector_agent_id"], MappingProxyType(dict(context["task_states"])), tuple(context["evidence_references"]), tuple(context["file_references"]))
+        with self._lock:
+            context = self._raw(key)
+            if agent_id not in {context["developer_agent_id"], context["inspector_agent_id"]}: raise AgentContextError("agent cannot access this collaboration context")
+            return CollaborationContext(*key, context["developer_agent_id"], context["inspector_agent_id"], MappingProxyType(dict(context["task_states"])), tuple(context["evidence_references"]), tuple(context["file_references"]))
 
     def _raw(self, key: tuple[str, str, str]) -> dict[str, Any]:
         try: return self._contexts[key]
