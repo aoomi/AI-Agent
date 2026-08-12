@@ -3370,3 +3370,5 @@
 - 第一百七十六项自动测试与稽查：坏Agent/Skill及数字agent/owner动态失败关闭；会话关联回归、Python编译与diff门禁通过。
 - 第一百七十七项稽查首败与整改：AgentConfiguration create/update在锁内直接访问agent/skill属性，create model_id也依赖下游选择器处理，坏对象可能泄漏异常或延迟失败。现写入入口在历史表访问前验证模型契约。
 - 第一百七十七项自动测试与稽查：坏Agent/Skill及数字model动态失败关闭；配置关联回归、Python编译与diff门禁通过。
+- 第一百七十八项稽查首败与整改：ProviderAdapterRegistry虽记录inflight，却没有受保护的replace/unregister生命周期，无法落实架构v2.2“执行中提供方不得卸载/替换”。现两类热插拔控制均在同一锁内检查权威占用计数。
+- 第一百七十八项自动测试与稽查：真实并发调用期间替换/卸载均失败关闭，自然终态后可卸载；Provider关联回归、Python编译与diff门禁通过。

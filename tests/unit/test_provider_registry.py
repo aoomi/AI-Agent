@@ -1,5 +1,6 @@
 from __future__ import annotations
 import unittest
+import threading
 from ai_agent_adapters import ProviderAdapterDefinition,ProviderAdapterError,ProviderAdapterRegistry
 
 class Secrets:
@@ -36,7 +37,18 @@ class ProviderAdapterRegistryTest(unittest.TestCase):
         registry=ProviderAdapterRegistry(Secrets());definition=ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30)
         with self.assertRaisesRegex(ProviderAdapterError,"definition contract"):registry.register(object(),Executor())
         with self.assertRaisesRegex(ProviderAdapterError,"executor contract"):registry.register(definition,object())
+        with self.assertRaisesRegex(ProviderAdapterError,"replace control"):registry.register(definition,Executor(),replace=1)
         for operation in (lambda:registry.get(""),lambda:registry.get(1),lambda:registry.list(kind="unknown"),lambda:registry.invoke("","generate.image",{}),lambda:registry.invoke("p",1,{})):
             with self.assertRaises(ProviderAdapterError):operation()
+
+    def test_inflight_provider_cannot_be_replaced_or_unregistered(self):
+        entered=threading.Event();release=threading.Event()
+        class SlowExecutor:
+            def execute(self,*_args,**_kwargs):entered.set();release.wait(2);return {"ok":True}
+        registry=ProviderAdapterRegistry(Secrets());definition=ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30)
+        registry.register(definition,SlowExecutor());thread=threading.Thread(target=lambda:registry.invoke("p","generate.image",{}));thread.start();self.assertTrue(entered.wait(1))
+        with self.assertRaisesRegex(ProviderAdapterError,"in-flight"):registry.unregister("p")
+        with self.assertRaisesRegex(ProviderAdapterError,"in-flight"):registry.register(definition,Executor(),replace=True)
+        release.set();thread.join();self.assertTrue(registry.unregister("p"))
 
 if __name__=="__main__":unittest.main()

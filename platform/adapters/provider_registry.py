@@ -51,15 +51,24 @@ class ProviderAdapterRegistry:
     def __init__(self,secret_resolver:SecretResolver)->None:
         if not callable(getattr(secret_resolver,"resolve",None)):raise ProviderAdapterError("secret resolver contract is invalid")
         self._resolver=secret_resolver;self._providers:dict[str,tuple[ProviderAdapterDefinition,ProviderExecutor]]={};self._lock=RLock();self._inflight:dict[str,int]={}
-    def register(self,definition:ProviderAdapterDefinition,executor:ProviderExecutor)->tuple[ProviderAdapterDefinition,bool]:
+    def register(self,definition:ProviderAdapterDefinition,executor:ProviderExecutor,*,replace:bool=False)->tuple[ProviderAdapterDefinition,bool]:
         if not isinstance(definition,ProviderAdapterDefinition):raise ProviderAdapterError("provider definition contract is invalid")
         if not callable(getattr(executor,"execute",None)):raise ProviderAdapterError("provider executor contract is invalid")
+        if not isinstance(replace,bool):raise ProviderAdapterError("provider replace control must be boolean")
         with self._lock:
             existing=self._providers.get(definition.provider_id)
             if existing:
-                if existing!=(definition,executor):raise ProviderAdapterError(f"conflicting provider id: {definition.provider_id}")
-                return definition,True
+                if existing==(definition,executor):return definition,True
+                if not replace:raise ProviderAdapterError(f"conflicting provider id: {definition.provider_id}")
+                if self._inflight.get(definition.provider_id,0):raise ProviderAdapterError(f"provider has in-flight invocations: {definition.provider_id}")
+                self._providers[definition.provider_id]=(definition,executor);return definition,False
             self._providers[definition.provider_id]=(definition,executor);return definition,False
+    def unregister(self,provider_id:str)->bool:
+        if not isinstance(provider_id,str) or not provider_id.strip():raise ProviderAdapterError("provider id is required")
+        provider_id=provider_id.strip()
+        with self._lock:
+            if self._inflight.get(provider_id,0):raise ProviderAdapterError(f"provider has in-flight invocations: {provider_id}")
+            return self._providers.pop(provider_id,None) is not None
     def get(self,provider_id:str)->ProviderAdapterDefinition:
         if not isinstance(provider_id,str):raise ProviderAdapterError("provider id is required")
         provider_id=provider_id.strip()
