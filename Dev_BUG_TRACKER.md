@@ -3132,3 +3132,5 @@
 - 第四十五项自动测试与稽查：provider审计与生产集成关联`5 passed`；Python编译与diff门禁通过。
 - 第四十六项稽查首败与整改：AgentScheduler运行表、executor和整改队列被HTTP及协作回调共享但无锁，同run可并发执行两次并重复agent副作用。现共享注册/整改状态统一RLock，并为每个run建立single-flight活动围栏，重复run在executor前失败关闭，所有终态/异常路径释放。
 - 第四十六项自动测试与稽查：调度控制、agent流水线与开发稽查协作集成关联`7 passed`；Python编译与diff门禁通过。只读确认executor在锁外运行且finally释放活动围栏。
+- 第四十七项稽查首败与整改：通用LangGraphOrchestrator的graph注册表无锁，且同name/thread_id可并发invoke/resume，违反晚到隔离与single-flight并可能同时写同检查点线程。现graph编译仅在完成后原子发布；invoke/resume共用name+thread活动围栏，重复执行在Graph副作用前拒绝，finally释放。
+- 第四十七项自动测试与稽查：LangGraph串并行/分支/暂停恢复、行业工作流与Agent调度关联`9 passed`；Python编译与diff门禁通过。只读确认Graph executor不持注册锁。
