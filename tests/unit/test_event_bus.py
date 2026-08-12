@@ -40,6 +40,8 @@ class EventBusTest(unittest.TestCase):
     def test_unknown_event_type_is_rejected(self) -> None:
         with self.assertRaisesRegex(EventBusError, "not supported"):
             PublishedEvent("event-1", "UNKNOWN", "project-1", identity_context(), {"id": "1"})
+        with self.assertRaisesRegex(EventBusError, "callable"):
+            EventBus().subscribe("PROJECT_CREATED", None)  # type: ignore[arg-type]
 
     def test_empty_payload_is_rejected(self) -> None:
         with self.assertRaisesRegex(EventBusError, "payload"):

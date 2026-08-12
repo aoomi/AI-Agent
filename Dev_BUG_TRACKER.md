@@ -3167,3 +3167,4 @@
 - 第六十九项稽查首败与整改：私有部署SQLiteStateStore、LocalObjectStore与SQLiteDurableQueue允许空tenant，导致不同缺身份调用共享空命名空间；state还允许空namespace/key。现三类持久适配器在任何写读或路径解析前拒绝空所有者，state同步拒绝空namespace/key，避免匿名全局数据域。
 - 第七十项稽查首败与整改：worker快照允许active大于capacity，路由负载比虽可计算但该节点已违反自身容量事实，仍会被发现和展示且可能干扰选择排序。现内存路由和SQLite发现统一拒绝超容量活动计数，并补齐generation正整数校验一致性。
 - 第七十一项稽查首败与整改：ResourceScheduler.claim拒绝空job_id，但cancel_job接受空ID并执行全队列扫描，调用方缺字段被伪装为“取消0项”而非契约错误。现取消入口同步拒绝空job_id，避免未定位目标的控制请求静默成功。
+- 第七十二项稽查首败与整改：EventBus.subscribe只校验事件类型，不校验handler可调用；错误订阅会成功进入共享表，直到后续业务publish才以TypeError中断整条事件链。现注册边界立即拒绝非callable handler，坏配置不污染订阅快照。

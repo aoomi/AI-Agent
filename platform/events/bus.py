@@ -57,6 +57,8 @@ class EventBus:
     def subscribe(self, event_type: str, handler: EventHandler) -> Callable[[], None]:
         if event_type not in EVENT_TYPES:
             raise EventBusError("event_type is not supported")
+        if not callable(handler):
+            raise EventBusError("event handler must be callable")
         with self._lock: self._subscribers[event_type].append(handler)
 
         def unsubscribe() -> None:
