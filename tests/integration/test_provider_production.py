@@ -30,4 +30,11 @@ class ProviderProductionIntegrationTest(unittest.TestCase):
     def test_nested_provider_settings_reject_credentials(self):
         service=ProviderService()
         with self.assertRaisesRegex(Exception,"secrets"):service.register(provider_id="p",display_name="P",kind="image",endpoint="https://p.example",secret_reference="env://P_KEY",capabilities=("image",),settings={"transport":{"headers":[{"authorization":"Bearer hidden"}]}})
+    def test_provider_service_rejects_invalid_management_contracts(self):
+        with self.assertRaisesRegex(Exception,"checker contract"):ProviderService(object())
+        service=ProviderService()
+        with self.assertRaisesRegex(Exception,"required"):service.get("")
+        base=dict(provider_id="p",display_name="P",kind="image",endpoint="https://p.example",secret_reference="env://P_KEY",capabilities=("image",))
+        for override in ({"provider_id":""},{"display_name":""},{"capabilities":("",)},{"timeout_seconds":0},{"enabled":1}):
+            with self.subTest(override=override),self.assertRaisesRegex(Exception,"invalid"):service.register(**(base|override))
 if __name__=="__main__":unittest.main()

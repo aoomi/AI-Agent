@@ -3232,3 +3232,5 @@
 - 第一百零七项自动测试与稽查：非callable operation、空tenant及空actor三类均零审计副作用；安全审计与发布管理关联`6 passed`，Python编译与diff门禁通过。
 - 第一百零八项稽查首败与整改：ProviderAdapterRegistry构造与register未验证resolver/executor协议，get/invoke接受空身份，list接受任意kind并伪装空结果；错误会延迟到secret解析或执行阶段。现五类控制契约在共享注册表和真实provider副作用前失败关闭。
 - 第一百零八项自动测试与稽查：坏resolver/executor、空provider/capability和非法kind动态拒绝；Provider注册、生产集成与短剧backend关联`10 passed`，Python编译与diff门禁通过。
+- 第一百零九项稽查首败与整改：ProviderService接受坏health checker、空provider/display、空capability、非正timeout及整数enabled，错误会污染配置/健康表或延迟到探针；get也把空ID伪装未找到。现构造、注册和读取三层在共享状态前严格验证。
+- 第一百零九项自动测试与稽查：坏checker及五类畸形注册和空读取动态拒绝；Provider生产集成与Agent管理API关联`8 passed`（另`5 subtests passed`），Python编译与diff门禁通过。

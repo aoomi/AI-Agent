@@ -1109,3 +1109,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百零六项：AgentMapper绑定及双向读取已强制非空Skill/Agent身份，匿名映射不再进入双向索引或伪装未映射。映射、注册与Agent API关联`9 passed`，Python编译与只读diff稽查通过。
 - BUG072第一百零七项：SecurityAuditLedger.run已在started审计前验证operation可调用，export同步强制tenant/actor身份；坏审计调用不会写入伪started记录或导出匿名租户数据。安全审计与发布关联`6 passed`，Python编译与只读diff稽查通过。
 - BUG072第一百零八项：ProviderAdapterRegistry已验证secret resolver/executor协议，读取、列表和调用同步拒绝空provider/capability及非法kind；坏适配器不会进入注册表或延迟到真实调用。Provider与短剧backend关联`10 passed`，Python编译与只读diff稽查通过。
+- BUG072第一百零九项：ProviderService已验证health checker协议并强制provider/display/capability/timeout/enabled完整类型契约，空读取同步失败关闭；畸形配置不再进入配置/健康双表。Provider与管理API关联`8 passed`、`5 subtests passed`，Python编译与只读diff稽查通过。
