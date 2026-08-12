@@ -3286,3 +3286,5 @@
 - 第一百三十四项自动测试与稽查：空role、空权限及布尔depth动态拒绝；Skill工具安全关联`3 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
 - 第一百三十五项稽查首败与整改：OpenAICompatibleClient仅用字符串前缀检查endpoint，允许URL userinfo/fragment；timeout接受布尔值，transport、messages/schema及cancellation协议未预检。现构造和complete在网络副作用前严格失败关闭。
 - 第一百三十五项自动测试与稽查：userinfo URL、布尔timeout、坏transport、字符串messages及非Mapping schema动态拒绝；模型客户端关联`5 passed`（另`5 subtests passed`），Python编译与diff门禁通过。
+- 第一百三十六项稽查首败与整改：ProviderService会把字符串capabilities拆成字符并将数字元素字符串化，endpoint只查前缀而允许userinfo，timeout接受布尔，settings非Mapping延迟失败。现注册入口完整验证集合、URL、数值与配置结构。
+- 第一百三十六项自动测试与稽查：字符串/重复能力、userinfo URL、布尔timeout及列表settings动态失败关闭；专项`1 passed`（另`5 subtests passed`），Python编译与diff门禁通过。

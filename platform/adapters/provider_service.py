@@ -20,9 +20,14 @@ class ProviderService:
         if checker is not None and not callable(getattr(checker,"check",None)):raise ProviderServiceError("provider health checker contract is invalid")
         self.checker=checker;self.configurations={};self.health={};self._lock=RLock()
     def register(self,*,provider_id:str,display_name:str,kind:str,endpoint:str,secret_reference:str,capabilities:tuple[str,...],enabled:bool=True,timeout_seconds:int=60,settings:Mapping[str,Any]|None=None)->ProviderConfiguration:
-        provider_id,display_name,kind,endpoint,secret_reference=(str(value).strip() for value in (provider_id,display_name,kind,endpoint,secret_reference));capabilities=tuple(str(value).strip() for value in capabilities)
+        if isinstance(capabilities,(str,bytes)) or not isinstance(capabilities,(tuple,list,set,frozenset)) or any(not isinstance(value,str) for value in capabilities):raise ProviderServiceError("provider configuration is invalid")
+        provider_id,display_name,kind,endpoint,secret_reference=(str(value).strip() for value in (provider_id,display_name,kind,endpoint,secret_reference));capabilities=tuple(value.strip() for value in capabilities)
         parsed=urlparse(endpoint);local_http=parsed.scheme=="http" and parsed.hostname in {"127.0.0.1","localhost","::1"}
-        if not provider_id or not display_name or kind not in {"model","text","image","video","audio"} or not (endpoint.startswith("https://") or local_http) or not secret_reference.startswith(("env://","vault://","secret://")) or not capabilities or any(not value for value in capabilities) or timeout_seconds<1 or not isinstance(enabled,bool):raise ProviderServiceError("provider configuration is invalid")
+        valid_https=parsed.scheme=="https" and bool(parsed.hostname) and not parsed.username and not parsed.password and not parsed.fragment
+        if (not provider_id or not display_name or kind not in {"model","text","image","video","audio"} or not (valid_https or local_http)
+            or not secret_reference.startswith(("env://","vault://","secret://")) or not capabilities or any(not value for value in capabilities)
+            or len(set(capabilities))!=len(capabilities) or isinstance(timeout_seconds,bool) or not isinstance(timeout_seconds,int) or timeout_seconds<1
+            or not isinstance(enabled,bool) or settings is not None and not isinstance(settings,Mapping)):raise ProviderServiceError("provider configuration is invalid")
         forbidden=("secret","token","password","api_key","authorization","credential")
         def contains_secret(value:Any)->bool:
             if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
