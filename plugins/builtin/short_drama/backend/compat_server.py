@@ -701,6 +701,7 @@ def _heavy_task_busy() -> bool:
 SYSTEM_AGENT_LOCK = threading.Lock()
 AGENT_JOB_LOCK = threading.Lock()
 ASSISTANT_STORE_LOCK = threading.RLock()
+RESOURCE_STORE_LOCK = threading.RLock()
 ACTIVE_AGENT_JOBS: set[str] = set()
 IMAGE_JOB_LOCK = threading.Lock()
 ACTIVE_IMAGE_JOBS: set[str] = set()
@@ -8336,11 +8337,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_resource_scope"})
             if scope != "tenant_global" and not project_id:
                 return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_resource_scope"})
-            resources = [{**item, "url":f"/api/resources/media?id={item.get('id')}"} for item in _load_resources().get("resources", []) if
-                         str(item.get("tenant_id") or "") == tenant_id and
-                         str(item.get("user_id") or "") == user_id and
-                         str(item.get("scope") or "") == scope and
-                         (scope == "tenant_global" or str(item.get("project_id") or "") == project_id)]
+            with RESOURCE_STORE_LOCK:
+                resources = [{**item, "url":f"/api/resources/media?id={item.get('id')}"} for item in _load_resources().get("resources", []) if
+                             str(item.get("tenant_id") or "") == tenant_id and
+                             str(item.get("user_id") or "") == user_id and
+                             str(item.get("scope") or "") == scope and
+                             (scope == "tenant_global" or str(item.get("project_id") or "") == project_id)]
             return self._json(HTTPStatus.OK, {"resources": resources})
         if parsed.path == "/api/resources/media":
             query = parse_qs(parsed.query)
@@ -8353,12 +8355,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_resource_scope"})
             if scope != "tenant_global" and not project_id:
                 return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_resource_scope"})
-            resource = next((item for item in _load_resources().get("resources", []) if
-                             str(item.get("id") or "") == resource_id and
-                             str(item.get("tenant_id") or "") == tenant_id and
-                             str(item.get("user_id") or "") == user_id and
-                             str(item.get("scope") or "") == scope and
-                             (scope == "tenant_global" or (project_id and str(item.get("project_id") or "") == project_id))), None)
+            with RESOURCE_STORE_LOCK:
+                resource = next((item for item in _load_resources().get("resources", []) if
+                                 str(item.get("id") or "") == resource_id and
+                                 str(item.get("tenant_id") or "") == tenant_id and
+                                 str(item.get("user_id") or "") == user_id and
+                                 str(item.get("scope") or "") == scope and
+                                 (scope == "tenant_global" or (project_id and str(item.get("project_id") or "") == project_id))), None)
             if not resource:
                 return self._json(HTTPStatus.NOT_FOUND, {"error":"resource_not_found"})
             target = (OUTPUT_ROOT / str(resource.get("subfolder") or "") / str(resource.get("filename") or "")).resolve()
@@ -9671,14 +9674,17 @@ JSON 格式：{{"characters":[{{"name":"人物名","role":"男主角/女主角/�
             resource = {key: body.get(key) for key in ("tenant_id", "user_id", "project_id", "plugin_key", "scope", "kind", "name", "metadata")}
             stamp = datetime.now(UTC).isoformat()
             resource.update({"id": resource_id, "filename": target.name, "subfolder": "resources", "url": f"/api/resources/media?id={resource_id}", "created_at": stamp, "updated_at": stamp})
-            store = _load_resources(); store.setdefault("resources", []).append(resource); _save_resources(store)
+            with RESOURCE_STORE_LOCK:
+                store = _load_resources(); store.setdefault("resources", []).append(resource); _save_resources(store)
             return self._json(HTTPStatus.OK, {"resource": resource})
         if parsed.path == "/api/resources/delete":
-            store = _load_resources(); resource_id = str(body.get("id", "")); tenant_id = str(body.get("tenant_id") or "").strip(); user_id = str(body.get("user_id") or "").strip()
+            resource_id = str(body.get("id", "")); tenant_id = str(body.get("tenant_id") or "").strip(); user_id = str(body.get("user_id") or "").strip()
             if not resource_id or not tenant_id or not user_id: return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_resource_scope"})
-            resource = next((item for item in store.get("resources", []) if item.get("id") == resource_id and item.get("tenant_id") == tenant_id and item.get("user_id") == user_id), None)
-            if not resource: return self._json(HTTPStatus.NOT_FOUND, {"error":"resource_not_found"})
-            store["resources"] = [item for item in store.get("resources", []) if item is not resource]; _save_resources(store)
+            with RESOURCE_STORE_LOCK:
+                store = _load_resources()
+                resource = next((item for item in store.get("resources", []) if item.get("id") == resource_id and item.get("tenant_id") == tenant_id and item.get("user_id") == user_id), None)
+                if not resource: return self._json(HTTPStatus.NOT_FOUND, {"error":"resource_not_found"})
+                store["resources"] = [item for item in store.get("resources", []) if item is not resource]; _save_resources(store)
             return self._json(HTTPStatus.OK, {"ok": True})
         if parsed.path == "/api/projects/stage":
             try:
