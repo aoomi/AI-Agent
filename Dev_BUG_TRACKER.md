@@ -3122,3 +3122,5 @@
 - 第四十项自动测试与稽查：模型、配置、会话及平台启动关联`24 passed`；Python编译与diff门禁通过。只读确认候选选择不持锁调用外部provider。
 - 第四十一项稽查首败与整改：行业Skill注册表与基础Skill曾有相同热扫描整表替换竞态，但未同步修复；并发机器人注册可能在scan/get边界观察旧表或半时序。现磁盘解析完成后用RLock原子发布11项行业Skill，get同锁读取。
 - 第四十一项自动测试与稽查：行业Skill注册、11机器人及平台启动关联`5 passed`；Python编译与diff门禁通过。
+- 第四十二项稽查首败与整改：基础ProviderAdapterRegistry仍是无锁注册/读取/调用，未遵守同仓provider并发一致性；调用选择期间可与注册冲突并观察撕裂映射。现RLock覆盖注册与选择，invoke按provider登记inflight并在所有成功/异常路径释放，secret解析和executor均在锁外执行。
+- 第四十二项自动测试与稽查：provider注册及短剧绑定关联`4 passed`；Python编译与diff门禁通过。只读确认计数不泄漏且未引入锁内外部调用。
