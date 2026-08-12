@@ -37,12 +37,12 @@ class AgentContextStore:
         if not isinstance(values,Mapping):raise AgentContextError("agent context values must be a mapping")
         if any(not isinstance(name,str) or not name.strip() for name in values):raise AgentContextError("agent context keys must be non-empty strings")
         if self._contains_sensitive_key(values):raise AgentContextError("agent context contains sensitive fields")
-        try:json.dumps(dict(values),allow_nan=False)
+        try:canonical_values=json.dumps(dict(values),allow_nan=False)
         except (TypeError,ValueError) as error:raise AgentContextError("agent context must be standard JSON") from error
         with self._lock:
             try: context = self._contexts[key]
             except KeyError as error: raise AgentContextError("agent context does not exist in this scope") from error
-            context.update(dict(values)); return self.get(*key)
+            context.update(json.loads(canonical_values)); return self.get(*key)
 
     def get(self, tenant_id: str, project_id: str, agent_id: str) -> AgentContext:
         key = self._key(tenant_id, project_id, agent_id)

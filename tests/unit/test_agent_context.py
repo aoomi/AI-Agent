@@ -6,6 +6,11 @@ from ai_agent_core import AgentContextError, AgentContextStore, CollaborationCon
 
 
 class AgentContextStoreTest(unittest.TestCase):
+    def test_update_deeply_snapshots_caller_values(self) -> None:
+        store=AgentContextStore();store.create("tenant","project","agent")
+        values={"state":{"steps":["queued"]}};item=store.update("tenant","project","agent",values)
+        values["state"]["steps"][0]="forged"
+        self.assertEqual(item.values["state"]["steps"][0],"queued")
     def test_update_rejects_non_mapping_values(self) -> None:
         store=AgentContextStore();store.create("tenant","project","agent")
         with self.assertRaisesRegex(AgentContextError,"must be a mapping"):store.update("tenant","project","agent",[])

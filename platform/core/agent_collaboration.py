@@ -296,12 +296,12 @@ class AgentCollaborationService:
         if not isinstance(metadata, Mapping): raise AgentCollaborationError("collaboration evidence metadata is invalid")
         if self._contains_sensitive_key(metadata):
             raise AgentCollaborationError("collaboration evidence metadata contain sensitive fields")
-        try:json.dumps(dict(metadata),allow_nan=False)
+        try:canonical_metadata=json.dumps(dict(metadata),allow_nan=False)
         except (TypeError,ValueError) as error:raise AgentCollaborationError("collaboration evidence metadata must be standard JSON") from error
         sha256 = raw.get("sha256")
         if sha256 is not None and (not isinstance(sha256, str) or len(sha256) != 64 or any(character not in "0123456789abcdef" for character in sha256)):
             raise AgentCollaborationError("collaboration evidence sha256 is invalid")
-        return CollaborationEvidence(evidence_id, kind, self._safe_reference(raw.get("reference", "")), MappingProxyType(dict(metadata)), sha256)
+        return CollaborationEvidence(evidence_id, kind, self._safe_reference(raw.get("reference", "")), MappingProxyType(json.loads(canonical_metadata)), sha256)
 
     @staticmethod
     def _contains_sensitive_key(value: Any) -> bool:

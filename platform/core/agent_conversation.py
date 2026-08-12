@@ -154,9 +154,10 @@ class AgentConversationService:
         identity_id = created_by_identity_id.strip()
         if not identity_id: raise ConversationError("created_by_identity_id is required")
         if any(not isinstance(key,str) or not key.strip() for key in (context or {})):raise ConversationError("conversation context keys must be non-empty strings")
-        safe_context = MappingProxyType({key.strip(): value for key, value in (context or {}).items() if value is not None})
-        try:json.dumps(dict(safe_context),allow_nan=False)
+        context_values = {key.strip(): value for key, value in (context or {}).items() if value is not None}
+        try:canonical_context=json.dumps(context_values,allow_nan=False)
         except (TypeError,ValueError) as error:raise ConversationError("conversation context must be standard JSON") from error
+        safe_context = MappingProxyType(json.loads(canonical_context))
         project_id=safe_context.get("project_id")
         if not isinstance(project_id,str) or not project_id.strip(): raise ConversationError("conversation project_id is required")
         session = ConversationSession(f"conversation-{uuid4().hex}", agent_id, configuration.configuration_version, identity_id, self._now(), safe_context)
