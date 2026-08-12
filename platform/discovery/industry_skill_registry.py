@@ -33,5 +33,9 @@ class IndustrySkillRegistry:
  def _parse(industry,raw,path):
   if not industry or not isinstance(raw,dict):raise IndustrySkillRegistryError("industry skill manifest is invalid")
   values=[str(raw.get(key,"")).strip() for key in ("skill_id","name","process_id","entrypoint")];caps=raw.get("required_capabilities");permissions=raw.get("permissions",[])
-  if not all(values) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,254}",values[0]) or Path(values[3]).is_absolute() or ".." in Path(values[3]).parts or not isinstance(caps,list) or not caps or not isinstance(permissions,list):raise IndustrySkillRegistryError("industry skill manifest fields are invalid")
-  return IndustrySkillDefinition(values[0],values[1],industry,values[2],values[3],frozenset(caps),frozenset(permissions),path)
+  if (not all(values) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,254}",values[0])
+      or Path(values[3]).is_absolute() or ".." in Path(values[3]).parts
+      or not isinstance(caps,list) or not caps or any(not isinstance(value,str) or not value.strip() for value in caps)
+      or not isinstance(permissions,list) or any(not isinstance(value,str) or not value.strip() for value in permissions)):
+   raise IndustrySkillRegistryError("industry skill manifest fields are invalid")
+  return IndustrySkillDefinition(values[0],values[1],industry,values[2],values[3],frozenset(value.strip() for value in caps),frozenset(value.strip() for value in permissions),path)

@@ -3268,3 +3268,5 @@
 - 第一百二十五项自动测试与稽查：空issue及布尔round动态拒绝且整改表保持空；调度控制关联`8 passed`（另`2 subtests passed`），Python编译与diff门禁通过。
 - 第一百二十六项稽查首败与整改：AgentScheduler.start未逐项验证agent_id，values依赖Mapping假设，max_retries/auto_run接受布尔或整数伪值，错误可能在创建部分上下文后才暴露。现完整启动契约在首个context副作用前验证。
 - 第一百二十六项自动测试与稽查：空agent、非Mapping values、布尔retry和整数auto_run动态拒绝且runs保持空；调度关联`8 passed`（另`4 subtests passed`），Python编译与diff门禁通过。
+- 第一百二十七项稽查首败与整改：IndustrySkillRegistry只验证capabilities/permissions为list，不验证元素类型和空值；数字或空权限可进入frozenset并污染机器人配置。现两类集合逐项强制非空字符串并strip后发布。
+- 第一百二十七项自动测试与稽查：数字/空capability及permission四类清单动态拒绝；行业Skill关联`2 passed`（另`4 subtests passed`），Python编译与diff门禁通过。

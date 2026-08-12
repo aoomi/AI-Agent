@@ -1127,3 +1127,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百二十四项：资源池容量及pool/tenant/project排队上限已强制正整数并排除布尔/浮点伪值，畸形配置不能构造调度器。生产控制关联回归通过。
 - BUG072第一百二十五项：Agent整改调度已强制issue_ids逐项非空且remediation_round为正整数，匿名问题或布尔轮次不会进入共享整改表。调度关联`8 passed`、`2 subtests passed`。
 - BUG072第一百二十六项：Agent流水线启动已验证agent_ids逐项身份、values Mapping、max_retries真实整数和auto_run严格布尔，畸形运行不会创建部分上下文。调度关联`8 passed`、`4 subtests passed`。
+- BUG072第一百二十七项：行业Skill清单required_capabilities与permissions已逐项强制非空字符串并规范化，畸形集合不能进入机器人注册与模型选择。关联`2 passed`、`4 subtests passed`。
