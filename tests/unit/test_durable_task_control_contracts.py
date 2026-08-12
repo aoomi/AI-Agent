@@ -24,4 +24,9 @@ class DurableTaskControlContractTest(unittest.TestCase):
     connection.execute("UPDATE task_projection_outbox SET payload_json='[]' WHERE job_id='job'")
    with self.assertRaisesRegex(ValueError,"payload is invalid"):repository.get("job",tenant_id="t",user_id="u",project_id="p")
    with self.assertRaisesRegex(ValueError,"payload is invalid"):repository.pending_projections(task_class="task")
+ def test_list_uses_the_validated_normalized_scope(self):
+  with tempfile.TemporaryDirectory() as directory:
+   repository=DurableTaskRepository(Path(directory)/"tasks.db")
+   repository.upsert("job","task",{"tenant_id":"t","user_id":"u","project_id":"p","status":"queued"})
+   self.assertEqual([item["job_id"] for item in repository.list(tenant_id=" t ",user_id=" u ",project_id=" p ",task_class=" task ")],["job"])
 if __name__=="__main__":unittest.main()

@@ -238,10 +238,10 @@ class DurableTaskRepository:
     def list(self, *, tenant_id: str = "", user_id: str = "", project_id: str = "", task_class: str = "", nonterminal_only: bool = False) -> list[dict[str, Any]]:
         if not isinstance(nonterminal_only,bool):raise ValueError("nonterminal_only must be boolean")
         if any(not isinstance(value,str) for value in (tenant_id,user_id,project_id,task_class)):raise ValueError("durable task query scope must be strings")
-        scope=tuple(value.strip() for value in (tenant_id,user_id,project_id))
+        scope=tuple(value.strip() for value in (tenant_id,user_id,project_id)); task_class=task_class.strip()
         if any(scope) and not all(scope):raise ValueError("tenant_id, user_id and project_id must be supplied together")
         clauses: list[str] = []; values: list[Any] = []
-        for column, value in (("tenant_id",tenant_id),("user_id",user_id),("project_id",project_id)):
+        for column, value in zip(("tenant_id","user_id","project_id"),scope):
             if value: clauses.append(f"{column}=?"); values.append(value)
         if task_class: clauses.append("task_class=?"); values.append(task_class)
         if nonterminal_only: clauses.append("status IN ('queued','waiting_memory','generating','running','retrying','processing')")
