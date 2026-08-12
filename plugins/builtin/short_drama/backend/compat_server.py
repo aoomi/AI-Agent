@@ -8631,6 +8631,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.BAD_GATEWAY, {"error":f"生图需求理解失败：{str(error)[:500]}"})
         if parsed.path == "/api/assistant":
             context = body.get("context", {})
+            if not _valid_conversation_context(context):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_conversation_scope"})
             recent = context.get("recent_messages", [])
             message = str(body.get('message', '')).strip()
             explicit_search = body.get("web_search")
@@ -8702,6 +8704,8 @@ class Handler(BaseHTTPRequestHandler):
             task = str(body.get("task", "")).strip()
             if not task:
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": "任务内容不能为空"})
+            if not _valid_conversation_context(body.get("context")):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_agent_job_scope"})
             try:
                 return self._json(HTTPStatus.OK, _run_system_agent(agent, task, body.get("context", {})))
             except subprocess.TimeoutExpired:
@@ -8730,6 +8734,8 @@ class Handler(BaseHTTPRequestHandler):
             message = str(body.get("message", "")).strip()
             if not message:
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": "对话内容不能为空"})
+            if not _valid_conversation_context(body.get("context")):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_conversation_scope"})
             return self._json(HTTPStatus.OK, _route_system_agent(message, body.get("context", {})))
         if parsed.path == "/api/assistant/history":
             if not _valid_conversation_context(body.get("context")):
