@@ -62,6 +62,11 @@ class EventBusTest(unittest.TestCase):
             with self.subTest(payload=payload), self.assertRaisesRegex(EventBusError, "sensitive fields"):
                 PublishedEvent("event-1", "PROJECT_CREATED", "project-1", identity_context(), payload)
 
+    def test_event_payload_requires_standard_json(self) -> None:
+        for payload in ({"value":float("nan")},{"value":object()}):
+            with self.subTest(payload=payload),self.assertRaisesRegex(EventBusError,"standard JSON"):
+                PublishedEvent("event-1","PROJECT_CREATED","project-1",identity_context(),payload)
+
 
 if __name__ == "__main__":
     unittest.main()

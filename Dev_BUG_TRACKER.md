@@ -3482,3 +3482,5 @@
 - 第二百三十二项自动测试与稽查：两类metadata的NaN及任意对象动态拒绝；生产控制关联回归、Python编译与diff门禁通过。
 - 第二百三十三项稽查首败与整改：AgentConfiguration只屏蔽敏感settings键，非标准JSON值可进入版本历史并破坏管理API序列化。现create/update共享的build边界在写历史前严格验证。
 - 第二百三十三项自动测试与稽查：NaN及任意对象settings动态拒绝；Agent配置与管理API关联回归、Python编译与diff门禁通过。
+- 第二百三十四项稽查首败与整改：PublishedEvent只验证payload Mapping和敏感键，NaN或任意对象可发布至不同消费者，导致投影与持久行为分叉。现发布模型构造阶段即强制标准JSON。
+- 第二百三十四项自动测试与稽查：NaN及任意对象payload动态拒绝；事件、任务投影与集成关联回归、Python编译与diff门禁通过。

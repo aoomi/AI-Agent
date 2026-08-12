@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from threading import RLock
 from typing import Any
+import json
 
 from ai_agent_tenant import IdentityContext
 
@@ -54,6 +55,8 @@ class PublishedEvent:
             raise EventBusError("payload must not be empty")
         if _contains_sensitive_key(self.payload):
             raise EventBusError("event payload contains sensitive fields")
+        try:json.dumps(dict(self.payload),allow_nan=False)
+        except (TypeError,ValueError) as error:raise EventBusError("event payload must be standard JSON") from error
         object.__setattr__(self,"event_id",self.event_id.strip())
         object.__setattr__(self,"project_id",self.project_id.strip())
         object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
