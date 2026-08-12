@@ -27,4 +27,7 @@ class ProviderProductionIntegrationTest(unittest.TestCase):
     def test_local_model_endpoint_allows_loopback_http_only(self):
         service=ProviderService();item=service.register(provider_id="ollama",display_name="Ollama",kind="model",endpoint="http://127.0.0.1:11434/v1",secret_reference="env://LOCAL_MODEL_API_KEY",capabilities=("chat",));self.assertEqual(item.endpoint,"http://127.0.0.1:11434/v1")
         with self.assertRaisesRegex(Exception,"invalid"):service.register(provider_id="remote",display_name="Remote",kind="model",endpoint="http://example.com/v1",secret_reference="env://REMOTE_KEY",capabilities=("chat",))
+    def test_nested_provider_settings_reject_credentials(self):
+        service=ProviderService()
+        with self.assertRaisesRegex(Exception,"secrets"):service.register(provider_id="p",display_name="P",kind="image",endpoint="https://p.example",secret_reference="env://P_KEY",capabilities=("image",),settings={"transport":{"headers":[{"authorization":"Bearer hidden"}]}})
 if __name__=="__main__":unittest.main()

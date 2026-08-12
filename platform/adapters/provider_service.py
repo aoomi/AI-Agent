@@ -20,7 +20,12 @@ class ProviderService:
     def register(self,*,provider_id:str,display_name:str,kind:str,endpoint:str,secret_reference:str,capabilities:tuple[str,...],enabled:bool=True,timeout_seconds:int=60,settings:Mapping[str,Any]|None=None)->ProviderConfiguration:
         parsed=urlparse(endpoint);local_http=parsed.scheme=="http" and parsed.hostname in {"127.0.0.1","localhost","::1"}
         if kind not in {"model","text","image","video","audio"} or not (endpoint.startswith("https://") or local_http) or not secret_reference.startswith(("env://","vault://","secret://")) or not capabilities:raise ProviderServiceError("provider configuration is invalid")
-        if any(word in key.lower() for key in (settings or {}) for word in ("secret","token","password","api_key")):raise ProviderServiceError("provider settings cannot contain secrets")
+        forbidden=("secret","token","password","api_key","authorization","credential")
+        def contains_secret(value:Any)->bool:
+            if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
+            if isinstance(value,(list,tuple)):return any(contains_secret(item) for item in value)
+            return False
+        if contains_secret(settings or {}):raise ProviderServiceError("provider settings cannot contain secrets")
         with self._lock:
             if provider_id in self.configurations:raise ProviderServiceError("provider already exists")
             now=self._now();item=ProviderConfiguration(provider_id,display_name,kind,endpoint,secret_reference,capabilities,enabled,timeout_seconds,MappingProxyType(dict(settings or {})),now,now);self.configurations[provider_id]=item;self.health[provider_id]=ProviderHealth(provider_id,"unknown",now,None,None,0);return item
