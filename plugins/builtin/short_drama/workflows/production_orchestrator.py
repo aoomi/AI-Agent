@@ -103,6 +103,8 @@ class ProductionOrchestrator:
 
     def import_legacy_checkpoints(self, source: Path) -> int:
         """Idempotently copy checkpoints from the former split database."""
+        if not isinstance(source, Path):
+            raise ValueError("legacy checkpoint source must be a Path")
         source = source.resolve()
         if source == self.database or not source.is_file():
             return 0

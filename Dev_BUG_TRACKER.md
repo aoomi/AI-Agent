@@ -3530,3 +3530,5 @@
 - 第二百五十六项自动测试与稽查：两个字符串伪数据库路径动态拒绝且目标文件不存在；生产台账与图编排关联回归、Python编译与diff门禁通过。
 - 第二百五十七项稽查首败与整改：兼容ShortDramaPipeline及LangGraph facade仍直接调用运行时`root.resolve()`，字符串伪根目录泄漏AttributeError且与其内部权威仓储Path契约不一致。现两入口均在目录副作用前以流水线领域错误失败关闭。
 - 第二百五十七项自动测试与稽查：两类字符串伪root动态拒绝且目标目录不存在；兼容流水线关联回归、Python编译与diff门禁通过。
+- 第二百五十八项稽查首败与整改：ProductionOrchestrator旧检查点迁移入口仍直接调用`source.resolve()`，错误类型及Path边界与其构造器分叉。现ATTACH或任何数据库变更前强制Path契约。
+- 第二百五十八项自动测试与稽查：字符串伪迁移源动态拒绝；真实旧库幂等迁移与图权威关联回归、Python编译与diff门禁通过。
