@@ -3052,3 +3052,5 @@
 - 第五项自动测试与稽查：慢阶段执行器并发动态证明三种热变更均拒绝，自然终态后替换成功且原结果未被污染；生产控制、事件围栏和原子台账关联`101 passed`，Python编译与diff门禁通过。只读确认用户executor在锁外执行，计数只保护注册变更，不扩大锁范围或形成死锁。
 - 第六项稽查首败与整改：启动恢复器把`waiting_memory`与`generating`一并当作中断运行态，重启即调用prompt核销并改failed，违背“持久子状态、释放后再准入”。现恢复时保留waiting_memory，规范化stage=queued、清PID并刷新心跳；不调用prompt取消、不登记ACTIVE运行体，后续只由Comfy空队列门禁重新准入。真正generating仍按原协议核销并失败关闭。
 - 第六项自动测试与稽查：持久waiter重启动态证明状态保持waiting_memory/queued且prompt核销函数零调用；视频、H3与生产控制关联`122 passed`，diff门禁通过。只读确认重启不把waiter冒充running，也不会绕过释放窗口直接启动线程。
+- 第七项稽查首败与整改：base母版导出仍允许历史composition记录没有production/audit evidence，并在manifest中伪造`legacy_base_scope`的not_available/not_applicable默认值；这会把缺证据伪装成明确业务事实。现base与enhanced统一要求台账存在非空规范生产证据和审核/不适用证据，缺失即在任何导出副作用前失败关闭；删除所有legacy默认合成。
+- 第七项自动测试与稽查：历史无证base和projection伪证均拒绝，正式`commit_stage_authorities`生成的base证据、enhanced证据及多集零副作用门禁通过；review/export/原子台账/静音合片关联`56 passed`。只读确认正式BUG071母版已有服务端证据不受影响，旧数据不迁移、不删除，只禁止冒充可导出权威版本。
