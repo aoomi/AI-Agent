@@ -40,6 +40,7 @@ class ModelDefinition:
         context_window: int,
         settings: Mapping[str, Any] | None = None,
     ) -> "ModelDefinition":
+        if any(not isinstance(value,str) for value in (model_id,provider_id,display_name)):raise ModelRegistryError("model_id, provider_id and display_name are required")
         if isinstance(capabilities, str):
             raise ModelRegistryError("capabilities must be a collection of capability names")
         try:
@@ -68,6 +69,7 @@ class ModelDefinition:
             if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
             if isinstance(value,(list,tuple)):return any(contains_secret(item) for item in value)
             return False
+        if settings is not None and not isinstance(settings,Mapping):raise ModelRegistryError("model settings must be a mapping")
         if contains_secret(settings or {}):raise ModelRegistryError("model settings cannot contain secrets")
         return cls(
             **values,
@@ -85,14 +87,14 @@ class ModelRequirements:
     provider_id: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.capabilities:
+        if not isinstance(self.capabilities,frozenset) or any(not isinstance(value,str) or not value.strip() for value in self.capabilities) or not self.capabilities:
             raise ModelRegistryError("required capabilities must not be empty")
         unknown = self.capabilities - MODEL_CAPABILITIES
         if unknown:
             raise ModelRegistryError(f"invalid required capabilities: {sorted(unknown)}")
         if isinstance(self.minimum_context_window, bool) or not isinstance(self.minimum_context_window, int) or self.minimum_context_window < 1:
             raise ModelRegistryError("minimum_context_window must be positive")
-        if self.provider_id is not None and not self.provider_id.strip():
+        if self.provider_id is not None and (not isinstance(self.provider_id,str) or not self.provider_id.strip()):
             raise ModelRegistryError("provider_id is required when supplied")
 
 
@@ -104,6 +106,7 @@ class ModelRegistry:
         self._lock = RLock()
 
     def register(self, model: ModelDefinition) -> tuple[ModelDefinition, bool]:
+        if not isinstance(model,ModelDefinition):raise ModelRegistryError("model definition is required")
         with self._lock:
             existing = self._models.get(model.model_id)
             if existing is not None:
@@ -112,6 +115,7 @@ class ModelRegistry:
             self._models[model.model_id] = model; return model, False
 
     def get(self, model_id: str, *, require_enabled: bool = False) -> ModelDefinition:
+        if not isinstance(model_id,str) or not isinstance(require_enabled,bool):raise ModelRegistryError("model lookup contract is invalid")
         model_id=model_id.strip()
         if not model_id:raise ModelRegistryError("model_id is required")
         with self._lock:
@@ -126,6 +130,7 @@ class ModelRegistry:
             updated = replace(self.get(model_id), enabled=enabled); self._models[model_id] = updated; return updated
 
     def list(self, *, enabled_only: bool = False) -> tuple[ModelDefinition, ...]:
+        if not isinstance(enabled_only,bool):raise ModelRegistryError("enabled_only must be boolean")
         with self._lock:
             models = tuple(self._models.values())
             if enabled_only: models = tuple(model for model in models if model.enabled)
@@ -137,8 +142,9 @@ class ModelRegistry:
         *,
         preferred_model_id: str | None = None,
     ) -> ModelDefinition:
+        if not isinstance(requirements,ModelRequirements):raise ModelRegistryError("model requirements are required")
         if not requirements.capabilities:raise ModelRegistryError("required capabilities must not be empty")
-        if preferred_model_id is not None and not preferred_model_id.strip():raise ModelRegistryError("preferred model_id is required")
+        if preferred_model_id is not None and (not isinstance(preferred_model_id,str) or not preferred_model_id.strip()):raise ModelRegistryError("preferred model_id is required")
         with self._lock: candidates = [model for model in self._models.values() if model.enabled and requirements.capabilities <= model.capabilities and model.context_window >= requirements.minimum_context_window and (requirements.provider_id is None or model.provider_id == requirements.provider_id)]
         if preferred_model_id is not None:
             preferred = next(

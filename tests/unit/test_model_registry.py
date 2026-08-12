@@ -63,6 +63,13 @@ class ModelRegistryTest(unittest.TestCase):
         ):
             with self.assertRaises(ModelRegistryError):operation()
 
+    def test_runtime_model_requirement_and_control_types_are_rejected(self) -> None:
+        for build in (lambda:ModelDefinition.create(model_id=1,provider_id="p",display_name="M",capabilities={"chat"},context_window=8),lambda:ModelDefinition.create(model_id="m",provider_id="p",display_name="M",capabilities={"chat"},context_window=8,settings=[]),lambda:ModelRequirements({"chat"})):
+            with self.subTest(build=build),self.assertRaises(ModelRegistryError):build()
+        registry=ModelRegistry();registry.register(model("chat",{"chat"}))
+        for operation in (lambda:registry.register(object()),lambda:registry.get(1),lambda:registry.get("chat",require_enabled=1),lambda:registry.list(enabled_only=1),lambda:registry.select(object()),lambda:registry.select(ModelRequirements(frozenset({"chat"})),preferred_model_id=1)):
+            with self.subTest(operation=operation),self.assertRaises(ModelRegistryError):operation()
+
 
 if __name__ == "__main__":
     unittest.main()
