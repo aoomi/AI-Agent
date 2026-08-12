@@ -12,6 +12,8 @@ class ProductionCapabilityContractTest(unittest.TestCase):
             with self.subTest(kwargs=kwargs),self.assertRaises(ProductionCapabilityError):registry.register("video","local",lambda:1,**kwargs)
         for operation in (lambda:registry.register(1,"local",lambda:1),lambda:registry.register_once("video",1,lambda:1)):
             with self.subTest(operation=operation),self.assertRaises(ProductionCapabilityError):operation()
+        for metadata in ({"value":float("nan")},{"value":object()}):
+            with self.subTest(metadata=metadata),self.assertRaisesRegex(ProductionCapabilityError,"standard JSON"):registry.register("video","local",lambda:1,metadata=metadata)
     def test_controls_reject_empty_identifiers(self) -> None:
         registry = ProductionCapabilityRegistry()
         registry.register("video.generate", "local", lambda: {"ok": True})

@@ -13,6 +13,8 @@ class ProductionExtensionContractTest(unittest.TestCase):
             with self.subTest(kwargs=kwargs),self.assertRaises(ProductionExtensionError):registry.register("storage","local",lambda:object(),**kwargs)
         for operation in (lambda:registry.register(1,"local",lambda:object()),lambda:registry.register("storage",1,lambda:object())):
             with self.subTest(operation=operation),self.assertRaises(ProductionExtensionError):operation()
+        for metadata in ({"value":float("nan")},{"value":object()}):
+            with self.subTest(metadata=metadata),self.assertRaisesRegex(ProductionExtensionError,"standard JSON"):registry.register("storage","local",lambda:object(),metadata=metadata)
     def test_controls_reject_empty_identifiers(self) -> None:
         registry = ProductionExtensionRegistry()
         registry.register("storage.test", "local", lambda: object())

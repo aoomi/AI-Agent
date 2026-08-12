@@ -3478,3 +3478,5 @@
 - 第二百三十项自动测试与稽查：NaN及任意对象settings动态拒绝；Provider配置与生产集成关联回归、Python编译与diff门禁通过。
 - 第二百三十一项稽查首败与整改：ProviderAdapterDefinition仍可接受NaN和任意对象settings，与ProviderService的严格配置契约分叉。现适配器注册也在进入共享表前强制标准JSON。
 - 第二百三十一项自动测试与稽查：NaN及任意对象adapter settings动态拒绝；Provider适配与短剧绑定关联回归、Python编译与diff门禁通过。
+- 第二百三十二项稽查首败与整改：ProductionCapability/Extension metadata只验证Mapping、敏感键和个别字段，NaN或任意对象可进入可替换生产注册表。现除扩展契约专用implementation_type外均要求标准JSON。
+- 第二百三十二项自动测试与稽查：两类metadata的NaN及任意对象动态拒绝；生产控制关联回归、Python编译与diff门禁通过。

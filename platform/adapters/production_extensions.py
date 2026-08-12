@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from threading import RLock
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
+import json
 
 
 class ProductionExtensionError(RuntimeError):
@@ -87,6 +88,9 @@ class ProductionExtensionRegistry:
         if "required_methods" in metadata_values and not isinstance(required_value, (list, tuple, set)):
             raise ProductionExtensionError(f"invalid required_methods contract: {point}/{provider}")
         if any(not isinstance(name,str) or not name.strip() for name in required_value):raise ProductionExtensionError(f"invalid required_methods contract: {point}/{provider}")
+        serializable_metadata={key:value for key,value in metadata_values.items() if key!="implementation_type"}
+        try:json.dumps(serializable_metadata,allow_nan=False)
+        except (TypeError,ValueError) as error:raise ProductionExtensionError("extension metadata must be standard JSON") from error
         required = tuple(dict.fromkeys(name.strip() for name in required_value))
         with self._lock:
             point_required = self._point_required_methods.get(point, ())

@@ -1232,3 +1232,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百二十九项：ModelDefinition settings已强制标准JSON运行时契约，NaN与任意对象不会进入模型注册表并延迟至API/网络序列化失败。
 - BUG072第二百三十项：ProviderService settings已与模型注册统一强制标准JSON，非标准数值或任意对象不会进入可替换提供方权威配置。
 - BUG072第二百三十一项：ProviderAdapterDefinition settings已强制标准JSON，与配置服务和模型注册共享相同失败关闭契约。
+- BUG072第二百三十二项：生产能力与基础设施扩展metadata已强制标准JSON（显式契约类型除外），非标准运行时值不会进入热插拔注册表。

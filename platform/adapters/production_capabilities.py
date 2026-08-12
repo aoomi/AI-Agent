@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from threading import RLock
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
+import json
 
 
 class ProductionCapabilityError(RuntimeError):
@@ -56,6 +57,8 @@ class ProductionCapabilityRegistry:
             isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency <= 0
         ):
             raise ProductionCapabilityError("provider max_concurrency must be a positive integer")
+        try:json.dumps(dict(metadata),allow_nan=False)
+        except (TypeError,ValueError) as error:raise ProductionCapabilityError("provider metadata must be standard JSON") from error
 
     def register(self, capability: str, provider_id: str, handler: CapabilityHandler, *, enabled: bool = True,
                  metadata: Mapping[str, Any] | None = None, priority: int = 100, healthy: bool = True,
