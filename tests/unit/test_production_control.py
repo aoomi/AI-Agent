@@ -182,6 +182,12 @@ class ProductionControlTests(unittest.TestCase):
         with self.assertRaises(WorkloadRoutingError): router.route("video", estimated_memory=70, service_scope="scope", now=105)
         with self.assertRaises(WorkloadRoutingError): router.route("image", service_scope="scope", now=120)
 
+    def test_workload_router_rejects_worker_at_active_capacity(self):
+        router = WorkloadRouter(heartbeat_timeout=10, max_queue_depth=2)
+        router.heartbeat(WorkerSnapshot("full", "scope", ("video",), 1, 1, 0, 100, 100))
+        with self.assertRaisesRegex(WorkloadRoutingError, "backpressure"):
+            router.route("video", service_scope="scope", now=105)
+
     def test_worker_discovery_is_shared_between_process_instances(self):
         with TemporaryDirectory() as temporary:
             database = Path(temporary) / "workers.sqlite"; first = WorkerRegistry(database); second = WorkerRegistry(database)

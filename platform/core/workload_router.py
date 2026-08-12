@@ -77,6 +77,7 @@ class WorkloadRouter:
                 and (not service_scope or worker.service_scope == service_scope)
                 and (not worker_id or worker.worker_id == worker_id)
                 and moment - worker.heartbeat_at <= self.heartbeat_timeout
+                and worker.active < worker.capacity
                 and worker.queue_depth < self.max_queue_depth
                 and worker.available_memory >= estimated_memory
             ]

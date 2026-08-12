@@ -3198,3 +3198,5 @@
 - 第九十项自动测试与稽查：同job同task_class异user动态拒绝，旧owner读取仍命中且状态未变；持久任务、outbox和投影关联`13 passed`，Python编译与diff门禁通过。
 - 第九十一项稽查首败与整改：TaskLease acquire会校验身份和TTL，但renew/release/owns/cancellation_requested/commit_guard接受空job、空owner、零或布尔generation，request_cancel也接受空job；坏控制请求会落入共享SQLite查询并伪装false。现所有owner操作共用严格身份/代际门禁，取消和renew补齐目标及TTL校验。
 - 第九十一项自动测试与稽查：五类匿名/非法owner控制及零TTL均动态失败关闭，合法租约语义保持；租约关联`6 passed`，Python编译与diff门禁通过。
+- 第九十二项稽查首败与整改：WorkloadRouter虽校验active不超过capacity，但route候选未要求active<capacity；满载worker在queue_depth较低时仍会被选择，和共享WorkerRegistry.reserve的容量门禁不一致。现候选准入显式排除满载节点，统一返回背压。
+- 第九十二项自动测试与稽查：capacity=active、queue_depth=0的健康视频worker动态不可路由；路由、发现与heartbeat关联`5 passed`，Python编译与diff门禁通过。

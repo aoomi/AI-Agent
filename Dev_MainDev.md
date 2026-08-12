@@ -1092,3 +1092,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第八十九项：通用内存任务payload已在任务模型构造边界递归拒绝六类敏感组合键，凭据不能进入队列快照、列表、事件投影或幂等比较。队列、服务、集成及E2E关联`19 passed`、`3 subtests passed`，Python编译与只读diff稽查通过。
 - BUG072第九十项：持久任务job_id除task_class外已同时绑定不可变tenant/user/project所有者；同类型更新不能借全局主键把任务迁移到另一用户或项目。持久任务与投影关联`13 passed`，Python编译与只读diff稽查通过。
 - BUG072第九十一项：TaskLease所有控制入口已统一拒绝空job/owner、非正或布尔generation，renew同步拒绝非正TTL；匿名取消、读取、释放或提交围栏不能静默命中共享租约域。租约关联`6 passed`，Python编译与只读diff稽查通过。
+- BUG072第九十二项：内存WorkloadRouter准入已显式拒绝active达到capacity的worker，与SQLite reservation的有效占用计算一致；满载节点即使queue_depth未满也只返回背压。路由与发现关联`5 passed`，Python编译与只读diff稽查通过。
