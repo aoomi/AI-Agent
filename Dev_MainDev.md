@@ -1104,3 +1104,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百零一项：AgentScheduler的run/remediation查找已拒绝空ID，整改指令登记同步校验instruction/root task/developer/issues/round完整契约；匿名控制不再伪装资源不存在。调度、流水线与协作关联`11 passed`，Python编译与只读diff稽查通过。
 - BUG072第一百零二项：PluginRegistry发现、读取、转换、升级与回滚已统一规范化并拒绝空plugin/version/target，匿名生命周期操作不再进入共享注册表或伪装未发现。插件与管理API关联`10 passed`，Python编译与只读diff稽查通过。
 - BUG072第一百零三项：AgentRegistry全局/项目机器人注册、scoped解析、agent/skill读取及状态更新已统一拒绝匿名身份并规范化键，坏控制不再进入共享索引或伪装未知。注册、调度与行业机器人关联`15 passed`，Python编译与只读diff稽查通过。
+- BUG072第一百零四项：ModelRegistry读取、启停和选择已拒绝空model/preferred ID、非布尔enabled及空能力需求，坏管理请求不再伪装未知模型或无候选。模型、配置与会话关联`31 passed`、`3 subtests passed`，Python编译与只读diff稽查通过。

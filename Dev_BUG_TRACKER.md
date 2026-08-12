@@ -3222,3 +3222,5 @@
 - 第一百零二项自动测试与稽查：六类匿名发现/读取/转换/升级/回滚动态失败关闭；插件生命周期与Agent管理API关联`10 passed`，Python编译与diff门禁通过。
 - 第一百零三项稽查首败与整改：AgentRegistry的scoped/get/for_skill/update_status接受空或未规范化ID并伪装未知，register也未在共享索引前验证Skill身份；同一空白变体可造成不可追溯控制。现五类边界统一strip并失败关闭必填身份。
 - 第一百零三项自动测试与稽查：空agent、skill、scoped tenant、status目标及注册Skill五类动态拒绝；Agent注册、调度流水线和行业机器人关联`15 passed`，Python编译与diff门禁通过。
+- 第一百零四项稽查首败与整改：ModelRegistry.get接受空ID并伪装unknown，set_enabled接受整数等非布尔值写入定义，select允许空能力集合和空preferred ID，导致不受约束选择或模糊错误。现四类边界在共享模型快照访问前失败关闭。
+- 第一百零四项自动测试与稽查：空model、整数enabled、空能力及空preferred四类动态拒绝；模型注册、Agent配置与会话关联`31 passed`（另`3 subtests passed`），Python编译与diff门禁通过。

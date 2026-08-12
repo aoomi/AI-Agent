@@ -98,6 +98,8 @@ class ModelRegistry:
             self._models[model.model_id] = model; return model, False
 
     def get(self, model_id: str, *, require_enabled: bool = False) -> ModelDefinition:
+        model_id=model_id.strip()
+        if not model_id:raise ModelRegistryError("model_id is required")
         with self._lock:
             try: model = self._models[model_id]
             except KeyError as error: raise ModelRegistryError(f"unknown model_id: {model_id}") from error
@@ -105,6 +107,7 @@ class ModelRegistry:
             return model
 
     def set_enabled(self, model_id: str, enabled: bool) -> ModelDefinition:
+        if not isinstance(enabled,bool):raise ModelRegistryError("model enabled flag must be boolean")
         with self._lock:
             updated = replace(self.get(model_id), enabled=enabled); self._models[model_id] = updated; return updated
 
@@ -120,6 +123,8 @@ class ModelRegistry:
         *,
         preferred_model_id: str | None = None,
     ) -> ModelDefinition:
+        if not requirements.capabilities:raise ModelRegistryError("required capabilities must not be empty")
+        if preferred_model_id is not None and not preferred_model_id.strip():raise ModelRegistryError("preferred model_id is required")
         with self._lock: candidates = [model for model in self._models.values() if model.enabled and requirements.capabilities <= model.capabilities and model.context_window >= requirements.minimum_context_window and (requirements.provider_id is None or model.provider_id == requirements.provider_id)]
         if preferred_model_id is not None:
             preferred = next(

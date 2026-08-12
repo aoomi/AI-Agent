@@ -54,6 +54,15 @@ class ModelRegistryTest(unittest.TestCase):
         with self.assertRaisesRegex(ModelRegistryError, "secrets"):
             ModelDefinition.create(model_id="m", provider_id="p", display_name="M", capabilities={"chat"}, context_window=8, settings={"transport":{"headers":[{"authorization":"Bearer hidden"}]}})
 
+    def test_anonymous_model_controls_and_empty_requirements_are_rejected(self) -> None:
+        registry=ModelRegistry();registry.register(model("chat",{"chat"}))
+        for operation in (
+            lambda:registry.get(""), lambda:registry.set_enabled("chat",1),
+            lambda:registry.select(ModelRequirements(frozenset())),
+            lambda:registry.select(ModelRequirements(frozenset({"chat"})),preferred_model_id=" "),
+        ):
+            with self.assertRaises(ModelRegistryError):operation()
+
 
 if __name__ == "__main__":
     unittest.main()
