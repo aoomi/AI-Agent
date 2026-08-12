@@ -8,7 +8,9 @@ from ai_agent_core import AgentLifecycle, AgentLifecycleError, AgentState
 class AgentLifecycleTest(unittest.TestCase):
     def test_state_and_target_runtime_contracts_are_rejected(self) -> None:
         with self.assertRaises(AgentLifecycleError):AgentState(" ")
+        with self.assertRaises(AgentLifecycleError):AgentState(1)  # type: ignore[arg-type]
         with self.assertRaisesRegex(AgentLifecycleError,"status is invalid"):AgentState("agent","unknown")
+        with self.assertRaisesRegex(AgentLifecycleError,"state is invalid"):AgentLifecycle().transition(object(),"running")  # type: ignore[arg-type]
         with self.assertRaisesRegex(AgentLifecycleError,"status is invalid"):AgentLifecycle().transition(AgentState("agent"),"unknown")
     def test_agent_can_complete(self) -> None:
         lifecycle = AgentLifecycle()

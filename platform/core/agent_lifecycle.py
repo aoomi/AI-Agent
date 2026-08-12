@@ -25,7 +25,7 @@ class AgentState:
     status: AgentStatus = "idle"
 
     def __post_init__(self) -> None:
-        if not self.agent_id.strip():
+        if not isinstance(self.agent_id,str) or not self.agent_id.strip():
             raise AgentLifecycleError("agent_id is required")
         if self.status not in {"idle","loading","running","waiting_human","completed","failed"}:
             raise AgentLifecycleError("agent status is invalid")
@@ -33,6 +33,8 @@ class AgentState:
 
 class AgentLifecycle:
     def transition(self, state: AgentState, target: AgentStatus) -> AgentState:
+        if not isinstance(state,AgentState):
+            raise AgentLifecycleError("agent state is invalid")
         if target not in {"idle","loading","running","waiting_human","completed","failed"}:
             raise AgentLifecycleError("agent status is invalid")
         if (state.status, target) not in TRANSITIONS:
