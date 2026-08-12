@@ -149,7 +149,7 @@ class DurableTaskRepository:
         query = "SELECT * FROM task_projection_outbox" + (" WHERE task_class=?" if task_class else "") + " ORDER BY updated_at,job_id"
         with self._lock, self._connection() as connection:
             rows = connection.execute(query, (task_class,) if task_class else ()).fetchall()
-        return [{"job_id":row["job_id"], "task_class":row["task_class"], "payload":json.loads(row["payload_json"]), "updated_at":row["updated_at"], "event_revision":int(row["event_revision"])} for row in rows]
+        return [{"job_id":row["job_id"], "task_class":row["task_class"], "payload":self._decode_payload(row["payload_json"]), "updated_at":row["updated_at"], "event_revision":int(row["event_revision"])} for row in rows]
 
     def acknowledge_projections(self, events: list[str | tuple[str, int]]) -> int:
         if not isinstance(events,list):raise ValueError("projection acknowledgements must be a list")
@@ -251,4 +251,11 @@ class DurableTaskRepository:
 
     @staticmethod
     def _record(row: sqlite3.Row) -> dict[str, Any]:
-        return {key:row[key] for key in row.keys() if key != "payload_json"} | {"payload":json.loads(row["payload_json"])}
+        return {key:row[key] for key in row.keys() if key != "payload_json"} | {"payload":DurableTaskRepository._decode_payload(row["payload_json"])}
+
+    @staticmethod
+    def _decode_payload(raw: Any) -> dict[str, Any]:
+        try:payload=json.loads(raw,parse_constant=lambda value:(_ for _ in ()).throw(ValueError(value)))
+        except (json.JSONDecodeError,ValueError,TypeError) as error:raise ValueError("durable task payload is invalid") from error
+        if not isinstance(payload,dict):raise ValueError("durable task payload is invalid")
+        return payload

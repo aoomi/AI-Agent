@@ -14,4 +14,14 @@ class DurableTaskControlContractTest(unittest.TestCase):
    for value in (math.nan,math.inf):
     with self.assertRaises(ValueError):
      with repository.projection_lock("scope",ttl=value):pass
+ def test_corrupt_authority_and_outbox_payloads_fail_closed(self):
+  with tempfile.TemporaryDirectory() as directory:
+   repository=DurableTaskRepository(Path(directory)/"tasks.db")
+   job={"tenant_id":"t","user_id":"u","project_id":"p","status":"queued"}
+   repository.upsert_many("task",{"job":job},enqueue_projection=True)
+   with repository._connection() as connection:
+    connection.execute("UPDATE durable_tasks SET payload_json='NaN' WHERE job_id='job'")
+    connection.execute("UPDATE task_projection_outbox SET payload_json='[]' WHERE job_id='job'")
+   with self.assertRaisesRegex(ValueError,"payload is invalid"):repository.get("job",tenant_id="t",user_id="u",project_id="p")
+   with self.assertRaisesRegex(ValueError,"payload is invalid"):repository.pending_projections(task_class="task")
 if __name__=="__main__":unittest.main()
