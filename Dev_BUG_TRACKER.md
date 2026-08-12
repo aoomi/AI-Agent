@@ -3528,3 +3528,5 @@
 - 第二百五十五项自动测试与稽查：字符串伪数据库路径动态拒绝且目标文件不存在；故事圣经关联回归、Python编译与diff门禁通过。
 - 第二百五十六项稽查首败与整改：ProductionLedger与ProductionOrchestrator两个核心SQLite权威构造器仍直接调用运行时`database.resolve()`，反而落后于任务、worker与故事仓储Path契约。现均在任何文件系统副作用前显式失败关闭。
 - 第二百五十六项自动测试与稽查：两个字符串伪数据库路径动态拒绝且目标文件不存在；生产台账与图编排关联回归、Python编译与diff门禁通过。
+- 第二百五十七项稽查首败与整改：兼容ShortDramaPipeline及LangGraph facade仍直接调用运行时`root.resolve()`，字符串伪根目录泄漏AttributeError且与其内部权威仓储Path契约不一致。现两入口均在目录副作用前以流水线领域错误失败关闭。
+- 第二百五十七项自动测试与稽查：两类字符串伪root动态拒绝且目标目录不存在；兼容流水线关联回归、Python编译与diff门禁通过。

@@ -47,6 +47,8 @@ class PipelineCheckpoint:
 
 class ShortDramaPipeline:
     def __init__(self, root: Path, queue: InMemoryTaskQueue, events: EventBus, runners: Mapping[str, NodeRunner]) -> None:
+        if not isinstance(root, Path):
+            raise ShortDramaPipelineError("pipeline root must be a Path")
         self.root = root.resolve(); self.queue = queue; self.events = events; self.runners = dict(runners)
         missing = set(NODES) - self.runners.keys()
         if missing: raise ShortDramaPipelineError(f"missing node runners: {sorted(missing)}")

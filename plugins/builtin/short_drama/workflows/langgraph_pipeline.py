@@ -16,6 +16,8 @@ class ShortDramaLangGraphPipeline:
     """Legacy API surface; all decisions and checkpoints belong to ProductionOrchestrator."""
 
     def __init__(self, root: Path, runners: Mapping[str, NodeRunner]) -> None:
+        if not isinstance(root, Path):
+            raise ShortDramaPipelineError("pipeline root must be a Path")
         self.root = root.resolve(); self.root.mkdir(parents=True, exist_ok=True)
         self.runners = dict(runners); missing = set(NODES) - self.runners.keys()
         if missing: raise ShortDramaPipelineError(f"missing node runners: {sorted(missing)}")

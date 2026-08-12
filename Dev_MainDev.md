@@ -1257,3 +1257,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百五十四项：短剧TextArtifact已强制标准JSON规范化和指纹，非标准提供方输出不会进入需求至资产目录流水线。
 - BUG072第二百五十五项：StoryBible数据库构造已强制Path运行时契约，与其他SQLite权威仓储一致在文件系统副作用前失败关闭。
 - BUG072第二百五十六项：ProductionLedger与ProductionOrchestrator数据库构造已统一强制Path契约，核心台账/图权威不会从伪路径产生含混运行时异常。
+- BUG072第二百五十七项：兼容短剧流水线与LangGraph facade根目录已统一强制Path契约，在任何产物目录副作用前失败关闭。
