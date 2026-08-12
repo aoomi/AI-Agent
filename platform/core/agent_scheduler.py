@@ -91,7 +91,7 @@ class AgentScheduler:
     def schedule_remediation(self, instruction: RemediationInstruction) -> ScheduledRemediation:
         if (not isinstance(instruction,RemediationInstruction) or any(not isinstance(value,str) for value in (instruction.instruction_id,instruction.root_task_id,instruction.developer_agent_id))
                 or not instruction.instruction_id.strip() or not instruction.root_task_id.strip() or not instruction.developer_agent_id.strip()
-                or not instruction.issue_ids or any(not str(issue_id).strip() for issue_id in instruction.issue_ids)
+                or not isinstance(instruction.issue_ids,tuple) or not instruction.issue_ids or any(not isinstance(issue_id,str) or not issue_id.strip() for issue_id in instruction.issue_ids)
                 or isinstance(instruction.remediation_round,bool) or not isinstance(instruction.remediation_round,int) or instruction.remediation_round < 1):
             raise SchedulerError("remediation instruction contract is invalid")
         with self._lock:
@@ -114,6 +114,7 @@ class AgentScheduler:
             completed = replace(remediation, status="completed"); self.remediations[instruction_id] = completed; return completed
 
     def add_executor(self, agent_id: str, executor: AgentExecutor) -> None:
+        if not isinstance(agent_id,str) or not agent_id.strip():raise SchedulerError("agent_id is required")
         self.registry.get(agent_id)
         if not callable(executor):raise SchedulerError("agent executor must be callable")
         with self._lock:
@@ -127,7 +128,7 @@ class AgentScheduler:
         if not isinstance(tenant_id,str) or not isinstance(project_id,str):raise SchedulerError("pipeline tenant_id and project_id are required")
         tenant_id, project_id = tenant_id.strip(), project_id.strip()
         if not tenant_id or not project_id:raise SchedulerError("pipeline tenant_id and project_id are required")
-        if mode not in {"serial", "parallel"}: raise SchedulerError("scheduler mode must be serial or parallel")
+        if not isinstance(mode,str) or mode not in {"serial", "parallel"}: raise SchedulerError("scheduler mode must be serial or parallel")
         if any(not isinstance(agent_id,str) or not agent_id.strip() for agent_id in agent_ids):raise SchedulerError("pipeline agent_ids are required")
         if not isinstance(values,Mapping):raise SchedulerError("pipeline values must be a mapping")
         if isinstance(max_retries,bool) or not isinstance(max_retries,int) or not 0 <= max_retries <= 10: raise SchedulerError("max_retries must be between 0 and 10")
@@ -202,6 +203,7 @@ class AgentScheduler:
             elif current.status == "waiting_human":
                 current = self.registry.update_status(agent_id, self.lifecycle.transition(AgentState(agent_id, current.status), "running").status)
             result = executor(self.contexts.get(run.tenant_id, run.project_id, agent_id))
+            if not isinstance(result,ExecutionResult) or result.status not in {"completed","waiting_human","failed"} or not isinstance(result.values,Mapping):raise SchedulerError("agent executor result is invalid")
             self.registry.update_status(agent_id, self.lifecycle.transition(AgentState(agent_id, current.status), result.status).status)
             self.contexts.update(run.tenant_id, run.project_id, agent_id, result.values)
             return result

@@ -1210,3 +1210,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百零七项：只读稽查报告的issue/evidence/verdict字段已移除`str(...)`宽松转换并强制字符串身份、severity和安全引用；数字伪证据或问题ID不能进入整改闭环。协作关联`12 passed`、`20 subtests passed`。
 - BUG072第二百零八项：AgentConfiguration已严格验证字符串system_prompt_version并保留行业ProcessRobot/IndustrySkill显式模型支持，数字版本不会被字符串化写入版本配置。配置关联`9 passed`、`5 subtests passed`。
 - BUG072第二百零九项：会话服务已验证Model/Config/Client/Executor/Memory依赖、Path持久化、字符串context/memory键及project scope，移除提案类型宽松转换；畸形对象不能进入会话状态。会话API关联`19 passed`、`17 subtests passed`。
+- BUG072第二百一十项：AgentScheduler已严格验证tuple问题ID、字符串agent/mode及ExecutionResult模型/status/Mapping values；坏执行器结果不能进入生命周期或上下文。调度关联`14 passed`、`13 subtests passed`。

@@ -72,6 +72,8 @@ class AgentSchedulerControlsTest(unittest.TestCase):
         for scope in (("", "project"), ("tenant", "")):
             with self.assertRaisesRegex(SchedulerError, "tenant_id and project_id"):
                 self.scheduler.start(*scope, (self.first.agent_id,), {}, auto_run=False)
+        for operation in (lambda:self.scheduler.add_executor(1,lambda _:None),lambda:self.scheduler.start("tenant","project",(self.first.agent_id,),{},mode=1,auto_run=False)):
+            with self.subTest(operation=operation),self.assertRaises(SchedulerError):operation()
         with self.assertRaisesRegex(SchedulerError, "contract"):
             self.scheduler.use_graph_orchestrator(object())
 
@@ -80,6 +82,13 @@ class AgentSchedulerControlsTest(unittest.TestCase):
         with self.assertRaisesRegex(SchedulerError, "instruction_id"):self.scheduler.remediation("")
         invalid=RemediationInstruction("", "session", "report", self.first.agent_id, "task", ("issue",), 1, "pending", "now")
         with self.assertRaisesRegex(SchedulerError, "contract"):self.scheduler.schedule_remediation(invalid)
+        invalid=RemediationInstruction("instruction", "session", "report", self.first.agent_id, "task", (1,), 1, "pending", "now")
+        with self.assertRaisesRegex(SchedulerError,"contract"):self.scheduler.schedule_remediation(invalid)
+
+    def test_executor_result_runtime_contract_is_enforced(self) -> None:
+        self.scheduler.add_executor(self.first.agent_id,lambda _context:object())
+        run=self.scheduler.start("tenant","project",(self.first.agent_id,),{},auto_run=False)
+        with self.assertRaisesRegex(SchedulerError,"result"):self.scheduler.run(run.run_id)
 
 
 if __name__ == "__main__": unittest.main()

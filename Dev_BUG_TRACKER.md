@@ -3434,3 +3434,5 @@
 - 第二百零八项自动测试与稽查：数字/空prompt版本动态拒绝，行业机器人独立模型版本集成保持通过；配置关联`9 passed`（另`5 subtests passed`），Python编译与diff门禁通过。
 - 第二百零九项稽查首败与整改：AgentConversationService不验证六类依赖，以`str(key)`接受数字context/memory键和project，并对proposal_type宽松字符串化；坏依赖或scope可能延迟失败/身份含混。现全链在模型、文件和共享状态副作用前失败关闭。
 - 第二百零九项自动测试与稽查：坏Path/依赖、数字context/memory键及project动态拒绝；会话与管理API关联`19 passed`（另`17 subtests passed`），Python编译与diff门禁通过。
+- 第二百一十项稽查首败与整改：AgentScheduler以`str(...)`接受数字issue ID，add_executor/mode依赖下游异常，_execute信任任意执行器结果并立即访问status/values。现调度输入输出均在共享生命周期副作用前完整验证。
+- 第二百一十项自动测试与稽查：数字issue/agent/mode及任意executor结果动态失败关闭；调度、整改与流水线关联`14 passed`（另`13 subtests passed`），Python编译与diff门禁通过。
