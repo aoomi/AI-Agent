@@ -50,6 +50,8 @@ class AgentContextStore:
 
     @staticmethod
     def _key(tenant_id: str, project_id: str, agent_id: str) -> tuple[str, str, str]:
+        if any(not isinstance(value,str) for value in (tenant_id,project_id,agent_id)):
+            raise AgentContextError("tenant_id, project_id and agent_id are required")
         values = tuple(value.strip() for value in (tenant_id, project_id, agent_id))
         if not all(values):
             raise AgentContextError("tenant_id, project_id and agent_id are required")
@@ -125,12 +127,16 @@ class CollaborationContextStore:
 
     @staticmethod
     def _required(*values: str) -> tuple[str, ...]:
+        if any(not isinstance(value,str) for value in values):
+            raise AgentContextError("collaboration scope identifiers are required")
         parsed = tuple(value.strip() for value in values)
         if not all(parsed): raise AgentContextError("collaboration scope identifiers are required")
         return parsed
 
     @staticmethod
     def _references(values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not isinstance(value,str) for value in values):
+            raise AgentContextError("collaboration references must be safe relative paths")
         parsed = tuple(value.strip() for value in values)
         if any(not value or value.startswith("/") or ".." in value.split("/") or "\x00" in value for value in parsed):
             raise AgentContextError("collaboration references must be safe relative paths")

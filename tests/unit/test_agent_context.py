@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from ai_agent_core import AgentContextError, AgentContextStore
+from ai_agent_core import AgentContextError, AgentContextStore, CollaborationContextStore
 
 
 class AgentContextStoreTest(unittest.TestCase):
@@ -35,6 +35,15 @@ class AgentContextStoreTest(unittest.TestCase):
         store=AgentContextStore();store.create("tenant-a","project-a","agent-a")
         for values in ({"access_token":"plaintext"},{"headers":{"Authorization":"Bearer plaintext"}},{"profiles":[{"client_secret":"plaintext"}]}):
             with self.subTest(values=values),self.assertRaisesRegex(AgentContextError,"sensitive fields"):store.update("tenant-a","project-a","agent-a",values)
+
+    def test_context_identifiers_and_references_require_strings(self) -> None:
+        store=AgentContextStore()
+        with self.assertRaises(AgentContextError):store.create(1,"project","agent")  # type: ignore[arg-type]
+        collaboration=CollaborationContextStore()
+        with self.assertRaises(AgentContextError):collaboration.create(tenant_id="tenant",project_id="project",session_id=1,developer_agent_id="dev",inspector_agent_id="audit")  # type: ignore[arg-type]
+        collaboration.create(tenant_id="tenant",project_id="project",session_id="session",developer_agent_id="dev",inspector_agent_id="audit")
+        with self.assertRaises(AgentContextError):
+            collaboration.update("tenant","project","session",agent_id="dev",evidence_references=(1,))  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":
