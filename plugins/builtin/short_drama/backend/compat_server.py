@@ -1943,6 +1943,13 @@ def _conversation_key(context: dict) -> str:
     return ":".join(str(context.get(key, "")) for key in ("tenant_id", "user_id", "current_project", "session_id"))
 
 
+def _valid_conversation_context(context: object) -> bool:
+    return isinstance(context, dict) and all(
+        str(context.get(key) or "").strip()
+        for key in ("tenant_id", "user_id", "current_project", "session_id")
+    )
+
+
 def _conversation_messages(store: dict, context: dict) -> list:
     """Return only the exact project/session conversation projection."""
     histories = store.get("display_history", {}) if isinstance(store, dict) else {}
@@ -8725,15 +8732,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": "对话内容不能为空"})
             return self._json(HTTPStatus.OK, _route_system_agent(message, body.get("context", {})))
         if parsed.path == "/api/assistant/history":
+            if not _valid_conversation_context(body.get("context")):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_conversation_scope"})
             with ASSISTANT_STORE_LOCK:
                 messages = _conversation_messages(_load_assistant(), body.get("context", {}))
             return self._json(HTTPStatus.OK, {"messages":messages})
         if parsed.path == "/api/assistant/history/save":
+            if not _valid_conversation_context(body.get("context")):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_conversation_scope"})
             with ASSISTANT_STORE_LOCK:
                 store = _load_assistant(); key = _conversation_key(body.get("context", {}))
                 store.setdefault("display_history", {})[key] = body.get("messages", []); _save_assistant(store)
             return self._json(HTTPStatus.OK, {"saved": True})
         if parsed.path == "/api/assistant/draft":
+            if not _valid_conversation_context(body.get("context")):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_conversation_scope"})
             with ASSISTANT_STORE_LOCK:
                 store = _load_assistant(); key = _conversation_key(body.get("context", {})); action = body.get("action", "read")
                 if action == "save":
@@ -8741,6 +8754,8 @@ class Handler(BaseHTTPRequestHandler):
                 draft = store.get("drafts", {}).get(key)
             return self._json(HTTPStatus.OK, {"draft":draft})
         if parsed.path == "/api/assistant/sessions":
+            if not _valid_conversation_context(body.get("context")):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error":"invalid_conversation_scope"})
             with ASSISTANT_STORE_LOCK:
                 store = _load_assistant(); context = body.get("context", {}); session_id = body.get("session_id") or str(uuid4())
                 session = {"session_id": session_id, "tenant_id": context.get("tenant_id", "local-default"), "user_id": context.get("user_id", "aoo"), "title": "新对话", "archived": False, "created_at": int(datetime.now(UTC).timestamp() * 1000), "updated_at": int(datetime.now(UTC).timestamp() * 1000)}
