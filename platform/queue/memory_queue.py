@@ -8,7 +8,7 @@ from threading import Lock
 from types import MappingProxyType
 from typing import Any, Literal, Mapping
 
-from ai_agent_tenant import IdentityContext
+from ai_agent_tenant import IdentityContext, IdentityContextError
 
 
 TaskStatus = Literal["queued", "running", "waiting_human", "paused", "completed", "failed", "cancelled"]
@@ -135,15 +135,19 @@ class InMemoryTaskQueue:
             self._tasks[task_id] = running
             return running
 
-    def get(self, task_id: str, tenant_id: str) -> QueuedTask:
+    def get(self, task_id: str, tenant_id: str, identity_id: str | None = None) -> QueuedTask:
         with self._lock:
             task = self._require(task_id)
             task.context.require_tenant(tenant_id)
+            if identity_id is not None and task.context.identity_id != identity_id.strip():
+                raise IdentityContextError("identity scope mismatch")
             return task
 
-    def list(self, tenant_id: str, project_id: str | None = None) -> tuple[QueuedTask, ...]:
+    def list(self, tenant_id: str, project_id: str | None = None, identity_id: str | None = None) -> tuple[QueuedTask, ...]:
         with self._lock:
-            return tuple(task for task in self._tasks.values() if task.context.tenant_id == tenant_id and (project_id is None or task.project_id == project_id))
+            return tuple(task for task in self._tasks.values() if task.context.tenant_id == tenant_id
+                         and (identity_id is None or task.context.identity_id == identity_id.strip())
+                         and (project_id is None or task.project_id == project_id))
 
     def apply_status_event(self, task_id: str, tenant_id: str, project_id: str, status: TaskStatus, progress_percent: int) -> QueuedTask:
         with self._lock:

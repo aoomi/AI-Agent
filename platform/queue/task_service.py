@@ -21,10 +21,10 @@ class TaskService:
         )
 
     def list_tasks(self, context: IdentityContext, project_id: str | None = None) -> tuple[QueuedTask, ...]:
-        return self.queue.list(context.tenant_id, project_id)
+        return self.queue.list(context.tenant_id, project_id, context.identity_id)
 
     def get_task(self, context: IdentityContext, task_id: str) -> QueuedTask:
-        return self.queue.get(task_id, context.tenant_id)
+        return self.queue.get(task_id, context.tenant_id, context.identity_id)
 
     def cancel_task(self, context: IdentityContext, task_id: str) -> QueuedTask:
         self.get_task(context, task_id)

@@ -6,8 +6,8 @@ from ai_agent_queue import InMemoryTaskQueue, QueuedTask, TaskService
 from ai_agent_tenant import IdentityContext, IdentityContextError
 
 
-def context(tenant: str) -> IdentityContext:
-    return IdentityContext("request-1", "trace-1", "identity-1", "user", tenant)
+def context(tenant: str, identity: str = "identity-1") -> IdentityContext:
+    return IdentityContext("request-1", "trace-1", identity, "user", tenant)
 
 
 class TaskServiceTest(unittest.TestCase):
@@ -21,6 +21,11 @@ class TaskServiceTest(unittest.TestCase):
 
     def test_cross_tenant_detail_is_rejected(self) -> None:
         with self.assertRaises(IdentityContextError): self.service.get_task(context("tenant-b"), "task-a")
+
+    def test_same_tenant_cross_identity_list_and_detail_are_rejected(self) -> None:
+        self.assertEqual(self.service.list_tasks(context("tenant-a", "identity-2")), ())
+        with self.assertRaises(IdentityContextError):
+            self.service.get_task(context("tenant-a", "identity-2"), "task-a")
 
     def test_cancel_and_resume_follow_queue_transitions(self) -> None:
         self.assertEqual(self.service.cancel_task(context("tenant-a"), "task-a").status, "cancelled")
