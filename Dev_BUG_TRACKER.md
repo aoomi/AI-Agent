@@ -3046,3 +3046,5 @@
 - 第二项自动测试与稽查：故障注入在Graph完成全部写入后主动触发commit fence失败，台账记录与Graph阶段同时不可见；再次读取无半提交。旧库迁移首轮有记录、二轮为0且状态一致。事件代际、upscale、审核导出、Stage、观测与provider关联`208 passed`，Python编译与diff门禁通过；只读检查确认外部连接不由SqliteSaver提交，异常由台账上下文统一rollback，旧库未被改写或删除。
 - 第三项稽查首败与整改：RecordExporter四层门禁原只检查键名中的secret/token/password/api_key/authorization；中性键`message`或`value`可携带Bearer、GitHub token或完整手机号落盘，且安全规范要求过滤核心Prompt、手机号及付费账号。统一递归检测扩展为credential/prompt/phone/mobile/wechat/payment_account/paid_account键，并识别中性字符串中的Bearer/Basic、常见token前缀和中国大陆手机号；普通数字统计不误拒绝。
 - 第三项自动测试与稽查：注册前logger与JSONL/Prometheus最终exporter均动态拒绝敏感键及中性值，失败后文件不存在；正常日志保留。观测专项`7 passed`，diff门禁通过。只读确认同一递归函数覆盖记录、指标标签、快照与持久导出四层，不对运行数据执行迁移或删除。
+- 第四项稽查首败与整改：视频`waiting_memory`看门狗原只检查本进程ACTIVE_VIDEO_JOBS/资源池和内存，未查询Comfy真实queue；外部或残留prompt仍在running/pending时可把等待任务改成generating。新增唯一准入函数，要求本地无视频、accelerator无占用且Comfy `queue_running`和`queue_pending`同时为空；Comfy不可达失败关闭。初次请求与持久等待恢复共用该门禁，任务状态继续持久为`waiting_memory`并仅投影Graph `queued`。
+- 第四项自动测试与稽查：运行队列、待执行队列、本地活动、Comfy离线四种情况均拒绝，只有全空时放行；视频/H3/生产控制关联`120 passed`，Python编译与diff门禁通过。只读确认门禁发生在状态切换与线程创建之前，非释放窗口没有模型副作用。

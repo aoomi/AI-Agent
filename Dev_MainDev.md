@@ -36,6 +36,7 @@
 - BUG072第二项稽查已确认原子边界首败：ProductionLedger与LangGraph当前使用两个SQLite文件和两条独立连接，`commit_callback`不能构成同一写事务；现有回滚测试未覆盖Graph已提交后台账提交失败。进入同库同连接事务、旧checkpoint迁移及故障注入整改。
 - BUG072第二项整改闭环：LangGraph checkpoint/writes与ProductionLedger统一数据库及同一事务连接，旧独立Graph库幂等迁移且保留；Graph完成写入后故障注入证明图与台账同步回滚。composition/review/export和upscale均接线，关联`208 passed`；继续横向稽查。
 - BUG072第三项整改：可观测脱敏由敏感键扩展到核心Prompt、账号类键以及中性字符串内Bearer/Basic、常见token和完整手机号；logger、指标、快照、JSONL和Prometheus共享递归门禁。专项`7 passed`，继续横向稽查。
+- BUG072第四项整改：视频`waiting_memory`准入统一要求本地资源空闲且Comfy running/pending双队列为空，不可达失败关闭；初次请求与持久恢复共用，Graph仍只接收queued投影。关联`120 passed`，继续横向稽查。
 - BUG071最终闭环：composition、review、export权威证据与Graph状态在同一SQLite事务提交；导出manifest绑定generation、audit batch、视频及manifest哈希。正式三镜静音母版导出8.1秒、243帧、704×1216 H.264且仅video stream，重启后HTTP可读；关联`134 passed`。用户要求的不超过15秒、只验证视频范围已可测试，继续BUG072架构v2.2全仓一致性稽查。
 - BUG070最终闭环：普通生产端点门禁移到派发前；worker只接受进程私有loopback token或精确共享reservation，伪造dispatched头正式403，缺前序请求409且无副作用，合法run-stage composition generation 3通过并确认。关联`130 passed`；继续BUG071静音母版审核导出。
 - BUG069最终闭环：LTX三镜经正式run-stage与同批次video/audio-not-applicable/subtitle-not-applicable台账确认后，显式video-only composition生成8.1秒、243帧、704×1216@30 H.264静音母版；重启恢复、HTTP媒体与队列归零通过，关联`129 passed`。继续BUG070生产端点派发门禁旁路。
