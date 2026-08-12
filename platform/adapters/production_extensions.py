@@ -73,6 +73,7 @@ class ProductionExtensionRegistry:
         replace_provider: bool = False,
         activate: bool | None = None,
     ) -> ProductionExtension:
+        if not isinstance(extension_point,str) or not isinstance(provider_id,str):raise ProductionExtensionError("extension point, provider and factory are required")
         point, provider = extension_point.strip(), provider_id.strip()
         if not point or not provider or not callable(factory):
             raise ProductionExtensionError("extension point, provider and factory are required")
@@ -316,6 +317,7 @@ class ProductionExtensionRegistry:
 
     @staticmethod
     def _required_id(field_name: str, value: str) -> str:
+        if not isinstance(value,str):raise ProductionExtensionError(f"{field_name} is required")
         normalized = value.strip()
         if not normalized:
             raise ProductionExtensionError(f"{field_name} is required")

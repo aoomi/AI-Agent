@@ -3358,3 +3358,5 @@
 - 第一百七十项自动测试与稽查：数字身份/操作/机器人及列表robot集合动态失败关闭；专项回归、Python编译与diff门禁通过。
 - 第一百七十一项稽查首败与整改：ProductionCapability register/register_once/_required_id直接strip身份，数字capability/provider会泄漏AttributeError。现注册、读取、健康、启停、调用和卸载共用字符串身份门禁。
 - 第一百七十一项自动测试与稽查：五类数字capability/provider控制动态失败关闭；专项回归、Python编译与diff门禁通过。
+- 第一百七十二项稽查首败与整改：ProductionExtension register/_required_id直接strip扩展身份，数字point/provider会泄漏AttributeError。现全部基础设施注册与生命周期入口共用字符串身份门禁。
+- 第一百七十二项自动测试与稽查：五类数字extension/provider控制动态失败关闭；专项回归、Python编译与diff门禁通过。

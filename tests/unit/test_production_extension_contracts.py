@@ -11,6 +11,8 @@ class ProductionExtensionContractTest(unittest.TestCase):
         registry=ProductionExtensionRegistry()
         for kwargs in ({"enabled":1},{"replace":1},{"activate":1},{"metadata":[]},{"metadata":{"required_methods":[1]}}):
             with self.subTest(kwargs=kwargs),self.assertRaises(ProductionExtensionError):registry.register("storage","local",lambda:object(),**kwargs)
+        for operation in (lambda:registry.register(1,"local",lambda:object()),lambda:registry.register("storage",1,lambda:object())):
+            with self.subTest(operation=operation),self.assertRaises(ProductionExtensionError):operation()
     def test_controls_reject_empty_identifiers(self) -> None:
         registry = ProductionExtensionRegistry()
         registry.register("storage.test", "local", lambda: object())
@@ -23,6 +25,8 @@ class ProductionExtensionContractTest(unittest.TestCase):
         for call in calls:
             with self.subTest(call=call), self.assertRaisesRegex(ProductionExtensionError, "required"):
                 call()
+        for call in (lambda:registry.get(1),lambda:registry.activate("storage.test",1),lambda:registry.create(1)):
+            with self.subTest(call=call),self.assertRaisesRegex(ProductionExtensionError,"required"):call()
 
     def test_enable_rejects_runtime_pseudo_boolean(self) -> None:
         registry = ProductionExtensionRegistry()
