@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from threading import RLock
 from typing import Any, Literal, Protocol
 from uuid import uuid4
+import json
 
 from ai_agent_discovery import AgentRegistry
 
@@ -131,6 +132,9 @@ class AgentScheduler:
         if not isinstance(mode,str) or mode not in {"serial", "parallel"}: raise SchedulerError("scheduler mode must be serial or parallel")
         if any(not isinstance(agent_id,str) or not agent_id.strip() for agent_id in agent_ids):raise SchedulerError("pipeline agent_ids are required")
         if not isinstance(values,Mapping):raise SchedulerError("pipeline values must be a mapping")
+        if any(not isinstance(key,str) or not key.strip() for key in values):raise SchedulerError("pipeline value keys must be non-empty strings")
+        try:json.dumps(dict(values),allow_nan=False)
+        except (TypeError,ValueError) as error:raise SchedulerError("pipeline values must be standard JSON") from error
         if isinstance(max_retries,bool) or not isinstance(max_retries,int) or not 0 <= max_retries <= 10: raise SchedulerError("max_retries must be between 0 and 10")
         if not isinstance(auto_run,bool):raise SchedulerError("auto_run must be boolean")
         for agent_id in agent_ids:

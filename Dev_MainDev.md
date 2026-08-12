@@ -1238,3 +1238,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百三十五项：QueuedTask payload已强制标准JSON，与持久队列和事件信封保持相同运行时数据契约。
 - BUG072第二百三十六项：Agent共享上下文values与稽查证据metadata已强制标准JSON，非标准运行时值不会进入跨智能体上下文或整改证据。
 - BUG072第二百三十七项：Agent会话context与proposal requested_changes已强制标准JSON，非标准值不会进入会话共享状态或待确认执行提案。
+- BUG072第二百三十八项：AgentScheduler pipeline values已在创建任何AgentContext前验证非空字符串键与标准JSON，坏输入不再留下部分上下文。

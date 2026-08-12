@@ -3490,3 +3490,5 @@
 - 第二百三十六项自动测试与稽查：上下文与证据metadata的NaN/任意对象动态拒绝；Agent上下文与协作关联回归、Python编译与diff门禁通过。
 - 第二百三十七项稽查首败与整改：AgentConversation的session context与proposal requested_changes仅验证Mapping/敏感键，NaN或任意对象可进入会话和待确认提案。现两类状态在发布前强制标准JSON。
 - 第二百三十七项自动测试与稽查：context与proposal的NaN/任意对象动态拒绝且无提案副作用；会话与管理API关联回归、Python编译与diff门禁通过。
+- 第二百三十八项稽查首败与整改：AgentScheduler.start在依赖AgentContext.update验证values前已逐个创建上下文，非标准JSON失败会留下部分状态。现完整values契约在首个创建副作用前失败关闭。
+- 第二百三十八项自动测试与稽查：NaN/任意对象pipeline values动态拒绝且无AgentContext副作用；调度与Agent pipeline关联回归、Python编译与diff门禁通过。

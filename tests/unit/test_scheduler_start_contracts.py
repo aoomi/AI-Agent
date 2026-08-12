@@ -18,5 +18,13 @@ class SchedulerStartContractTest(unittest.TestCase):
             with self.subTest(operation=operation),self.assertRaises(SchedulerError):operation()
         self.assertEqual(scheduler.runs,{})
 
+    def test_start_rejects_non_standard_values_without_partial_contexts(self) -> None:
+        contexts=AgentContextStore();scheduler=AgentScheduler(AgentRegistry(),contexts)
+        for values in ({"value":float("nan")},{"value":object()}):
+            with self.subTest(values=values),self.assertRaisesRegex(SchedulerError,"standard JSON"):
+                scheduler.start("tenant","project",("agent",),values,auto_run=False)
+            with self.assertRaisesRegex(Exception,"does not exist"):
+                contexts.get("tenant","project","agent")
+
 
 if __name__=="__main__":unittest.main()
