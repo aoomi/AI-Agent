@@ -188,6 +188,16 @@ class ProductionControlTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkloadRoutingError, "backpressure"):
             router.route("video", service_scope="scope", now=105)
 
+    def test_workload_router_rejects_anonymous_controls_and_negative_memory(self):
+        router = WorkloadRouter()
+        for operation in (
+            lambda: router.remove(""),
+            lambda: router.remove("worker", generation=0),
+            lambda: router.route(""),
+            lambda: router.route("video", estimated_memory=-1),
+        ):
+            with self.assertRaises(WorkloadRoutingError): operation()
+
     def test_worker_discovery_is_shared_between_process_instances(self):
         with TemporaryDirectory() as temporary:
             database = Path(temporary) / "workers.sqlite"; first = WorkerRegistry(database); second = WorkerRegistry(database)

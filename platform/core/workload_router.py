@@ -52,6 +52,9 @@ class WorkloadRouter:
         return worker
 
     def remove(self, worker_id: str, *, generation: int | None = None) -> bool:
+        worker_id = worker_id.strip()
+        if not worker_id or generation is not None and (isinstance(generation, bool) or generation < 1):
+            raise WorkloadRoutingError("invalid worker removal")
         with self._lock:
             current = self._workers.get(worker_id)
             if not current or generation is not None and current.generation != generation:
@@ -69,6 +72,9 @@ class WorkloadRouter:
             return len(stale)
 
     def route(self, resource_class: str, *, estimated_memory: int = 0, service_scope: str = "", worker_id: str = "", now: float | None = None) -> WorkerSnapshot:
+        resource_class, service_scope, worker_id = resource_class.strip(), service_scope.strip(), worker_id.strip()
+        if not resource_class or estimated_memory < 0:
+            raise WorkloadRoutingError("invalid worker route")
         moment = time.time() if now is None else now
         with self._lock:
             eligible = [

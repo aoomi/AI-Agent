@@ -3200,3 +3200,5 @@
 - 第九十一项自动测试与稽查：五类匿名/非法owner控制及零TTL均动态失败关闭，合法租约语义保持；租约关联`6 passed`，Python编译与diff门禁通过。
 - 第九十二项稽查首败与整改：WorkloadRouter虽校验active不超过capacity，但route候选未要求active<capacity；满载worker在queue_depth较低时仍会被选择，和共享WorkerRegistry.reserve的容量门禁不一致。现候选准入显式排除满载节点，统一返回背压。
 - 第九十二项自动测试与稽查：capacity=active、queue_depth=0的健康视频worker动态不可路由；路由、发现与heartbeat关联`5 passed`，Python编译与diff门禁通过。
+- 第九十三项稽查首败与整改：WorkloadRouter.route接受空resource_class和负estimated_memory并最终伪装为无容量，remove接受空worker或非法generation并伪装false；这使调用契约错误无法定位。现两类入口在共享状态读取前严格校验并规范化身份。
+- 第九十三项自动测试与稽查：空resource、负内存、空worker和零generation四类动态失败关闭；路由关联`4 passed`，Python编译与diff门禁通过。
