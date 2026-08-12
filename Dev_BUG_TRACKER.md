@@ -3508,3 +3508,5 @@
 - 第二百四十五项自动测试与稽查：列表、NaN与任意对象executor result动态拒绝且proposal终态为failed；会话关联回归、Python编译与diff门禁通过。
 - 第二百四十六项稽查首败与整改：TraceRecorder只检查attributes Mapping/敏感键，并在exporter失败前已append span，可造成内存成功但持久失败的双事实。现坏属性在计时前失败关闭。
 - 第二百四十六项自动测试与稽查：NaN/任意对象attributes动态拒绝且spans不变；可观测性关联回归、Python编译与diff门禁通过。
+- 第二百四十七项稽查首败与整改：Stage登记表只校验行数、顺序与非空字段，新Stage可复用旧project_storage值仍通过门禁。现前后端强制LangGraph/project storage一对一；frontend continue按存在性验证，允许audio/subtitle共享合片入口。
+- 第二百四十七项自动测试与稽查：11阶段LangGraph/project storage登记唯一性与全部frontend continue入口存在性门禁；Stage登记、前端类型检查、Python编译与diff门禁通过。

@@ -17,6 +17,9 @@ def test_every_canonical_stage_has_all_four_runtime_registrations():
         assert row["langgraph_stage"] == row["stage"]
         assert row["project_storage"]
         assert row["frontend_continue"]
+    for key in ("langgraph_stage", "project_storage"):
+        values = [row[key] for row in REGISTRY]
+        assert len(values) == len(set(values))
 
 
 def test_registration_table_is_consumed_by_recovery_projection_and_frontend():

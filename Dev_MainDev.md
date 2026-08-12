@@ -1247,3 +1247,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百四十四项：AgentScheduler resume values已在更新任何AgentContext前强制非空字符串键与标准JSON，坏恢复输入不再造成部分上下文写入。
 - BUG072第二百四十五项：Agent提案executor result已强制非空Mapping与标准JSON，列表、NaN或任意对象结果不会冒充已应用提案。
 - BUG072第二百四十六项：TraceSpan attributes已在计时与spans写入前强制标准JSON，坏属性不会留下内存或导出分裂记录。
+- BUG072第二百四十七项：阶段登记门禁已同时在后端启动与前端模块加载阶段强制LangGraph与项目存储投影一对一唯一；继续入口保留audio/subtitle合法共享合片入口并仍逐阶段验证存在。

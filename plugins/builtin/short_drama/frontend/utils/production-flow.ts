@@ -18,6 +18,10 @@ if (registeredStages.length !== configuredStages.length || registeredStages.some
 if (stageRegistrations.stages.some(item => !item.startup_recovery || item.langgraph_stage !== item.stage || !item.project_storage || !item.frontend_continue)) {
   throw new Error("短剧生产阶段登记字段不完整");
 }
+for (const key of ["langgraph_stage", "project_storage"] as const) {
+  const values = stageRegistrations.stages.map(item => item[key]);
+  if (new Set(values).size !== values.length) throw new Error(`短剧生产阶段 ${key} 登记必须唯一`);
+}
 
 export const productionStageOrder:readonly ProductionStage[] = Object.freeze(configuredStages as ProductionStage[]);
 export const productionStageRegistrations = Object.freeze(stageRegistrations.stages);

@@ -43,6 +43,10 @@ def _load_stage_registrations() -> tuple[dict, ...]:
         raise RuntimeError("every production stage requires complete recovery, graph, storage, and frontend registration")
     if any(row["langgraph_stage"] != row["stage"] for row in rows):
         raise RuntimeError("LangGraph stage registrations must use canonical stage names")
+    for key in ("langgraph_stage", "project_storage"):
+        values = [row[key].strip() for row in rows]
+        if len(values) != len(set(values)):
+            raise RuntimeError(f"production stage registration must use unique {key} values")
     return tuple(dict(row) for row in rows)
 
 
