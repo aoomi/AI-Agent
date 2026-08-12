@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import threading
 from pathlib import Path
 
 from ai_agent_core import AgentContextStore, AgentScheduler, ExecutionResult, SchedulerError
@@ -45,6 +46,21 @@ class AgentSchedulerControlsTest(unittest.TestCase):
         self.scheduler.runs[run.run_id] = run
         with self.assertRaisesRegex(SchedulerError, "maximum retries"):
             self.scheduler.retry(run.run_id)
+
+    def test_active_agent_executor_cannot_be_replaced_or_double_run(self) -> None:
+        entered=threading.Event();release=threading.Event()
+        def slow(context):entered.set();release.wait(2);return ExecutionResult("completed",{})
+        self.scheduler.add_executor(self.first.agent_id,slow)
+        first=self.scheduler.start("tenant","project-a",(self.first.agent_id,),{},auto_run=False)
+        second=self.scheduler.start("tenant","project-b",(self.first.agent_id,),{},auto_run=False)
+        thread=threading.Thread(target=lambda:self.scheduler.run(first.run_id));thread.start();self.assertTrue(entered.wait(1))
+        with self.assertRaisesRegex(SchedulerError,"active"):self.scheduler.add_executor(self.first.agent_id,lambda _:ExecutionResult("completed",{}))
+        with self.assertRaisesRegex(SchedulerError,"already active"):self.scheduler.run(second.run_id)
+        release.set();thread.join()
+
+    def test_pipeline_rejects_duplicate_agents(self) -> None:
+        with self.assertRaisesRegex(SchedulerError,"unique"):
+            self.scheduler.start("tenant","project",(self.first.agent_id,self.first.agent_id),{},auto_run=False)
 
 
 if __name__ == "__main__": unittest.main()

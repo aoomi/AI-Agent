@@ -67,6 +67,7 @@ class AgentScheduler:
         self.graph_orchestrator: AgentGraphOrchestrator | None = None
         self._lock = RLock()
         self._active_runs: set[str] = set()
+        self._active_agents: set[str] = set()
 
     def use_graph_orchestrator(self, orchestrator: AgentGraphOrchestrator) -> None:
         self.graph_orchestrator = orchestrator
@@ -99,11 +100,15 @@ class AgentScheduler:
 
     def add_executor(self, agent_id: str, executor: AgentExecutor) -> None:
         self.registry.get(agent_id)
-        with self._lock:self.executors[agent_id] = executor
+        if not callable(executor):raise SchedulerError("agent executor must be callable")
+        with self._lock:
+            if agent_id in self._active_agents:raise SchedulerError("agent executor is active")
+            self.executors[agent_id] = executor
 
     def start(self, tenant_id: str, project_id: str, agent_ids: tuple[str, ...], values: Mapping[str, Any], *, mode: str = "serial", max_retries: int = 2, auto_run: bool = True) -> PipelineRun:
         if not agent_ids:
             raise SchedulerError("pipeline requires at least one agent")
+        if len(set(agent_ids)) != len(agent_ids):raise SchedulerError("pipeline agent_ids must be unique")
         if mode not in {"serial", "parallel"}: raise SchedulerError("scheduler mode must be serial or parallel")
         if not 0 <= max_retries <= 10: raise SchedulerError("max_retries must be between 0 and 10")
         for agent_id in agent_ids:
@@ -160,18 +165,24 @@ class AgentScheduler:
         return completed
 
     def _execute(self, run: PipelineRun, agent_id: str) -> ExecutionResult:
-        executor = self.executors.get(agent_id)
-        if executor is None: raise SchedulerError(f"missing executor for {agent_id}")
-        current = self.registry.get(agent_id)
-        if current.status in {"idle", "failed", "completed"}:
-            current = self.registry.update_status(agent_id, self.lifecycle.transition(AgentState(agent_id, current.status), "loading").status)
-            current = self.registry.update_status(agent_id, self.lifecycle.transition(AgentState(agent_id, current.status), "running").status)
-        elif current.status == "waiting_human":
-            current = self.registry.update_status(agent_id, self.lifecycle.transition(AgentState(agent_id, current.status), "running").status)
-        result = executor(self.contexts.get(run.tenant_id, run.project_id, agent_id))
-        self.registry.update_status(agent_id, self.lifecycle.transition(AgentState(agent_id, current.status), result.status).status)
-        self.contexts.update(run.tenant_id, run.project_id, agent_id, result.values)
-        return result
+        with self._lock:
+            executor = self.executors.get(agent_id)
+            if executor is None: raise SchedulerError(f"missing executor for {agent_id}")
+            if agent_id in self._active_agents:raise SchedulerError("agent executor is already active")
+            self._active_agents.add(agent_id)
+        try:
+            current = self.registry.get(agent_id)
+            if current.status in {"idle", "failed", "completed"}:
+                current = self.registry.update_status(agent_id, self.lifecycle.transition(AgentState(agent_id, current.status), "loading").status)
+                current = self.registry.update_status(agent_id, self.lifecycle.transition(AgentState(agent_id, current.status), "running").status)
+            elif current.status == "waiting_human":
+                current = self.registry.update_status(agent_id, self.lifecycle.transition(AgentState(agent_id, current.status), "running").status)
+            result = executor(self.contexts.get(run.tenant_id, run.project_id, agent_id))
+            self.registry.update_status(agent_id, self.lifecycle.transition(AgentState(agent_id, current.status), result.status).status)
+            self.contexts.update(run.tenant_id, run.project_id, agent_id, result.values)
+            return result
+        finally:
+            with self._lock:self._active_agents.discard(agent_id)
 
     def pause(self, run_id: str) -> PipelineRun:
         with self._lock:

@@ -3171,3 +3171,4 @@
 - 第七十三项稽查首败与整改：平台ConversationMemoryStore允许空project_id，open_session也接受无项目context，使同一identity的无项目对话共享全局记忆；这与项目级上下文隔离相冲突。现会话创建及memory read/update均强制非空identity+project，缺项目在读取历史或调用模型前失败关闭。
 - 第七十四项稽查首败与整改：SkillToolGuard输出脱敏只匹配键名完全等于token/secret等，`access_token`、`client_secret`等常见组合键不会脱敏，与观测层的包含式规则不一致。现递归输出对敏感词子串统一替换，嵌套组合凭据键不再泄露。
 - 第七十五项稽查首败与整改：AgentConversation在模型响应完成校验前已持久user/assistant消息并可能更新memory；若plan、Skill或proposal随后非法，本次send虽报错却留下半提交对话事实。现用户消息仅作为临时模型输入，响应、memory类型和proposal全部校验后才原子追加消息/提案；失败保持原会话不变。
+- 第七十六项稽查首败与整改：AgentScheduler只按run_id single-flight，同一agent可被不同run并发执行且活动期间add_executor可替换实现；并行run重复agent还会被future字典静默折叠。现新增agent级活动围栏，执行期间禁止热替换或跨run复用，异常统一释放，并拒绝重复agent_ids。
