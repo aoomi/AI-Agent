@@ -3584,3 +3584,5 @@
 - 第二百八十三项自动测试与稽查：首provider改写嵌套region后失败，backup仍精确收到local；能力fallback、并发容量与热插拔关联回归、Python编译及diff门禁通过。
 - 第二百八十四项稽查首败与整改：ResilientProviderInvoker虽隔离调用方，却把同一input_snapshot复用于重试及fallback；首个失败尝试仍可污染下一次调用。现每次provider attempt均从权威快照重建独立深副本。
 - 第二百八十四项自动测试与稽查：首尝试改写region并抛可重试错误后，第二次仍收到local；重试、fallback、熔断及限流关联回归、Python编译及diff门禁通过。
+- 第二百八十五项稽查首败与整改：AgentScheduler把executor返回的ExecutionResult.values写入上下文后仍原样返回，执行器可事后改写嵌套结果并造成返回对象与仓储分叉。现状态转换前强制标准JSON并重建独立ExecutionResult快照。
+- 第二百八十五项自动测试与稽查：scheduler完成后执行器原values改写嵌套steps不影响上下文；串并行调度、暂停恢复与人工接管关联回归、Python编译及diff门禁通过。

@@ -13,6 +13,12 @@ def skill(skill_id: str) -> SkillDefinition:
 
 
 class AgentSchedulerControlsTest(unittest.TestCase):
+    def test_executor_result_is_deeply_snapshotted(self):
+        values={"state":{"steps":["completed"]}}
+        self.scheduler.add_executor(self.first.agent_id,lambda _context:ExecutionResult("completed",values))
+        run=self.scheduler.start("tenant","project",(self.first.agent_id,),{},auto_run=False);self.scheduler.run(run.run_id)
+        values["state"]["steps"][0]="forged"
+        self.assertEqual(self.scheduler.contexts.get("tenant","project",self.first.agent_id).values["state"]["steps"][0],"completed")
     def test_runtime_dependency_and_resume_contracts_are_rejected(self) -> None:
         with self.assertRaisesRegex(SchedulerError,"registry contract"):AgentScheduler(object(),AgentContextStore())
         with self.assertRaisesRegex(SchedulerError,"context contract"):AgentScheduler(AgentRegistry(),object())

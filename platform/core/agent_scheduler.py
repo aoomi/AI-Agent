@@ -208,6 +208,9 @@ class AgentScheduler:
                 current = self.registry.update_status(agent_id, self.lifecycle.transition(AgentState(agent_id, current.status), "running").status)
             result = executor(self.contexts.get(run.tenant_id, run.project_id, agent_id))
             if not isinstance(result,ExecutionResult) or result.status not in {"completed","waiting_human","failed"} or not isinstance(result.values,Mapping):raise SchedulerError("agent executor result is invalid")
+            try:value_snapshot=json.loads(json.dumps(dict(result.values),allow_nan=False))
+            except (TypeError,ValueError) as error:raise SchedulerError("agent executor values must be standard JSON") from error
+            result=ExecutionResult(result.status,value_snapshot)
             self.registry.update_status(agent_id, self.lifecycle.transition(AgentState(agent_id, current.status), result.status).status)
             self.contexts.update(run.tenant_id, run.project_id, agent_id, result.values)
             return result
