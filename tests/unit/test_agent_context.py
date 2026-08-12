@@ -30,6 +30,9 @@ class AgentContextStoreTest(unittest.TestCase):
         context = store.create("tenant-a", "project-a", "agent-a")
         with self.assertRaises(TypeError):
             context.values["forbidden"] = True  # type: ignore[index]
+        nested={"state":{"steps":["queued"]}};store.update("tenant-a","project-a","agent-a",nested)
+        returned=store.get("tenant-a","project-a","agent-a");returned.values["state"]["steps"][0]="reader"
+        self.assertEqual(store.get("tenant-a","project-a","agent-a").values["state"]["steps"][0],"queued")
 
     def test_duplicate_context_is_rejected(self) -> None:
         store = AgentContextStore()

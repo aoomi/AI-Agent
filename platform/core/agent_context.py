@@ -49,7 +49,7 @@ class AgentContextStore:
         with self._lock:
             try: values = self._contexts[key]
             except KeyError as error: raise AgentContextError("agent context does not exist in this scope") from error
-            return AgentContext(*key, MappingProxyType(dict(values)))
+            return AgentContext(*key, MappingProxyType(json.loads(json.dumps(values,allow_nan=False))))
 
     @staticmethod
     def _key(tenant_id: str, project_id: str, agent_id: str) -> tuple[str, str, str]:

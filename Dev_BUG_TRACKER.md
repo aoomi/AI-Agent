@@ -3574,3 +3574,5 @@
 - 第二百七十八项自动测试与稽查：节点原output在invoke后改写嵌套steps不影响返回值；串并行、分支、interrupt与恢复关联回归、Python编译及diff门禁通过。
 - 第二百七十九项稽查首败与整改：ConversationMemoryStore update/read只浅拷贝嵌套记忆，无持久路径时调用方可直接污染仓储；有持久路径时内存又可与已写文件分叉。现输入、返回及读取均使用标准JSON独立深快照。
 - 第二百七十九项自动测试与稽查：update后原values篡改及read返回值篡改均不影响仓储；持久重载、失败写入与会话记忆关联回归、Python编译及diff门禁通过。
+- 第二百八十项稽查首败与整改：AgentContextStore update已隔离调用方输入，但get仍浅拷贝仓储值，读取者可经嵌套列表反向污染共享上下文。现每次读取均从标准JSON生成独立深快照。
+- 第二百八十项自动测试与稽查：get返回后读取者改写嵌套steps不影响后续读取；AgentContext、调度与协作关联回归、Python编译及diff门禁通过。
