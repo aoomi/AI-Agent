@@ -1,4 +1,5 @@
 import importlib.util
+from contextlib import nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -66,7 +67,10 @@ def test_commit_first_publishes_one_generation_and_consumes_lease() -> None:
         module.PRODUCTION_LEDGER = ProductionLedger(Path(temporary) / "ledger.sqlite")
         record = authority(identity, module.PRODUCTION_LEDGER.reserve_upscale_generation(authority(identity)))
         reports = []
-        module._production_orchestrator = lambda: SimpleNamespace(report=lambda *args, **kwargs: reports.append((args, kwargs)) or {"status":"waiting_human"})
+        module._production_orchestrator = lambda: SimpleNamespace(
+            authority_transaction=lambda _connection: nullcontext(),
+            report=lambda *args, **kwargs: reports.append((args, kwargs)) or {"status":"waiting_human"},
+        )
         context, event, generation = claimed(module, identity)
         workflow = module._commit_server_production_stage_result(
             identity, "review_export", {"operation":"upscale", "_authority_records":[record]}, event, generation,
@@ -85,7 +89,10 @@ def test_graph_failure_rolls_back_entire_authority_batch() -> None:
         module.TASK_LEASES = TaskLeaseRepository(Path(temporary) / "leases.sqlite")
         module.PRODUCTION_LEDGER = ProductionLedger(Path(temporary) / "ledger.sqlite")
         record = authority(identity, module.PRODUCTION_LEDGER.reserve_upscale_generation(authority(identity)))
-        module._production_orchestrator = lambda: SimpleNamespace(report=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("graph failed")))
+        module._production_orchestrator = lambda: SimpleNamespace(
+            authority_transaction=lambda _connection: nullcontext(),
+            report=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("graph failed")),
+        )
         context, event, generation = claimed(module, identity)
         with pytest.raises(RuntimeError, match="graph failed"):
             module._commit_server_production_stage_result(

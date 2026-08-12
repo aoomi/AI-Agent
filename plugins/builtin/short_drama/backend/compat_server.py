@@ -71,7 +71,8 @@ VIDEO_JOBS_FILE = OUTPUT_ROOT / "narrative-cache" / "video-jobs.json"
 PRODUCTION_QUEUE_FILE = OUTPUT_ROOT / "narrative-cache" / "production-queue.json"
 RESOURCES_FILE = OUTPUT_ROOT / "narrative-cache" / "resources.json"
 PRODUCTION_LEDGER_FILE = OUTPUT_ROOT / "narrative-cache" / "production-ledger.sqlite"
-PRODUCTION_ORCHESTRATOR_FILE = OUTPUT_ROOT / "narrative-cache" / "production-orchestrator.sqlite"
+LEGACY_PRODUCTION_ORCHESTRATOR_FILE = OUTPUT_ROOT / "narrative-cache" / "production-orchestrator.sqlite"
+PRODUCTION_ORCHESTRATOR_FILE = PRODUCTION_LEDGER_FILE
 STORY_BIBLE_FILE = OUTPUT_ROOT / "narrative-cache" / "story-bible.sqlite"
 TASK_LEASES_FILE = OUTPUT_ROOT / "narrative-cache" / "task-leases.sqlite"
 WORKER_REGISTRY_FILE = OUTPUT_ROOT / "narrative-cache" / "worker-registry.sqlite"
@@ -192,7 +193,7 @@ def _install_builtin_production_extensions() -> None:
         "storage.production_ledger": ("upsert", "list", "confirm"),
         "storage.story_bible": ("validate", "update"),
         "storage.task_repository": ("upsert_many", "list", "pending_projections", "acknowledge_projections", "projection_lock", "requeue_projection"),
-        "checkpoint.langgraph": ("begin", "report", "state", "execute"),
+        "checkpoint.langgraph": ("begin", "report", "state", "execute", "authority_transaction", "import_legacy_checkpoints"),
         "routing.workload": ("route", "heartbeat", "reap"),
         "storage.task_lease": ("acquire", "renew", "release", "owns", "request_cancel", "cancellation_requested", "commit_guard", "reap_expired"),
         "discovery.workers": ("heartbeat", "list", "reap"),
@@ -496,11 +497,13 @@ def _commit_server_production_stage_result(
                         "generation":stage_generation, "production_evidence":production_evidence, "audit_evidence":audit_evidence,
                         "progress":{"completed":1, "total":1}, "checkpoint":f"export:{batch_id}"})
             workflow_holder: dict[str, dict] = {}
-            def commit_graph_authority() -> None:
-                workflow_holder["workflow"] = _production_orchestrator().report(
-                    body, stage, "pending_confirmation", evidence={"server_coordinated":True, "authority_batch_id":batch_id},
-                    stage_generation=stage_generation, projection_revision=1,
-                )
+            def commit_graph_authority(connection: sqlite3.Connection) -> None:
+                orchestrator = _production_orchestrator()
+                with orchestrator.authority_transaction(connection):
+                    workflow_holder["workflow"] = orchestrator.report(
+                        body, stage, "pending_confirmation", evidence={"server_coordinated":True, "authority_batch_id":batch_id},
+                        stage_generation=stage_generation, projection_revision=1,
+                    )
             PRODUCTION_LEDGER.commit_stage_authorities(records, commit_callback=commit_graph_authority)
             return workflow_holder["workflow"]
         if stage == "review_export" and result.get("operation") == "upscale":
@@ -509,7 +512,7 @@ def _commit_server_production_stage_result(
                 raise RuntimeError("upscale authority commit payload is missing")
             workflow_holder: dict[str, dict] = {}
 
-            def commit_graph() -> None:
+            def commit_graph(connection: sqlite3.Connection) -> None:
                 authority_commit = {
                     "kind":"upscale",
                     "records":[{
@@ -519,11 +522,13 @@ def _commit_server_production_stage_result(
                         "audit_batch_id":str(item["audit_batch_id"]),
                     } for item in authority_records],
                 }
-                workflow_holder["workflow"] = _production_orchestrator().report(
-                    body, stage, "pending_confirmation", evidence={"server_coordinated":True},
-                    authority_commit=authority_commit, stage_generation=stage_generation,
-                    projection_revision=1,
-                )
+                orchestrator = _production_orchestrator()
+                with orchestrator.authority_transaction(connection):
+                    workflow_holder["workflow"] = orchestrator.report(
+                        body, stage, "pending_confirmation", evidence={"server_coordinated":True},
+                        authority_commit=authority_commit, stage_generation=stage_generation,
+                        projection_revision=1,
+                    )
 
             PRODUCTION_LEDGER.commit_upscale_authorities(
                 authority_records, commit_callback=commit_graph,
@@ -2040,6 +2045,7 @@ def _production_orchestrator() -> ProductionOrchestrator:
         if PRODUCTION_ORCHESTRATOR is None:
             director = _global_director_decision if NARRATIVE_MODEL_REVIEW_ENABLED else None
             PRODUCTION_ORCHESTRATOR = PRODUCTION_EXTENSIONS.create("checkpoint.langgraph", database=PRODUCTION_ORCHESTRATOR_FILE, director=director)
+            PRODUCTION_ORCHESTRATOR.import_legacy_checkpoints(LEGACY_PRODUCTION_ORCHESTRATOR_FILE)
         return PRODUCTION_ORCHESTRATOR
 
 

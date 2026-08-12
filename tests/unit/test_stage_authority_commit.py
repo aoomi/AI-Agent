@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 import pytest
 
 from plugins.builtin.short_drama.workflows.production_ledger import ProductionLedger, ProductionLedgerError
+from plugins.builtin.short_drama.workflows.production_orchestrator import ProductionOrchestrator
 
 
 IDENTITY = {"tenant_id":"t", "user_id":"u", "project_id":"p"}
@@ -20,12 +21,40 @@ def test_stage_authority_and_control_commit_share_one_transaction():
     with TemporaryDirectory() as temporary:
         ledger = ProductionLedger(Path(temporary) / "ledger.sqlite")
         with pytest.raises(RuntimeError, match="graph failed"):
-            ledger.commit_stage_authorities([authority(1)], commit_callback=lambda: (_ for _ in ()).throw(RuntimeError("graph failed")))
+            ledger.commit_stage_authorities([authority(1)], commit_callback=lambda _connection: (_ for _ in ()).throw(RuntimeError("graph failed")))
         assert ledger.list(IDENTITY) == []
-        committed = ledger.commit_stage_authorities([authority(1)], commit_callback=lambda: None)[0]
+        committed = ledger.commit_stage_authorities([authority(1)], commit_callback=lambda _connection: None)[0]
         assert committed["generation"] == 1
         assert committed["production_evidence"] == {"path":"master.mp4"}
         assert committed["audit_evidence"] == {"status":"not_applicable"}
+
+
+def test_graph_and_authority_rollback_together_after_graph_writes():
+    with TemporaryDirectory() as temporary:
+        database = Path(temporary) / "kernel.sqlite"
+        ledger = ProductionLedger(database)
+        graph = ProductionOrchestrator(database)
+
+        def write_graph_then_fail(connection):
+            with graph.authority_transaction(connection):
+                graph.report(IDENTITY, "composition", "pending_confirmation", stage_generation=1, projection_revision=1)
+            raise RuntimeError("commit fence failed")
+
+        with pytest.raises(RuntimeError, match="commit fence failed"):
+            ledger.commit_stage_authorities([authority(1)], commit_callback=write_graph_then_fail)
+        assert ledger.list(IDENTITY) == []
+        assert graph.state(IDENTITY)["stages"].get("composition") is None
+
+
+def test_legacy_graph_checkpoint_migration_is_idempotent():
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        legacy = ProductionOrchestrator(root / "legacy.sqlite")
+        legacy.report(IDENTITY, "outline", "running", stage_generation=1, projection_revision=1)
+        kernel = ProductionOrchestrator(root / "kernel.sqlite")
+        assert kernel.import_legacy_checkpoints(root / "legacy.sqlite") > 0
+        assert kernel.state(IDENTITY)["stages"]["outline"] == "running"
+        assert kernel.import_legacy_checkpoints(root / "legacy.sqlite") == 0
 
 
 def test_stage_authority_rejects_stale_and_same_generation_mutation():
@@ -54,6 +83,8 @@ def test_server_stage_commit_wires_composition_audit_and_export_authorities():
     assert 'stage == "composition"' in block
     assert 'result.get("operation") in {"audit", "export"}' in block
     assert "PRODUCTION_LEDGER.commit_stage_authorities(records, commit_callback=commit_graph_authority)" in block
+    assert "PRODUCTION_ORCHESTRATOR_FILE = PRODUCTION_LEDGER_FILE" in backend
+    assert "orchestrator.authority_transaction(connection)" in block
     assert '"authority_batch_id":batch_id' in block
     assert 'manifest_payload["authority"]' in block
     assert '"manifest_fingerprint":manifest_fingerprint' in block

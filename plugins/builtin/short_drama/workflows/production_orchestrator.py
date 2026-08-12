@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import operator
 from pathlib import Path
 import sqlite3
+from contextlib import contextmanager
 from threading import RLock
 from dataclasses import dataclass
 from typing import Annotated, Any, Callable, Mapping, TypedDict
@@ -18,6 +19,39 @@ from .production_ledger import CANONICAL_STAGES, LIFECYCLES, canonical_stage
 
 Director = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 StageExecutor = Callable[[Mapping[str, Any]], Mapping[str, Any]]
+
+
+class TransactionalSqliteSaver(SqliteSaver):
+    """Let an authority commit lend its SQLite transaction to LangGraph."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        super().__init__(connection)
+        self._external_connection: sqlite3.Connection | None = None
+
+    @contextmanager
+    def use_connection(self, connection: sqlite3.Connection):
+        if self._external_connection is not None:
+            raise RuntimeError("nested LangGraph authority transactions are not supported")
+        self._external_connection = connection
+        try:
+            yield
+        finally:
+            self._external_connection = None
+
+    @contextmanager
+    def cursor(self, transaction: bool = True):
+        external = self._external_connection
+        if external is None:
+            with super().cursor(transaction=transaction) as cursor:
+                yield cursor
+            return
+        with self.lock:
+            self.setup()
+            cursor = external.cursor()
+            try:
+                yield cursor
+            finally:
+                cursor.close()
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,11 +85,41 @@ class ProductionOrchestrator:
         self.database = database.resolve()
         self.database.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(self.database, check_same_thread=False)
-        self.checkpointer = SqliteSaver(self.connection)
+        self.checkpointer = TransactionalSqliteSaver(self.connection)
+        self.checkpointer.setup()
         self.director = director
         self._executors: dict[str, tuple[StageDefinition, StageExecutor]] = {}
         self._lock = RLock()
         self.graph = self._compile()
+
+    @contextmanager
+    def authority_transaction(self, connection: sqlite3.Connection):
+        """Route all checkpoint writes to the caller's uncommitted connection."""
+        with self._lock, self.checkpointer.use_connection(connection):
+            yield
+
+    def import_legacy_checkpoints(self, source: Path) -> int:
+        """Idempotently copy checkpoints from the former split database."""
+        source = source.resolve()
+        if source == self.database or not source.is_file():
+            return 0
+        with self._lock:
+            self.checkpointer.setup()
+            before = int(self.connection.execute("SELECT count(*) FROM checkpoints").fetchone()[0])
+            escaped = str(source).replace("'", "''")
+            self.connection.execute(f"ATTACH DATABASE '{escaped}' AS legacy_graph")
+            try:
+                tables = {str(row[0]) for row in self.connection.execute(
+                    "SELECT name FROM legacy_graph.sqlite_master WHERE type='table'"
+                )}
+                if {"checkpoints", "writes"}.issubset(tables):
+                    self.connection.execute("INSERT OR IGNORE INTO checkpoints SELECT * FROM legacy_graph.checkpoints")
+                    self.connection.execute("INSERT OR IGNORE INTO writes SELECT * FROM legacy_graph.writes")
+                self.connection.commit()
+            finally:
+                self.connection.execute("DETACH DATABASE legacy_graph")
+            after = int(self.connection.execute("SELECT count(*) FROM checkpoints").fetchone()[0])
+            return after - before
 
     def register_stage(self, stage: str, executor: StageExecutor, *, provider_id: str = "local", enabled: bool = True, replace: bool = False) -> None:
         canonical = canonical_stage(stage)

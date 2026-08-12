@@ -79,7 +79,9 @@ class ProductionLedger:
 
     @contextmanager
     def _connection(self):
-        connection = sqlite3.connect(self.database, timeout=30)
+        # LangGraph persists checkpoints from its executor thread while the
+        # authority coordinator owns this same transaction.
+        connection = sqlite3.connect(self.database, timeout=30, check_same_thread=False)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA journal_mode=WAL")
@@ -378,7 +380,7 @@ class ProductionLedger:
         self,
         records: Iterable[Mapping[str, Any]],
         *,
-        commit_callback: Callable[[], Any] | None = None,
+        commit_callback: Callable[[sqlite3.Connection], Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Atomically publish an upscale batch around its control-plane commit.
 
@@ -398,14 +400,14 @@ class ProductionLedger:
             connection.execute("BEGIN IMMEDIATE")
             committed = [self.commit_upscale_authority(item, connection=connection) for item in records]
             if commit_callback is not None:
-                commit_callback()
+                commit_callback(connection)
             return committed
 
     def commit_stage_authorities(
         self,
         records: Iterable[Mapping[str, Any]],
         *,
-        commit_callback: Callable[[], Any] | None = None,
+        commit_callback: Callable[[sqlite3.Connection], Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Atomically publish server-created non-upscale evidence and its graph event."""
         records = list(records)
@@ -450,7 +452,7 @@ class ProductionLedger:
                     continue
                 committed.append(self.upsert({**item, "lifecycle":"pending_confirmation", "confirmation":None}, connection=connection))
             if commit_callback is not None:
-                commit_callback()
+                commit_callback(connection)
             return committed
 
     def upsert(self, payload: Mapping[str, Any], *, connection: sqlite3.Connection | None = None) -> dict[str, Any]:
