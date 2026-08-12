@@ -84,12 +84,16 @@ class AgentScheduler:
         return self.graph_orchestrator.resume(graph_id, thread_id, approved)
 
     def schedule_remediation(self, instruction: RemediationInstruction) -> ScheduledRemediation:
+        if not instruction.instruction_id.strip() or not instruction.root_task_id.strip() or not instruction.developer_agent_id.strip() or not instruction.issue_ids or instruction.remediation_round < 1:
+            raise SchedulerError("remediation instruction contract is invalid")
         with self._lock:
             if instruction.instruction_id in self.remediations: raise SchedulerError("remediation instruction is already scheduled")
             remediation = ScheduledRemediation(instruction.instruction_id, instruction.root_task_id, instruction.developer_agent_id, instruction.issue_ids, instruction.remediation_round)
             self.remediations[instruction.instruction_id] = remediation; return remediation
 
     def remediation(self, instruction_id: str) -> ScheduledRemediation:
+        instruction_id = instruction_id.strip()
+        if not instruction_id:raise SchedulerError("remediation instruction_id is required")
         with self._lock:
             try: return self.remediations[instruction_id]
             except KeyError as error: raise SchedulerError("remediation task does not exist") from error
@@ -223,6 +227,8 @@ class AgentScheduler:
         return self.run(run_id)
 
     def _get(self, run_id: str) -> PipelineRun:
+        run_id = run_id.strip()
+        if not run_id:raise SchedulerError("pipeline run_id is required")
         with self._lock:
             try:return self.runs[run_id]
             except KeyError as error:raise SchedulerError("pipeline run does not exist") from error

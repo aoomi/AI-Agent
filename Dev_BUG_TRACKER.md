@@ -3216,3 +3216,5 @@
 - 第九十九项自动测试与稽查：顶层、对象嵌套和数组嵌套三类敏感values均不进入上下文；上下文、Agent流水线及scope隔离关联`11 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
 - 第一百项稽查首败与整改：AgentScheduler.start依赖ContextStore间接校验tenant/project，可能已为前序agent创建部分上下文才在后续失败；use_graph_orchestrator还接受任意对象，把契约错误延迟到运行。现启动先验证完整scope，编排器注入先验证三方法可调用。
 - 第一百项自动测试与稽查：空tenant、空project和坏orchestrator三类均零执行失败关闭；调度控制、Agent流水线与LangGraph关联`14 passed`，Python编译与diff门禁通过。
+- 第一百零一项稽查首败与整改：AgentScheduler的run/remediation接受空ID并伪装不存在，schedule_remediation只检查重复ID，可登记空instruction/root task/developer、空issues或非法round。现控制查找与整改登记在共享表访问前验证完整可追溯契约。
+- 第一百零一项自动测试与稽查：空run、空remediation ID及空instruction动态失败关闭；调度控制、Agent流水线与协作集成关联`11 passed`，Python编译与diff门禁通过。

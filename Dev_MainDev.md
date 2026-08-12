@@ -1101,3 +1101,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第九十八项：私有部署SQLiteStateStore value已在持久化前递归拒绝六类敏感组合键，凭据不能进入通用checkpoint/state库或跨实例读取。持久适配与韧性关联`7 passed`、`6 subtests passed`，Python编译与只读diff稽查通过。
 - BUG072第九十九项：AgentContext values已在共享上下文写入边界递归拒绝六类敏感组合键，凭据不能经调度器在同项目机器人间传播或进入上下文快照。上下文、流水线与隔离关联`11 passed`、`6 subtests passed`，Python编译与只读diff稽查通过。
 - BUG072第一百项：AgentScheduler启动已强制非空tenant/project，Graph orchestrator注入同步验证compile/invoke/resume契约；匿名运行与坏编排器在创建上下文或执行副作用前失败关闭。调度、流水线与Graph关联`14 passed`，Python编译与只读diff稽查通过。
+- BUG072第一百零一项：AgentScheduler的run/remediation查找已拒绝空ID，整改指令登记同步校验instruction/root task/developer/issues/round完整契约；匿名控制不再伪装资源不存在。调度、流水线与协作关联`11 passed`，Python编译与只读diff稽查通过。

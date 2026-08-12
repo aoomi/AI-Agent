@@ -4,7 +4,7 @@ import unittest
 import threading
 from pathlib import Path
 
-from ai_agent_core import AgentContextStore, AgentScheduler, ExecutionResult, SchedulerError
+from ai_agent_core import AgentContextStore, AgentScheduler, ExecutionResult, SchedulerError, RemediationInstruction
 from ai_agent_discovery import AgentRegistry, SkillDefinition
 
 
@@ -68,6 +68,12 @@ class AgentSchedulerControlsTest(unittest.TestCase):
                 self.scheduler.start(*scope, (self.first.agent_id,), {}, auto_run=False)
         with self.assertRaisesRegex(SchedulerError, "contract"):
             self.scheduler.use_graph_orchestrator(object())
+
+    def test_anonymous_run_and_invalid_remediation_controls_are_rejected(self) -> None:
+        with self.assertRaisesRegex(SchedulerError, "run_id"):self.scheduler.run("")
+        with self.assertRaisesRegex(SchedulerError, "instruction_id"):self.scheduler.remediation("")
+        invalid=RemediationInstruction("", "session", "report", self.first.agent_id, "task", ("issue",), 1, "pending", "now")
+        with self.assertRaisesRegex(SchedulerError, "contract"):self.scheduler.schedule_remediation(invalid)
 
 
 if __name__ == "__main__": unittest.main()
