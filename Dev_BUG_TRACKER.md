@@ -3396,3 +3396,5 @@
 - 第一百八十九项自动测试与稽查：数字角色、列表权限、空权限、布尔depth及NaN动态拒绝；安全关联`3 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
 - 第一百九十项稽查首败与整改：PluginSandboxBroker直接访问任意policy属性并对身份strip，策略根、白名单容器、write、路径和URL依赖静态类型，畸形控制会泄漏底层异常。现构造和全部外部资源入口严格验证运行时契约。
 - 第一百九十项自动测试与稽查：坏policy/身份/root/allowlist/write/path/URL动态失败关闭；安全关联`3 passed`（另`11 subtests passed`），Python编译与diff门禁通过。
+- 第一百九十一项稽查首败与整改：PluginInstallVerifier的许可容器与verify request结构依赖静态注解，任意request、字符串Path、字符串manifest或列表权限会泄漏属性/哈希/集合异常。现安装门禁在任何I/O和签名副作用前完整验证。
+- 第一百九十一项自动测试与稽查：坏allowlist、request、Path、manifest、permissions及最低版本动态失败关闭；安全关联`4 passed`（另`9 subtests passed`），Python编译与diff门禁通过。
