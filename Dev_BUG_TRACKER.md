@@ -3298,3 +3298,5 @@
 - 第一百四十项自动测试与稽查：空agent、未知初始状态和未知target动态拒绝；生命周期与调度关联`12 passed`，Python编译与diff门禁通过。
 - 第一百四十一项稽查首败与整改：AgentConversation open_session/memory update依赖Mapping假设，send非字符串泄漏AttributeError，_session/_proposal把空ID伪装unknown。现四类边界在配置、模型、持久memory或共享表访问前严格失败关闭。
 - 第一百四十一项自动测试与稽查：列表context、空session及空proposal动态拒绝；会话与管理API关联`19 passed`，Python编译与diff门禁通过。
+- 第一百四十二项稽查首败与整改：DurableTaskRepository的batch、projection ack/requeue/lock、get/list多类公开控制依赖静态类型，空ID、布尔revision/TTL/flag或错误集合可能伪装零操作或进入SQLite。现所有边界在事务前失败关闭。
+- 第一百四十二项自动测试与稽查：七类畸形控制及布尔TTL动态拒绝；持久任务owner关联`3 passed`（另`7 subtests passed`），Python编译与diff门禁通过。

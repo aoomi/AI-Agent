@@ -77,6 +77,7 @@ class DurableTaskRepository:
         return self.get(str(job_id), tenant_id=values["tenant_id"], user_id=values["user_id"], project_id=values["project_id"]) or {}
 
     def upsert_many(self, task_class: str, jobs: Mapping[str, Mapping[str, Any]], *, enqueue_projection: bool = False) -> list[dict[str, Any]]:
+        if not isinstance(jobs, Mapping) or not isinstance(enqueue_projection, bool):raise ValueError("durable task batch contract is invalid")
         prepared = [(str(job_id), self._values(str(job_id), str(task_class), job)) for job_id, job in jobs.items()]
         applied: list[str] = []
         with self._lock, self._connection() as connection:
@@ -108,6 +109,7 @@ class DurableTaskRepository:
 
     @staticmethod
     def _values(job_id: str, task_class: str, job: Mapping[str, Any]) -> dict[str, Any]:
+        if not isinstance(job, Mapping):raise ValueError("durable task payload must be a mapping")
         request = job.get("request") if isinstance(job.get("request"), Mapping) else {}
         now = datetime.now(UTC).isoformat()
         tenant_id=str(job.get("tenant_id") or request.get("tenant_id") or "").strip();user_id=str(job.get("user_id") or request.get("user_id") or "").strip();project_id=str(job.get("project_id") or request.get("project_id") or "").strip()
@@ -138,6 +140,8 @@ class DurableTaskRepository:
         return [{"job_id":row["job_id"], "task_class":row["task_class"], "payload":json.loads(row["payload_json"]), "updated_at":row["updated_at"], "event_revision":int(row["event_revision"])} for row in rows]
 
     def acknowledge_projections(self, events: list[str | tuple[str, int]]) -> int:
+        if not isinstance(events,list):raise ValueError("projection acknowledgements must be a list")
+        if any(isinstance(item,tuple) and (len(item)!=2 or not str(item[0]).strip() or isinstance(item[1],bool) or not isinstance(item[1],int) or item[1]<=0) for item in events):raise ValueError("projection acknowledgement is invalid")
         unversioned = sorted({str(item) for item in events if not isinstance(item, tuple) and str(item)})
         versioned = sorted({(str(item[0]), int(item[1])) for item in events if isinstance(item, tuple) and str(item[0])})
         if not unversioned and not versioned: return 0
@@ -150,6 +154,7 @@ class DurableTaskRepository:
         return deleted
 
     def requeue_projection(self, job_id: str) -> int:
+        if not str(job_id).strip():raise ValueError("projection job_id is required")
         with self._lock, self._connection() as connection:
             row = connection.execute("SELECT task_class,payload_json FROM durable_tasks WHERE job_id=?", (str(job_id),)).fetchone()
             if not row: return 0
@@ -164,7 +169,7 @@ class DurableTaskRepository:
     @contextmanager
     def projection_lock(self, scope_key: str, *, ttl: float = 30.0):
         key = str(scope_key).strip(); owner = uuid4().hex
-        if not key or ttl <= 1: raise ValueError("invalid projection lock")
+        if not key or isinstance(ttl,bool) or not isinstance(ttl,(int,float)) or ttl <= 1: raise ValueError("invalid projection lock")
         now = time.time()
         lost = Event(); lease = ProjectionLease(False, lost, self, key, owner)
         acquired = False
@@ -206,6 +211,8 @@ class DurableTaskRepository:
                 pass
 
     def get(self, job_id: str, *, tenant_id: str, user_id: str, project_id: str) -> dict[str, Any] | None:
+        job_id=str(job_id).strip()
+        if not job_id:raise ValueError("durable task job_id is required")
         scope=tuple(str(value).strip() for value in (tenant_id,user_id,project_id))
         if not all(scope):raise ValueError("durable task owner scope is required")
         with self._lock, self._connection() as connection:
@@ -213,6 +220,7 @@ class DurableTaskRepository:
         return self._record(row) if row else None
 
     def list(self, *, tenant_id: str = "", user_id: str = "", project_id: str = "", task_class: str = "", nonterminal_only: bool = False) -> list[dict[str, Any]]:
+        if not isinstance(nonterminal_only,bool):raise ValueError("nonterminal_only must be boolean")
         scope=tuple(str(value).strip() for value in (tenant_id,user_id,project_id))
         if any(scope) and not all(scope):raise ValueError("tenant_id, user_id and project_id must be supplied together")
         clauses: list[str] = []; values: list[Any] = []
