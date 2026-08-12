@@ -34,6 +34,7 @@ class AgentContextStore:
     def update(self, tenant_id: str, project_id: str, agent_id: str, values: Mapping[str, Any]) -> AgentContext:
         key = self._key(tenant_id, project_id, agent_id)
         if any(not str(name).strip() for name in values):raise AgentContextError("agent context keys must not be empty")
+        if self._contains_sensitive_key(values):raise AgentContextError("agent context contains sensitive fields")
         with self._lock:
             try: context = self._contexts[key]
             except KeyError as error: raise AgentContextError("agent context does not exist in this scope") from error
@@ -52,6 +53,13 @@ class AgentContextStore:
         if not all(values):
             raise AgentContextError("tenant_id, project_id and agent_id are required")
         return values  # type: ignore[return-value]
+
+    @staticmethod
+    def _contains_sensitive_key(value: Any) -> bool:
+        forbidden=("secret","token","password","api_key","authorization","credential")
+        if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or AgentContextStore._contains_sensitive_key(item) for key,item in value.items())
+        if isinstance(value,(list,tuple,set,frozenset)):return any(AgentContextStore._contains_sensitive_key(item) for item in value)
+        return False
 
 
 @dataclass(frozen=True, slots=True)

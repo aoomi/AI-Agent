@@ -28,6 +28,11 @@ class AgentContextStoreTest(unittest.TestCase):
             store.create("tenant-a", "project-a", "agent-a")
         with self.assertRaisesRegex(AgentContextError,"keys"):store.update("tenant-a","project-a","agent-a",{" ":1})
 
+    def test_sensitive_context_values_are_rejected_recursively(self) -> None:
+        store=AgentContextStore();store.create("tenant-a","project-a","agent-a")
+        for values in ({"access_token":"plaintext"},{"headers":{"Authorization":"Bearer plaintext"}},{"profiles":[{"client_secret":"plaintext"}]}):
+            with self.subTest(values=values),self.assertRaisesRegex(AgentContextError,"sensitive fields"):store.update("tenant-a","project-a","agent-a",values)
+
 
 if __name__ == "__main__":
     unittest.main()

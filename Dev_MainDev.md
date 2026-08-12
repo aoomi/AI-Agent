@@ -1099,3 +1099,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第九十六项：通用PublishedEvent payload已在事件发布模型边界递归拒绝六类敏感组合键，凭据不能进入订阅回调、任务投影或其他事件消费者。事件、投影与任务关联`16 passed`、`3 subtests passed`，Python编译与只读diff稽查通过。
 - BUG072第九十七项：私有部署SQLiteDurableQueue payload已强制对象类型并递归拒绝六类敏感组合键，凭据不能进入持久队列、重启恢复或跨实例claim结果。持久适配与韧性关联`6 passed`、`3 subtests passed`，Python编译与只读diff稽查通过。
 - BUG072第九十八项：私有部署SQLiteStateStore value已在持久化前递归拒绝六类敏感组合键，凭据不能进入通用checkpoint/state库或跨实例读取。持久适配与韧性关联`7 passed`、`6 subtests passed`，Python编译与只读diff稽查通过。
+- BUG072第九十九项：AgentContext values已在共享上下文写入边界递归拒绝六类敏感组合键，凭据不能经调度器在同项目机器人间传播或进入上下文快照。上下文、流水线与隔离关联`11 passed`、`6 subtests passed`，Python编译与只读diff稽查通过。

@@ -3212,3 +3212,5 @@
 - 第九十七项自动测试与稽查：顶层、对象嵌套和数组嵌套三类敏感payload均零落盘；持久适配器与私有部署韧性关联`6 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
 - 第九十八项稽查首败与整改：SQLiteStateStore作为通用私有部署状态库会长期保存任意value，原入口仅校验tenant/namespace/key，可把access_token、Authorization或client_secret写入checkpoint域。现put在SQLite写入前递归拒绝六类敏感组合键。
 - 第九十八项自动测试与稽查：顶层、对象嵌套和数组嵌套三类敏感state均零落盘；持久适配器与私有部署韧性关联`7 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
+- 第九十九项稽查首败与整改：AgentContextStore会在AgentScheduler间共享并返回完整values快照，原update只拒绝空键，可把access_token、Authorization或client_secret扩散给后续机器人。现上下文写入前递归拒绝六类敏感组合键。
+- 第九十九项自动测试与稽查：顶层、对象嵌套和数组嵌套三类敏感values均不进入上下文；上下文、Agent流水线及scope隔离关联`11 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
