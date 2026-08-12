@@ -25,5 +25,10 @@ class IndustryWorkflowContractTest(unittest.TestCase):
   service=IndustryWorkflowService(Orchestrator());service.execute(None,{"operation":"create","workflow_id":"workflow","industry_id":"industry","robot_ids":("robot",)},"owner")
   with self.assertRaisesRegex(IndustryWorkflowError,"mode is invalid"):service.execute(None,{"operation":"modify","workflow_id":"workflow","mode":"unknown"},"owner")
   self.assertEqual(service.workflows["workflow"].version,1)
+ def test_run_rejects_non_string_thread_without_invoking_graph(self):
+  service=IndustryWorkflowService(Orchestrator());service.bind_executor("robot",lambda *_:{})
+  service.execute(None,{"operation":"create","workflow_id":"workflow","industry_id":"industry","robot_ids":("robot",)},"owner")
+  with self.assertRaisesRegex(IndustryWorkflowError,"run contract"):
+   service.execute(None,{"operation":"run","workflow_id":"workflow","thread_id":1},"owner")
 
 if __name__=="__main__":unittest.main()

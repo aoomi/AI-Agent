@@ -3364,3 +3364,5 @@
 - 第一百七十三项自动测试与稽查：五类数字resource/job/scope动态失败关闭且队列保持空；专项回归、Python编译与diff门禁通过。
 - 第一百七十四项稽查首败与整改：WorkerRegistry.reserve/release使用`str(...)`接受数字request/resource，service/owner scope又未经规范化，可能形成不可预测的幂等冲突。现预留身份在事务前统一按字符串验证和strip。
 - 第一百七十四项自动测试与稽查：五类数字预留/释放身份动态失败关闭；专项回归、Python编译与diff门禁通过。
+- 第一百七十五项稽查首败与整改：IndustryWorkflow run仍用`str(...)`接受数字thread_id，使调用方可在Graph检查点中制造含混线程键。现线程身份在激活围栏与compile/invoke前严格验证字符串。
+- 第一百七十五项自动测试与稽查：数字thread动态失败关闭且Graph零调用；专项回归、Python编译与diff门禁通过。

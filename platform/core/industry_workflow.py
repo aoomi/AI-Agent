@@ -46,7 +46,9 @@ class IndustryWorkflowService:
     item=replace(item,edges=item.edges+((source,target),),version=item.version+1)
     with self._lock:self.workflows[workflow_id]=item
    elif operation=="run":
-    thread_id=str(changes.get("thread_id",workflow_id)).strip();inputs=changes.get("inputs",{})
+    thread_id=changes.get("thread_id",workflow_id);inputs=changes.get("inputs",{})
+    if not isinstance(thread_id,str):raise IndustryWorkflowError("workflow run contract is invalid")
+    thread_id=thread_id.strip()
     if not thread_id or not isinstance(inputs,Mapping):raise IndustryWorkflowError("workflow run contract is invalid")
     with self._lock:
      missing=set(item.robot_ids)-self.executors.keys();executors={r:self.executors[r] for r in item.robot_ids if r in self.executors}
