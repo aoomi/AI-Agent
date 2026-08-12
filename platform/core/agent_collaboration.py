@@ -124,14 +124,14 @@ class AgentCollaborationService:
 
     def open_session(self, *, tenant_id: str, created_by_identity_id: str, project_id: str, root_task_id: str, developer_agent_id: str, inspector_agent_id: str, max_remediation_rounds: int = 3) -> CollaborationSession:
         tenant_id, created_by_identity_id, project_id, root_task_id = self._required(tenant_id, created_by_identity_id, project_id, root_task_id)
+        if isinstance(max_remediation_rounds,bool) or not isinstance(max_remediation_rounds,int) or not 1 <= max_remediation_rounds <= 100:
+            raise AgentCollaborationError("max_remediation_rounds must be between 1 and 100")
         developer = self.configurations.get(developer_agent_id)
         inspector = self.configurations.get(inspector_agent_id)
         if developer.role != "developer" or not developer.writable:
             raise AgentCollaborationError("developer agent must have writable developer configuration")
         if inspector.role != "inspector" or inspector.writable:
             raise AgentCollaborationError("inspector agent must have read-only inspector configuration")
-        if not 1 <= max_remediation_rounds <= 100:
-            raise AgentCollaborationError("max_remediation_rounds must be between 1 and 100")
         now = self._now()
         session = CollaborationSession(f"collaboration-{uuid4().hex}", tenant_id, created_by_identity_id, project_id, root_task_id, developer_agent_id, inspector_agent_id, "active", 0, max_remediation_rounds, now, now)
         with self._lock:self._sessions[session.session_id] = session
