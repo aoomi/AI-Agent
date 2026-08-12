@@ -264,8 +264,9 @@ class AgentConversationService:
                 result = executor.execute(configuration, proposal.requested_changes, identity_id)
                 if not isinstance(result,Mapping) or not result: raise ConversationError("task executor returned no result")
                 if self._contains_sensitive_key(result): raise ConversationError("task executor result contains sensitive fields")
-                try:json.dumps(dict(result),allow_nan=False)
+                try:canonical_result=json.dumps(dict(result),allow_nan=False)
                 except (TypeError,ValueError) as error:raise ConversationError("task executor result must be standard JSON") from error
+                result=json.loads(canonical_result)
         except Exception:
             with self._lock:self._proposals[proposal.proposal_id] = replace(proposal, status="failed")
             raise

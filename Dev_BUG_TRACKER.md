@@ -3558,3 +3558,5 @@
 - 第二百七十项自动测试与稽查：enqueue后调用方篡改嵌套steps动态隔离；持久队列重开、claim及私有部署韧性关联回归、Python编译与diff门禁通过。
 - 第二百七十一项稽查首败与整改：TraceRecorder在span开始时仅浅拷贝attributes，业务代码可在span期间改写嵌套属性，使最终导出不再代表入口事实。现计时前以标准JSON规范化结果固定独立深快照。
 - 第二百七十一项自动测试与稽查：span执行中调用方篡改嵌套steps动态隔离；trace、JSONL与Prometheus关联回归、Python编译及diff门禁通过。
+- 第二百七十二项稽查首败与整改：提案executor结果只冻结顶层applied_result，执行器可在确认落状态后改写嵌套结果。现非配置提案以已验证标准JSON生成独立深快照再发布applied终态。
+- 第二百七十二项自动测试与稽查：确认后执行器原结果嵌套steps篡改动态隔离；会话提案、执行失败与配置确认关联回归、Python编译及diff门禁通过。
