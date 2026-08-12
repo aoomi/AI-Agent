@@ -3106,3 +3106,5 @@
 - 第三十二项自动测试与稽查：动态证明同租户交错队列按指定identity领取且其余顺序保留，pipeline/backend及队列关联`19 passed`；Python编译与diff门禁通过。
 - 第三十三项稽查首败与整改：TASK_STATUS_CHANGED投影到权威队列时只校验tenant/project，忽略事件identity；同租户异身份事件若知道task_id可改写他人任务状态和进度。现TaskService透传事件identity，队列在任何状态转换前执行tenant+identity+project完整门禁。
 - 第三十三项自动测试与稽查：动态证明异identity状态事件拒绝且原running任务不变，任务队列、服务及HTTP追踪关联`16 passed`；Python编译与diff门禁通过。
+- 第三十四项稽查首败与整改：AgentConfiguration的expected_version CAS在无锁字典上执行get→比较→append，并发两请求可同时通过version=1并各自追加version=2，破坏单调版本和确认提案边界。现统一RLock覆盖create、完整update CAS事务、get及history快照。
+- 第三十四项自动测试与稽查：双线程同expected_version竞态仅一个成功，最终版本2且历史恰两条；配置、会话与协作关联`22 passed`（另`3 subtests passed`），Python编译与diff门禁通过。

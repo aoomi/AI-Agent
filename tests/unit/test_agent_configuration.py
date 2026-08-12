@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Barrier, Thread
 import unittest
 
 from ai_agent_core import AgentConfigurationError, AgentConfigurationStore
@@ -59,6 +60,21 @@ class AgentConfigurationStoreTest(unittest.TestCase):
                 agent.agent_id, expected_version=2, updated_by_identity_id="owner",
                 skill=skill, agent=agent,
             )
+
+    def test_concurrent_cas_allows_only_one_version_update(self) -> None:
+        skill, agent, _ = self.create_for("system_main_developer")
+        barrier = Barrier(3); results = []
+        def update(value):
+            barrier.wait()
+            try: results.append(self.store.update(agent.agent_id, expected_version=1, updated_by_identity_id=value, settings={"value": value}, skill=skill, agent=agent))
+            except AgentConfigurationError as error: results.append(error)
+        threads = [Thread(target=update, args=(value,)) for value in ("one", "two")]
+        for thread in threads: thread.start()
+        barrier.wait()
+        for thread in threads: thread.join()
+        self.assertEqual(sum(not isinstance(item, Exception) for item in results), 1)
+        self.assertEqual(self.store.get(agent.agent_id).configuration_version, 2)
+        self.assertEqual(len(self.store.history(agent.agent_id)), 2)
 
     def test_model_must_satisfy_skill_capabilities(self) -> None:
         skill = self.skills["system_main_developer"]

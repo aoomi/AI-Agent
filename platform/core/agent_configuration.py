@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import MappingProxyType
+from threading import RLock
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -36,6 +37,7 @@ class AgentConfigurationStore:
     def __init__(self, models: ModelRegistry) -> None:
         self._models = models
         self._history: dict[str, list[AgentConfiguration]] = {}
+        self._lock = RLock()
 
     def create(
         self,
@@ -46,21 +48,17 @@ class AgentConfigurationStore:
         updated_by_identity_id: str,
         settings: Mapping[str, Any] | None = None,
     ) -> AgentConfiguration:
-        if agent.agent_id in self._history:
-            raise AgentConfigurationError(f"configuration already exists: {agent.agent_id}")
-        self._validate_agent_skill(agent, skill)
-        model = self._resolve_model(skill, model_id)
-        configuration = self._build(
-            configuration_id=f"agent-config-{uuid4().hex}",
-            version=1,
-            agent=agent,
-            skill=skill,
-            model=model,
-            updated_by_identity_id=updated_by_identity_id,
-            settings=settings or {},
-        )
-        self._history[agent.agent_id] = [configuration]
-        return configuration
+        with self._lock:
+            if agent.agent_id in self._history:
+                raise AgentConfigurationError(f"configuration already exists: {agent.agent_id}")
+            self._validate_agent_skill(agent, skill)
+            model = self._resolve_model(skill, model_id)
+            configuration = self._build(
+                configuration_id=f"agent-config-{uuid4().hex}", version=1, agent=agent, skill=skill,
+                model=model, updated_by_identity_id=updated_by_identity_id, settings=settings or {},
+            )
+            self._history[agent.agent_id] = [configuration]
+            return configuration
 
     def update(
         self,
@@ -73,40 +71,34 @@ class AgentConfigurationStore:
         skill: SkillDefinition,
         agent: AgentInstance,
     ) -> AgentConfiguration:
-        current = self.get(agent_id)
-        if current.configuration_version != expected_version:
-            raise AgentConfigurationError("configuration version conflict")
-        self._validate_agent_skill(agent, skill)
-        if current.skill_id != skill.skill_id or current.role != skill.metadata.get("agent_role"):
-            raise AgentConfigurationError("agent role and Skill binding are immutable")
-        model = self._resolve_model(skill, model_id or current.model_id)
-        configuration = self._build(
-            configuration_id=current.configuration_id,
-            version=current.configuration_version + 1,
-            agent=agent,
-            skill=skill,
-            model=model,
-            updated_by_identity_id=updated_by_identity_id,
-            settings=current.settings if settings is None else settings,
-        )
-        self._history[agent_id].append(configuration)
-        return configuration
+        with self._lock:
+            current = self.get(agent_id)
+            if current.configuration_version != expected_version:
+                raise AgentConfigurationError("configuration version conflict")
+            self._validate_agent_skill(agent, skill)
+            if current.skill_id != skill.skill_id or current.role != skill.metadata.get("agent_role"):
+                raise AgentConfigurationError("agent role and Skill binding are immutable")
+            model = self._resolve_model(skill, model_id or current.model_id)
+            configuration = self._build(
+                configuration_id=current.configuration_id, version=current.configuration_version + 1,
+                agent=agent, skill=skill, model=model, updated_by_identity_id=updated_by_identity_id,
+                settings=current.settings if settings is None else settings,
+            )
+            self._history[agent_id].append(configuration)
+            return configuration
 
     def get(self, agent_id: str, version: int | None = None) -> AgentConfiguration:
-        try:
-            history = self._history[agent_id]
-        except KeyError as error:
-            raise AgentConfigurationError(f"unknown agent configuration: {agent_id}") from error
-        if version is None:
-            return history[-1]
-        try:
-            return next(item for item in history if item.configuration_version == version)
-        except StopIteration as error:
-            raise AgentConfigurationError(f"unknown configuration version: {version}") from error
+        with self._lock:
+            try: history = self._history[agent_id]
+            except KeyError as error: raise AgentConfigurationError(f"unknown agent configuration: {agent_id}") from error
+            if version is None: return history[-1]
+            try: return next(item for item in history if item.configuration_version == version)
+            except StopIteration as error: raise AgentConfigurationError(f"unknown configuration version: {version}") from error
 
     def history(self, agent_id: str) -> tuple[AgentConfiguration, ...]:
-        self.get(agent_id)
-        return tuple(self._history[agent_id])
+        with self._lock:
+            self.get(agent_id)
+            return tuple(self._history[agent_id])
 
     def _resolve_model(self, skill: SkillDefinition, model_id: str) -> ModelDefinition:
         raw_capabilities = skill.metadata.get("required_model_capabilities")
