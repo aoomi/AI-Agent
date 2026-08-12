@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
+from threading import RLock
 from typing import Any, Mapping
 
 import yaml
@@ -29,6 +30,7 @@ class SkillRegistry:
     def __init__(self, builtin_plugins_root: Path) -> None:
         self._root = builtin_plugins_root.resolve()
         self._skills: dict[str, SkillDefinition] = {}
+        self._lock = RLock()
 
     def scan(self) -> tuple[SkillDefinition, ...]:
         discovered: dict[str, SkillDefinition] = {}
@@ -37,17 +39,17 @@ class SkillRegistry:
             if definition.skill_id in discovered:
                 raise SkillRegistryError(f"duplicate skill_id: {definition.skill_id}")
             discovered[definition.skill_id] = definition
-        self._skills = discovered
-        return tuple(discovered.values())
+        with self._lock:
+            self._skills = discovered
+            return tuple(discovered.values())
 
     def get(self, skill_id: str) -> SkillDefinition:
-        try:
-            return self._skills[skill_id]
-        except KeyError as error:
-            raise SkillRegistryError(f"unknown skill_id: {skill_id}") from error
+        with self._lock:
+            try: return self._skills[skill_id]
+            except KeyError as error: raise SkillRegistryError(f"unknown skill_id: {skill_id}") from error
 
     def all(self) -> tuple[SkillDefinition, ...]:
-        return tuple(self._skills.values())
+        with self._lock: return tuple(self._skills.values())
 
     def _load_manifest(self, manifest_path: Path) -> SkillDefinition:
         resolved = manifest_path.resolve()
