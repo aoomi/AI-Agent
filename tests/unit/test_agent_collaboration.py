@@ -56,6 +56,28 @@ class AgentCollaborationServiceTest(unittest.TestCase):
                 handoff = service.submit_for_inspection(session.session_id, task_id="task-1", context_reference="contexts/task.json")
                 with self.assertRaises(AgentCollaborationError): service.run_inspection(handoff.handoff_id)
 
+    def test_inspection_evidence_rejects_nested_sensitive_metadata(self) -> None:
+        for metadata in (
+            {"access_token": "plaintext"},
+            {"transport": {"headers": {"Authorization": "Bearer plaintext"}}},
+            {"profiles": [{"client_secret": "plaintext"}]},
+        ):
+            result = {
+                "read_only": True, "verdict": "passed", "issues": [],
+                "evidence": [{
+                    "evidence_id": "evidence-1", "kind": "test",
+                    "reference": "results/test.xml", "metadata": metadata,
+                }],
+            }
+            service, session = self.open(InspectionExecutor(result))
+            handoff = service.submit_for_inspection(
+                session.session_id, task_id="task-1", context_reference="contexts/task.json"
+            )
+            with self.subTest(metadata=metadata), self.assertRaisesRegex(
+                AgentCollaborationError, "sensitive fields"
+            ):
+                service.run_inspection(handoff.handoff_id)
+
     def test_real_inspection_executor_and_safe_references_are_required(self) -> None:
         service, session = self.open(None)
         with self.assertRaises(AgentCollaborationError): service.submit_for_inspection(session.session_id, task_id="task-1", context_reference="../../secret")

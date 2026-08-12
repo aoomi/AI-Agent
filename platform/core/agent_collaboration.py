@@ -285,10 +285,25 @@ class AgentCollaborationService:
         if kind not in self.EVIDENCE_KINDS: raise AgentCollaborationError("collaboration evidence kind is invalid")
         metadata = raw.get("metadata", {})
         if not isinstance(metadata, Mapping): raise AgentCollaborationError("collaboration evidence metadata is invalid")
+        if self._contains_sensitive_key(metadata):
+            raise AgentCollaborationError("collaboration evidence metadata contain sensitive fields")
         sha256 = raw.get("sha256")
         if sha256 is not None and (not isinstance(sha256, str) or len(sha256) != 64 or any(character not in "0123456789abcdef" for character in sha256)):
             raise AgentCollaborationError("collaboration evidence sha256 is invalid")
         return CollaborationEvidence(evidence_id, kind, self._safe_reference(str(raw.get("reference", ""))), MappingProxyType(dict(metadata)), sha256)
+
+    @staticmethod
+    def _contains_sensitive_key(value: Any) -> bool:
+        forbidden = ("secret", "token", "password", "api_key", "authorization", "credential")
+        if isinstance(value, Mapping):
+            return any(
+                any(word in str(key).lower() for word in forbidden)
+                or AgentCollaborationService._contains_sensitive_key(item)
+                for key, item in value.items()
+            )
+        if isinstance(value, (list, tuple, set, frozenset)):
+            return any(AgentCollaborationService._contains_sensitive_key(item) for item in value)
+        return False
 
     @staticmethod
     def _safe_reference(value: str) -> str:

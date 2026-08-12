@@ -3186,3 +3186,5 @@
 - 第八十四项自动测试与稽查：三类嵌套敏感metadata均在注册前失败关闭；能力热插拔、并发及元数据关联`7 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
 - 第八十五项稽查首败与整改：ProductionExtension metadata和provider probe_configuration会长期保留于扩展契约，但原入口未过滤敏感键，插件可把access_token、Authorization或client_secret带入注册表。现元数据解析后、工厂探针前递归失败关闭六类敏感组合键。
 - 第八十五项自动测试与稽查：顶层、probe嵌套和数组三类凭据均零探针、零注册；基础设施替换与扩展关联`3 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
+- 第八十六项稽查首败与整改：CollaborationEvidence的metadata会通过inspection report和管理API持久暴露，但原边界仅校验Mapping类型，外部inspector可嵌入access_token、Authorization或client_secret。现报告构建在证据发布前递归拒绝六类敏感组合键。
+- 第八十六项自动测试与稽查：顶层、对象嵌套和数组嵌套敏感证据均失败关闭；协作与管理API关联`12 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
