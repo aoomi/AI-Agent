@@ -49,7 +49,8 @@ class PublishedEvent:
             raise EventBusError("event_type is not supported")
         if not self.project_id.strip():
             raise EventBusError("project_id must not be empty")
-        if not self.payload:
+        if not isinstance(self.context,IdentityContext):raise EventBusError("event context is invalid")
+        if not isinstance(self.payload,Mapping) or not self.payload:
             raise EventBusError("payload must not be empty")
         if _contains_sensitive_key(self.payload):
             raise EventBusError("event payload contains sensitive fields")
@@ -79,6 +80,7 @@ class EventBus:
         return unsubscribe
 
     def publish(self, event: PublishedEvent) -> int:
+        if not isinstance(event,PublishedEvent):raise EventBusError("published event is invalid")
         with self._lock: handlers = tuple(self._subscribers.get(event.event_type, ()))
         for handler in handlers:
             handler(event)

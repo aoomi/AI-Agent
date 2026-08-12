@@ -3314,3 +3314,5 @@
 - 第一百四十八项自动测试与稽查：坏configuration/inspector及四类空ID动态拒绝；协作关联`10 passed`（另`12 subtests passed`），Python编译与diff门禁通过。
 - 第一百四十九项稽查首败与整改：AgentScheduler不验证registry/context协议，start/resume Graph和pipeline values部分依赖静态Mapping/布尔类型，run空ID会先进入active集合。现构造和控制入口在任何共享状态副作用前失败关闭。
 - 第一百四十九项自动测试与稽查：坏registry/context及空run动态拒绝；调度控制关联`10 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
+- 第一百五十项稽查首败与整改：ProductionCapability register/register_once多类布尔、priority和metadata依赖静态类型；PublishedEvent/EventBus也允许坏context或非事件对象延迟失败。现能力发布与事件广播边界均在共享状态前严格验证。
+- 第一百五十项自动测试与稽查：五类能力伪控制、坏事件context及非事件publish动态拒绝；生产控制与事件关联`107 passed`（另`22 subtests passed`），Python编译与diff门禁通过。

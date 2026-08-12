@@ -11,6 +11,9 @@ def identity_context() -> IdentityContext:
 
 
 class EventBusTest(unittest.TestCase):
+    def test_runtime_event_shapes_are_rejected(self) -> None:
+        with self.assertRaises(EventBusError):PublishedEvent("event","PROJECT_CREATED","project",object(),{"x":1})
+        with self.assertRaises(EventBusError):EventBus().publish(object())
     def test_subscriber_receives_scoped_event(self) -> None:
         bus = EventBus()
         received: list[PublishedEvent] = []

@@ -63,7 +63,10 @@ class ProductionCapabilityRegistry:
         capability, provider_id = capability.strip(), provider_id.strip()
         if not capability or not provider_id or not callable(handler):
             raise ProductionCapabilityError("capability, provider and handler are required")
-        if priority < 0:
+        if not isinstance(enabled,bool) or not isinstance(healthy,bool) or not isinstance(replace,bool) or not isinstance(replace_provider,bool):
+            raise ProductionCapabilityError("provider control flags must be boolean")
+        if metadata is not None and not isinstance(metadata,Mapping):raise ProductionCapabilityError("provider metadata must be a mapping")
+        if isinstance(priority,bool) or not isinstance(priority,int) or priority < 0:
             raise ProductionCapabilityError("provider priority must be non-negative")
         self._validate_metadata(metadata or {})
         definition = ProductionCapability(capability, provider_id, enabled, MappingProxyType(dict(metadata or {})), priority, healthy)
@@ -92,7 +95,9 @@ class ProductionCapabilityRegistry:
         capability, provider_id = capability.strip(), provider_id.strip()
         if not capability or not provider_id or not callable(handler):
             raise ProductionCapabilityError("capability, provider and handler are required")
-        if priority < 0:
+        if not isinstance(enabled,bool) or not isinstance(healthy,bool):raise ProductionCapabilityError("provider control flags must be boolean")
+        if metadata is not None and not isinstance(metadata,Mapping):raise ProductionCapabilityError("provider metadata must be a mapping")
+        if isinstance(priority,bool) or not isinstance(priority,int) or priority < 0:
             raise ProductionCapabilityError("provider priority must be non-negative")
         self._validate_metadata(metadata or {})
         key = (capability, provider_id)

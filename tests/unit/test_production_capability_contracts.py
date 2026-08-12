@@ -6,6 +6,10 @@ from ai_agent_adapters import ProductionCapabilityError, ProductionCapabilityReg
 
 
 class ProductionCapabilityContractTest(unittest.TestCase):
+    def test_registration_rejects_runtime_pseudo_controls(self) -> None:
+        registry=ProductionCapabilityRegistry()
+        for kwargs in ({"enabled":1},{"healthy":0},{"replace":1},{"priority":True},{"metadata":[]}):
+            with self.subTest(kwargs=kwargs),self.assertRaises(ProductionCapabilityError):registry.register("video","local",lambda:1,**kwargs)
     def test_controls_reject_empty_identifiers(self) -> None:
         registry = ProductionCapabilityRegistry()
         registry.register("video.generate", "local", lambda: {"ok": True})
