@@ -3468,3 +3468,5 @@
 - 第二百二十五项自动测试与稽查：字符串伪数据库路径动态拒绝；租约数值契约与生产控制关联回归、Python编译与diff门禁通过。
 - 第二百二十六项稽查首败与整改：持久JsonLinesExporter与StructuredLogger使用json.dumps默认行为，会输出非标准NaN/Infinity，并将任意对象序列化异常泄漏给调用方。现两条路径在任何sink/文件副作用前统一失败关闭。
 - 第二百二十六项自动测试与稽查：NaN/Infinity及任意对象日志/导出动态拒绝且不创建文件；可观测性关联回归、Python编译与diff门禁通过。
+- 第二百二十七项稽查首败与整改：ProviderAuditLedger的request_hash使用`default=str`把任意对象改写为进程表示，并接受NaN，无法作为稳定可重放审计指纹。现原始请求必须可标准JSON序列化。
+- 第二百二十七项自动测试与稽查：NaN及任意对象request动态拒绝；Provider审计关联回归、Python编译与diff门禁通过。

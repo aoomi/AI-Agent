@@ -26,6 +26,11 @@ class ProviderAuditContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ProviderAuditError, "are required"):
             self._record(artifact_ids=(" ",), artifact_checksums=("sha256",))
 
+    def test_request_hash_rejects_non_standard_json(self) -> None:
+        for request in ({"value":float("nan")},{"value":object()}):
+            with self.subTest(request=request), self.assertRaisesRegex(ProviderAuditError, "standard JSON"):
+                self._record(request=request)
+
 
 if __name__ == "__main__":
     unittest.main()
