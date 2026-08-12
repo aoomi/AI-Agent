@@ -81,13 +81,16 @@ class ConversationMemoryStore:
 
     def read(self, identity_id: str, project_id: str = "") -> Mapping[str, Any]:
         if any(not isinstance(value,str) for value in (identity_id,project_id)) or not identity_id.strip() or not project_id.strip(): raise ConversationError("conversation memory identity and project are required")
-        with self._lock: return MappingProxyType(dict(self._items.get((identity_id, project_id), {})))
+        with self._lock:
+            snapshot=json.loads(json.dumps(self._items.get((identity_id, project_id), {}),allow_nan=False))
+            return MappingProxyType(snapshot)
 
     def update(self, identity_id: str, project_id: str, values: Mapping[str, Any]) -> Mapping[str, Any]:
         if any(not isinstance(value,str) for value in (identity_id,project_id)) or not identity_id.strip() or not project_id.strip(): raise ConversationError("conversation memory identity and project are required")
         if not isinstance(values, Mapping): raise ConversationError("conversation memory values must be a mapping")
         if any(not isinstance(key,str) or not key.strip() for key in values):raise ConversationError("conversation memory keys must be non-empty strings")
-        safe = {key.strip(): value for key, value in values.items() if value is not None}
+        try:safe = json.loads(json.dumps({key.strip(): value for key, value in values.items() if value is not None},allow_nan=False))
+        except (TypeError,ValueError) as error:raise ConversationError("conversation memory must be standard JSON") from error
         with self._lock:
             item_key = (identity_id, project_id)
             current = dict(self._items.get(item_key, {})); current.update(safe)
@@ -101,7 +104,7 @@ class ConversationMemoryStore:
                 temporary.write_text(encoded, encoding="utf-8")
                 temporary.replace(self.storage_path)
             self._items = candidate
-            return MappingProxyType(dict(current))
+            return MappingProxyType(json.loads(json.dumps(current,allow_nan=False)))
 
 
 class AgentConversationService:

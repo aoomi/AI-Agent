@@ -235,6 +235,13 @@ class AgentConversationServiceTest(unittest.TestCase):
             self.assertFalse(path.exists())
             self.assertEqual(store.read("owner","project"),{})
 
+    def test_memory_update_and_read_deeply_isolate_nested_values(self) -> None:
+        store=ConversationMemoryStore();values={"preferences":{"styles":["brief"]}}
+        updated=store.update("owner","project",values);values["preferences"]["styles"][0]="forged"
+        self.assertEqual(updated["preferences"]["styles"][0],"brief")
+        read=store.read("owner","project");read["preferences"]["styles"][0]="reader"
+        self.assertEqual(store.read("owner","project")["preferences"]["styles"][0],"brief")
+
     def test_clarification_cannot_create_execution_proposal(self) -> None:
         skill, agent = self.configured()
         client = ModelClient({"reply": "需要确认目标平台", "needs_clarification": True, "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "执行"}}})

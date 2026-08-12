@@ -1279,3 +1279,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百七十六项：IndustryWorkflowService输入输出已由标准JSON规范化结果生成独立深快照，可替换编排器不能污染调用方请求或事后改写管理API结果。
 - BUG072第二百七十七项：OpenAI兼容structured result已由标准JSON规范化结果生成独立深快照，自定义transport不能事后改写上层模型响应。
 - BUG072第二百七十八项：通用LangGraph公共result已由标准JSON规范化结果生成独立深快照，节点不能在invoke后改写调用方结果，interrupt控制对象保持协议原值。
+- BUG072第二百七十九项：ConversationMemoryStore输入、返回与读取已使用标准JSON独立深快照，调用方不能污染内存仓储或制造其与持久文件分叉。
