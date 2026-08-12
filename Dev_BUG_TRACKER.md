@@ -3352,3 +3352,5 @@
 - 第一百六十七项自动测试与稽查：数字run/remediation/tenant、坏instruction及列表agent_ids动态拒绝；调度关联回归、Python编译与diff门禁通过。
 - 第一百六十八项稽查首败与整改：AgentCollaborationService的_required/_safe_reference直接strip运行时值，数字session/scope/reference泄漏AttributeError。现协作身份和证据路径统一先验证字符串。
 - 第一百六十八项自动测试与稽查：数字session/tenant/reference动态失败关闭；协作关联回归、Python编译与diff门禁通过。
+- 第一百六十九项稽查首败与整改：atomic_write_json默认允许NaN/Infinity且replace后未同步目录，所谓“crash-safe”不能保证标准JSON或重启后目录项持久。现序列化强制标准JSON，目标/临时前缀失败关闭并同步父目录。
+- 第一百六十九项自动测试与稽查：NaN写入不覆盖旧文件，非法target/prefix动态拒绝；专项回归、Python编译与diff门禁通过。
