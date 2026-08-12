@@ -28,6 +28,7 @@ class SkillDefinition:
 
 class SkillRegistry:
     def __init__(self, builtin_plugins_root: Path) -> None:
+        if not isinstance(builtin_plugins_root,Path):raise SkillRegistryError("builtin plugin root must be a Path")
         self._root = builtin_plugins_root.resolve()
         self._skills: dict[str, SkillDefinition] = {}
         self._lock = RLock()
@@ -44,6 +45,7 @@ class SkillRegistry:
             return tuple(discovered.values())
 
     def get(self, skill_id: str) -> SkillDefinition:
+        if not isinstance(skill_id,str):raise SkillRegistryError("skill_id is required")
         skill_id=skill_id.strip()
         if not skill_id:raise SkillRegistryError("skill_id is required")
         with self._lock:

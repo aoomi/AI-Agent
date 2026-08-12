@@ -51,6 +51,10 @@ class SkillRegistryTest(unittest.TestCase):
         manifest.write_text(manifest.read_text(encoding="utf-8")+"transport:\n  headers:\n    Authorization: Bearer plaintext\n",encoding="utf-8")
         with self.assertRaisesRegex(SkillRegistryError,"sensitive fields"):registry.scan()
 
+    def test_runtime_root_and_lookup_types_are_rejected(self) -> None:
+        with self.assertRaises(SkillRegistryError):SkillRegistry(str(self.root))
+        with self.assertRaises(SkillRegistryError):SkillRegistry(self.root).get(1)
+
 
 if __name__ == "__main__":
     unittest.main()

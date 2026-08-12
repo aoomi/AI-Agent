@@ -3410,3 +3410,5 @@
 - 第一百九十六项自动测试与稽查：坏Skill/Agent模型及数字双向ID动态失败关闭；映射与注册关联`9 passed`（另`4 subtests passed`），Python编译与diff门禁通过。
 - 第一百九十七项稽查首败与整改：IdentityContext的_required与identity_kind直接对运行时值strip，数字身份会泄漏AttributeError，require_tenant亦无法按统一契约失败关闭。现全部scope字段共享字符串门禁。
 - 第一百九十七项自动测试与稽查：数字request/kind及tenant检查动态失败关闭；身份、事件与队列关联`27 passed`（另`27 subtests passed`），Python编译与diff门禁通过。
+- 第一百九十八项稽查首败与整改：SkillRegistry构造直接调用任意root.resolve，get直接对运行时ID strip，字符串root或数字查询会泄漏属性异常。现发现根与读取身份在文件扫描/注册表访问前严格验证。
+- 第一百九十八项自动测试与稽查：字符串root与数字skill查询动态失败关闭；Skill与映射关联`10 passed`（另`4 subtests passed`），Python编译与diff门禁通过。
