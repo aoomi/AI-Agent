@@ -35,7 +35,7 @@ class ProviderAdapterDefinition:
         if self.settings is not None and not isinstance(self.settings,Mapping):raise ProviderAdapterError("provider settings must be a mapping")
         forbidden=("secret","token","password","api_key","authorization","credential")
         def contains_secret(value:Any)->bool:
-            if isinstance(value,Mapping):return any(any(word in str(key).lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
+            if isinstance(value,Mapping):return any(not isinstance(key,str) or not key.strip() or any(word in key.lower() for word in forbidden) or contains_secret(item) for key,item in value.items())
             if isinstance(value,(list,tuple)):return any(contains_secret(item) for item in value)
             return False
         if contains_secret(self.settings or {}):raise ProviderAdapterError("provider settings cannot contain secrets")
@@ -86,6 +86,11 @@ class ProviderAdapterRegistry:
         if not isinstance(provider_id,str) or not isinstance(capability,str):raise ProviderAdapterError("provider, capability and mapping inputs are required")
         provider_id,capability=provider_id.strip(),capability.strip()
         if not provider_id or not capability or not isinstance(inputs,Mapping):raise ProviderAdapterError("provider, capability and mapping inputs are required")
+        def valid_keys(value:Any)->bool:
+            if isinstance(value,Mapping):return all(isinstance(key,str) and bool(key.strip()) and valid_keys(item) for key,item in value.items())
+            if isinstance(value,(list,tuple)):return all(valid_keys(item) for item in value)
+            return True
+        if not valid_keys(inputs):raise ProviderAdapterError("provider inputs require non-empty string keys")
         try:canonical_inputs=json.dumps(dict(inputs),allow_nan=False)
         except (TypeError,ValueError) as error:raise ProviderAdapterError("provider inputs must be standard JSON") from error
         input_snapshot=json.loads(canonical_inputs)

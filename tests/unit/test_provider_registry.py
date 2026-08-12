@@ -30,6 +30,8 @@ class ProviderAdapterRegistryTest(unittest.TestCase):
         with self.assertRaisesRegex(ProviderAdapterError,"mapping inputs"):registry.invoke("p","generate.image",[])
         for inputs in ({"value":float("nan")},{"value":object()}):
             with self.subTest(inputs=inputs),self.assertRaisesRegex(ProviderAdapterError,"standard JSON"):registry.invoke("p","generate.image",inputs)
+        for inputs in ({1:"value"},{"nested":{1:"value"}},{" ":"value"}):
+            with self.subTest(inputs=inputs),self.assertRaisesRegex(ProviderAdapterError,"string keys"):registry.invoke("p","generate.image",inputs)
     def test_registers_and_invokes_each_real_provider_kind(self):
         registry=ProviderAdapterRegistry(Secrets())
         for kind in ("text","image","video","audio"):
@@ -46,6 +48,9 @@ class ProviderAdapterRegistryTest(unittest.TestCase):
     def test_nested_adapter_settings_reject_credentials(self):
         with self.assertRaisesRegex(ProviderAdapterError,"secrets"):
             ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30,settings={"transport":{"headers":[{"authorization":"Bearer hidden"}]}})
+        for settings in ({1:"value"},{"nested":{1:"value"}},{" ":"value"}):
+            with self.subTest(settings=settings),self.assertRaisesRegex(ProviderAdapterError,"secrets"):
+                ProviderAdapterDefinition("p","image",frozenset({"generate.image"}),"vault://text",30,settings=settings)
     def test_adapter_settings_require_standard_json(self):
         for settings in ({"value":float("nan")},{"value":object()}):
             with self.subTest(settings=settings),self.assertRaisesRegex(ProviderAdapterError,"standard JSON"):
