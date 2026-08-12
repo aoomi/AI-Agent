@@ -1,8 +1,9 @@
 import unittest
+import math
 from ai_agent_security import SkillToolGuard,ToolGuardError
 class SkillToolGuardTest(unittest.TestCase):
  def test_authorization_and_depth_runtime_contracts_are_rejected(self):
-  for operation in (lambda:self.guard.authorize(role="",tool="workspace.read",declared_permissions=frozenset({"workspace.read"})),lambda:self.guard.authorize(role="developer",tool="workspace.read",declared_permissions=frozenset({" "})),lambda:self.guard.sanitize({},depth=True)):
+  for operation in (lambda:self.guard.authorize(role="",tool="workspace.read",declared_permissions=frozenset({"workspace.read"})),lambda:self.guard.authorize(role=1,tool="workspace.read",declared_permissions=frozenset({"workspace.read"})),lambda:self.guard.authorize(role="developer",tool="workspace.read",declared_permissions=["workspace.read"]),lambda:self.guard.authorize(role="developer",tool="workspace.read",declared_permissions=frozenset({" "})),lambda:self.guard.sanitize({},depth=True),lambda:self.guard.sanitize(math.nan)):
    with self.subTest(operation=operation),self.assertRaises(ToolGuardError):operation()
  def setUp(self):self.guard=SkillToolGuard()
  def test_authorization_and_high_risk_default_deny(self):

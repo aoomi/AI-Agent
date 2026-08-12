@@ -1189,3 +1189,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百八十六项：内存任务模型与队列入口已验证字符串身份、IdentityContext、Mapping payload、合法状态及QueuedTask实例，畸形运行时对象不会泄漏属性异常或污染幂等索引。队列与任务服务关联`20 passed`、`19 subtests passed`。
 - BUG072第一百八十七项：Provider审计已严格验证字符串scope/provider/status/error、tuple产物及逐项字符串校验和，并规范化持久身份；数字伪scope或列表产物不能进入审计台账。审计与生产集成关联`11 passed`、`14 subtests passed`。
 - BUG072第一百八十八项：安全审计append/export已拒绝数字伪身份并规范化所有哈希字段，空白差异不会造成查询scope与链上身份不一致。安全审计关联`6 passed`、`3 subtests passed`。
+- BUG072第一百八十九项：Skill工具授权已严格验证字符串角色/工具及frozenset权限集合，输入消毒同步拒绝NaN/Infinity；伪身份、列表权限和非标准JSON数值不能绕过工具边界。安全关联`3 passed`、`6 subtests passed`。

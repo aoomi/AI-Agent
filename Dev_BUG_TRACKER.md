@@ -3392,3 +3392,5 @@
 - 第一百八十七项自动测试与稽查：六类坏身份/status/产物/error及数字查询scope动态失败关闭；审计与生产集成关联`11 passed`（另`14 subtests passed`），Python编译与diff门禁通过。
 - 第一百八十八项稽查首败与整改：SecurityAuditLedger用`str(...)`接受数字append/export身份且仅判空、不规范化，可能形成链上带空白身份却无法按规范scope导出。现写入与导出共享严格字符串门禁和规范化。
 - 第一百八十八项自动测试与稽查：数字写入/导出动态失败关闭，空白身份规范化后哈希链仍有效；安全审计关联`6 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
+- 第一百八十九项稽查首败与整改：SkillToolGuard用`str(...)`接受数字role/tool，权限容器仅靠迭代假设，sanitize又允许NaN/Infinity进入工具输入。现授权结构与有限数值在任何能力判定或工具调用前严格失败关闭。
+- 第一百八十九项自动测试与稽查：数字角色、列表权限、空权限、布尔depth及NaN动态拒绝；安全关联`3 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
