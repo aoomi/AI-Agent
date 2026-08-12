@@ -28,4 +28,7 @@ class ShortDramaProviderBindingsTest(unittest.TestCase):
                 with self.subTest(output=output),self.assertRaises(ShortDramaProviderBindingError):operation()
             finally:binding._invoke=original
         with self.assertRaises(ShortDramaProviderBindingError):ShortDramaProviderBindings(object(),self.routes)
+        binding=ShortDramaProviderBindings(self.registry,self.routes)
+        for inputs in ({1:"value"},{"nested":{1:"value"}}):
+            with self.subTest(inputs=inputs),self.assertRaisesRegex(ShortDramaProviderBindingError,"string keys"):binding.generate("short_drama.outline",inputs)
 if __name__=="__main__":unittest.main()

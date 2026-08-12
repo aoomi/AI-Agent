@@ -17,7 +17,9 @@ class ShortDramaProviderBindings:
     @classmethod
     def _provider_inputs(cls,value:Any)->Any:
         if isinstance(value,bytes):return {"encoding":"base64","data":base64.b64encode(value).decode("ascii")}
-        if isinstance(value,Mapping):return {str(key):cls._provider_inputs(item) for key,item in value.items()}
+        if isinstance(value,Mapping):
+            if any(not isinstance(key,str) or not key.strip() for key in value):raise ShortDramaProviderBindingError("provider inputs require non-empty string keys")
+            return {key:cls._provider_inputs(item) for key,item in value.items()}
         if isinstance(value,(list,tuple)):return [cls._provider_inputs(item) for item in value]
         return value
     def _invoke(self,capability:str,inputs:Mapping[str,Any])->Any:return self.registry.invoke(self.routes[capability],capability,self._provider_inputs(inputs)).output
