@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import json
 import math
 from pathlib import Path
@@ -48,6 +48,7 @@ class WorkerRegistry:
                 or worker.capacity <= 0 or worker.active < 0 or worker.active > worker.capacity or worker.queue_depth < 0 or worker.available_memory < 0 or worker.generation < 1
                 or isinstance(worker.heartbeat_at,bool) or not isinstance(worker.heartbeat_at,(int,float)) or not math.isfinite(worker.heartbeat_at)):
             raise WorkloadRoutingError("invalid worker capacity")
+        worker=replace(worker,worker_id=worker.worker_id.strip(),service_scope=worker.service_scope.strip(),resource_classes=tuple(value.strip() for value in worker.resource_classes),endpoint=worker.endpoint.strip())
         payload = json.dumps(asdict(worker), ensure_ascii=False, sort_keys=True)
         with sqlite3.connect(self.database, timeout=30) as connection:
             previous=connection.execute("SELECT payload_json,generation FROM workers WHERE worker_id=?",(worker.worker_id,)).fetchone()

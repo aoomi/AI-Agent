@@ -129,6 +129,18 @@ class WorkerNumericContractTest(unittest.TestCase):
                 with self.subTest(payload=payload),self.assertRaisesRegex(WorkloadRoutingError,"record is invalid"):
                     registry.list(now=1.0)
 
+    def test_worker_identity_is_normalized_once_across_discovery_and_routing(self) -> None:
+        worker=self._worker(worker_id=" worker ",service_scope=" local ",resource_classes=(" video ",),endpoint=" http://worker ")
+        router=WorkloadRouter(); routed=router.heartbeat(worker)
+        self.assertEqual((routed.worker_id,routed.service_scope,routed.resource_classes,routed.endpoint),("worker","local",("video",),"http://worker"))
+        self.assertEqual(router.route(" video ",service_scope=" local ",worker_id=" worker ",now=1.0),routed)
+        with tempfile.TemporaryDirectory() as directory:
+            registry=WorkerRegistry(Path(directory)/"workers.db");stored=registry.heartbeat(worker)
+            self.assertEqual(stored,routed)
+            self.assertEqual(registry.reserve(" request "," video ",service_scope=" local ",now=1.0),stored)
+            self.assertTrue(registry.release_reservation(" request "))
+            self.assertTrue(registry.remove(" worker ",1))
+
 
 if __name__ == "__main__":
     unittest.main()
