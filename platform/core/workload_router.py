@@ -44,6 +44,7 @@ class WorkloadRouter:
                 or not worker.worker_id.strip() or not worker.service_scope.strip() or not isinstance(worker.resource_classes,tuple)
                 or not worker.resource_classes or any(not isinstance(value,str) or not value.strip() for value in worker.resource_classes)):
             raise WorkloadRoutingError("invalid worker identity")
+        if not isinstance(worker.endpoint,str):raise WorkloadRoutingError("invalid worker endpoint")
         integer_fields=(worker.capacity,worker.active,worker.queue_depth,worker.available_memory,worker.generation)
         if (any(isinstance(value,bool) or not isinstance(value,int) for value in integer_fields)
                 or worker.capacity <= 0 or worker.active < 0 or worker.active > worker.capacity or worker.queue_depth < 0 or worker.available_memory < 0 or worker.generation < 1
@@ -55,6 +56,8 @@ class WorkloadRouter:
                 raise WorkloadRoutingError("stale worker generation")
             if previous and worker.generation == previous.generation and worker.heartbeat_at < previous.heartbeat_at:
                 return previous
+            if previous and worker.generation == previous.generation and (worker.service_scope,worker.resource_classes,worker.capacity,worker.endpoint)!=(previous.service_scope,previous.resource_classes,previous.capacity,previous.endpoint):
+                raise WorkloadRoutingError("worker identity requires a new generation")
             self._workers[worker.worker_id] = worker
         return worker
 

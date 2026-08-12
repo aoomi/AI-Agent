@@ -3450,3 +3450,5 @@
 - 第二百一十六项自动测试与稽查：空白连接ID规范化成功、列表mode动态拒绝且版本不变，列表robot创建与Graph运行集成通过；行业关联`7 passed`（另`10 subtests passed`），Python编译与diff门禁通过。
 - 第二百一十七项稽查首败与整改：PluginSandbox网络只校验scheme/hostname，允许userinfo、fragment和任意端口；run_process接受任意Sequence，迭代器等对象可能进入含混调用。现网络目的地和命令容器边界进一步收紧。
 - 第二百一十七项自动测试与稽查：userinfo、8443端口及迭代器command动态拒绝；插件沙箱关联`3 passed`（另`12 subtests passed`），Python编译与diff门禁通过。
+- 第二百一十八项稽查首败与整改：WorkloadRouter heartbeat未验证endpoint类型，且同generation可改变服务scope、资源类、容量或endpoint，绕过代际发现围栏。现不可变拓扑变化统一要求generation递增。
+- 第二百一十八项自动测试与稽查：数字endpoint和同代capacity变更动态拒绝，升代变更成功；worker发现关联`7 passed`（另`39 subtests passed`），Python编译与diff门禁通过。

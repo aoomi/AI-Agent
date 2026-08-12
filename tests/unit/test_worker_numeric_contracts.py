@@ -84,6 +84,12 @@ class WorkerNumericContractTest(unittest.TestCase):
             ):
                 with self.subTest(operation=operation), self.assertRaisesRegex(WorkloadRoutingError, "clock"):
                     operation()
+            with self.assertRaisesRegex(WorkloadRoutingError,"endpoint"):router.heartbeat(self._worker(endpoint=1))
+
+    def test_router_requires_generation_bump_for_topology_changes(self) -> None:
+        router=WorkloadRouter();router.heartbeat(self._worker())
+        with self.assertRaisesRegex(WorkloadRoutingError,"new generation"):router.heartbeat(self._worker(capacity=2,heartbeat_at=2.0))
+        self.assertEqual(router.heartbeat(self._worker(capacity=2,heartbeat_at=2.0,generation=2)).generation,2)
 
 
 if __name__ == "__main__":
