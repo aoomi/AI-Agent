@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 import json
+import math
 from threading import Event
 from typing import Any, Mapping, Protocol, Sequence
 from urllib.error import HTTPError, URLError
@@ -40,21 +41,24 @@ class UrllibOpenAITransport:
 
 class OpenAICompatibleClient:
     def __init__(self,*,endpoint:str,api_key:str,timeout_seconds:float=60,transport:OpenAITransport|None=None) -> None:
+        if not isinstance(endpoint,str) or not isinstance(api_key,str):raise OpenAIClientError("model endpoint and secret must be strings")
         endpoint=endpoint.rstrip("/"); api_key=api_key.strip()
         parsed=urlparse(endpoint)
         if parsed.scheme!="https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment: raise OpenAIClientError("model endpoint must use a valid HTTPS origin")
         if not api_key: raise OpenAIClientError("model provider secret is required")
-        if isinstance(timeout_seconds,bool) or not isinstance(timeout_seconds,(int,float)) or timeout_seconds<=0: raise OpenAIClientError("timeout_seconds must be positive")
+        if isinstance(timeout_seconds,bool) or not isinstance(timeout_seconds,(int,float)) or timeout_seconds<=0 or not math.isfinite(timeout_seconds): raise OpenAIClientError("timeout_seconds must be positive")
         selected_transport=transport or UrllibOpenAITransport()
         if not callable(getattr(selected_transport,"post",None)):raise OpenAIClientError("model transport contract is invalid")
         self._endpoint=endpoint; self._api_key=api_key; self._timeout=timeout_seconds; self._transport=selected_transport
 
     def complete(self,model:ModelDefinition,messages:Sequence[Any],response_schema:Mapping[str,Any],*,cancellation:Event|None=None)->Mapping[str,Any]:
-        if isinstance(messages,(str,bytes)) or not isinstance(messages,Sequence) or not isinstance(response_schema,Mapping):raise OpenAIClientError("model request contract is invalid")
+        if (not isinstance(model,ModelDefinition) or isinstance(messages,(str,bytes)) or not isinstance(messages,Sequence) or not isinstance(response_schema,Mapping)
+                or any(not isinstance(getattr(item,"role",None),str) or not getattr(item,"role").strip() or not isinstance(getattr(item,"content",None),str) for item in messages)):raise OpenAIClientError("model request contract is invalid")
         if cancellation is not None and not callable(getattr(cancellation,"is_set",None)):raise OpenAIClientError("cancellation contract is invalid")
         if cancellation and cancellation.is_set(): raise OpenAIClientCancelled("model request cancelled")
         request={"model":model.model_id,"messages":[{"role":item.role,"content":item.content} for item in messages],"response_format":{"type":"json_schema","json_schema":{"name":"agent_response","strict":True,"schema":dict(response_schema)}}}
         response=self._transport.post(f"{self._endpoint}/chat/completions",{"Authorization":f"Bearer {self._api_key}","Content-Type":"application/json"},json.dumps(request,separators=(",",":"),ensure_ascii=False).encode(),self._timeout,cancellation)
+        if not isinstance(response,OpenAITransportResponse) or isinstance(response.status,bool) or not isinstance(response.status,int) or not isinstance(response.body,bytes):raise OpenAIResponseError("model transport response is invalid")
         if response.status<200 or response.status>=300: raise OpenAIClientError(f"model provider HTTP {response.status}")
         try:
             envelope=json.loads(response.body); content=envelope["choices"][0]["message"]["content"]

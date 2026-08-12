@@ -3404,3 +3404,5 @@
 - 第一百九十三项自动测试与稽查：数字provider、列表回退链、非有限恢复窗/限流时钟/熔断时钟动态拒绝；韧性关联`7 passed`（另`13 subtests passed`），Python编译与diff门禁通过。
 - 第一百九十四项稽查首败与整改：PluginRecord及PluginRegistry全部生命周期入口直接对运行时身份strip，数字plugin/version/target会泄漏AttributeError。现模型与公开控制共享字符串类型门禁。
 - 第一百九十四项自动测试与稽查：六类数字生命周期身份动态失败关闭；插件关联`8 passed`（另`8 subtests passed`），Python编译与diff门禁通过。
+- 第一百九十五项稽查首败与整改：OpenAICompatibleClient直接对endpoint/key调用字符串方法，timeout允许NaN/Infinity，complete信任模型、消息对象和transport响应静态类型。现请求与响应结构均在对应副作用边界严格失败关闭。
+- 第一百九十五项自动测试与稽查：数字endpoint、NaN timeout、坏model/message/transport response动态拒绝；LLM关联`5 passed`（另`9 subtests passed`），Python编译与diff门禁通过。

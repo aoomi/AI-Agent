@@ -1195,3 +1195,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百九十二项：事件模型及订阅入口已严格验证字符串event/project/type并规范化持久身份，数字伪事件字段不能泄漏strip异常或进入订阅索引。事件与投影关联`14 passed`、`8 subtests passed`。
 - BUG072第一百九十三项：Provider限流/熔断/回退调用已严格验证字符串提供方、tuple回退链及有限时钟/恢复窗；NaN时钟或数字身份不能污染调用窗口与熔断状态。韧性关联`7 passed`、`13 subtests passed`。
 - BUG072第一百九十四项：插件生命周期模型及discover/transition/upgrade/rollback/get入口已统一验证字符串身份，数字伪插件/version/target不会泄漏strip异常或访问共享注册表。插件关联`8 passed`、`8 subtests passed`。
+- BUG072第一百九十五项：OpenAI兼容客户端已验证字符串endpoint/secret、有限timeout、ModelDefinition、消息结构及TransportResponse模型；畸形请求或响应不会进入网络序列化/状态解析。LLM关联`5 passed`、`9 subtests passed`。

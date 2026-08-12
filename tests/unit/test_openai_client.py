@@ -28,10 +28,14 @@ class OpenAICompatibleClientTest(unittest.TestCase):
         with self.assertRaisesRegex(Exception,"HTTPS"):OpenAICompatibleClient(endpoint="http://api.example.com",api_key="x")
         with self.assertRaisesRegex(Exception,"secret"):OpenAICompatibleClient(endpoint="https://api.example.com",api_key="")
     def test_runtime_transport_endpoint_and_request_contracts_are_rejected(self):
-        for kwargs in ({"endpoint":"https://user:pass@example.com","api_key":"x"},{"endpoint":"https://example.com","api_key":"x","timeout_seconds":True},{"endpoint":"https://example.com","api_key":"x","transport":object()}):
+        for kwargs in ({"endpoint":1,"api_key":"x"},{"endpoint":"https://user:pass@example.com","api_key":"x"},{"endpoint":"https://example.com","api_key":"x","timeout_seconds":True},{"endpoint":"https://example.com","api_key":"x","timeout_seconds":float("nan")},{"endpoint":"https://example.com","api_key":"x","transport":object()}):
             with self.subTest(kwargs=kwargs),self.assertRaises(Exception):OpenAICompatibleClient(**kwargs)
         client=OpenAICompatibleClient(endpoint="https://example.com",api_key="x",transport=Transport(OpenAITransportResponse(200,b"{}")))
         for messages,schema in (("message",{}),([],[])):
             with self.subTest(messages=messages,schema=schema),self.assertRaises(Exception):client.complete(self.model,messages,schema)
+        for model,messages in ((object(),[]),(self.model,[object()])):
+            with self.subTest(model=model,messages=messages),self.assertRaises(Exception):client.complete(model,messages,{})
+        bad=OpenAICompatibleClient(endpoint="https://example.com",api_key="x",transport=Transport(object()))
+        with self.assertRaises(OpenAIResponseError):bad.complete(self.model,[],{})
 
 if __name__=="__main__":unittest.main()
