@@ -32,6 +32,7 @@
 
 ### M9.198：真实全链路成片生产验收（主线开发中）
 
+- BUG071最终闭环：composition、review、export权威证据与Graph状态在同一SQLite事务提交；导出manifest绑定generation、audit batch、视频及manifest哈希。正式三镜静音母版导出8.1秒、243帧、704×1216 H.264且仅video stream，重启后HTTP可读；关联`134 passed`。用户要求的不超过15秒、只验证视频范围已可测试，继续BUG072架构v2.2全仓一致性稽查。
 - BUG070最终闭环：普通生产端点门禁移到派发前；worker只接受进程私有loopback token或精确共享reservation，伪造dispatched头正式403，缺前序请求409且无副作用，合法run-stage composition generation 3通过并确认。关联`130 passed`；继续BUG071静音母版审核导出。
 - BUG069最终闭环：LTX三镜经正式run-stage与同批次video/audio-not-applicable/subtitle-not-applicable台账确认后，显式video-only composition生成8.1秒、243帧、704×1216@30 H.264静音母版；重启恢复、HTTP媒体与队列归零通过，关联`129 passed`。继续BUG070生产端点派发门禁旁路。
 - BUG057按用户更新口径最终闭环：本机LTX-Video 2B Distilled经正式API串行生成3镜，每镜65帧/2.708秒/704×1216/24fps/H.264，仅视频流，总长8.125秒；首中尾9帧无黑屏、结构崩坏或主体消失，三个job均精确登记provider并completed，Comfy队列与任务资源归零。关联`169 passed`；完整unit的8项失败来自用户并行前端改动及既有文本测试隔离，不属于本次视频链。

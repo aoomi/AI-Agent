@@ -3019,8 +3019,22 @@
 
 ### BUG-20260812-071：静音母版尚无权威审核与导出manifest证据
 
-- 状态：主线开发中
+- 状态：已关闭（最终只读稽查通过）
 - 关联任务：M9.198，承接BUG069/070；继续遵守只验证视频、不验证人声/BGM的用户范围。
 - 正式事实：composition generation 3已确认且物理静音母版可播放，但review_export阶段尚未对该精确composition generation/指纹执行视频审核，也没有生成绑定base版本、内容哈希和台账批次的导出manifest。
 - 风险：可播放母版仍可能在导出时读取旧版本或生成无法追溯的文件；缺少manifest无法证明用户测试的是已确认三镜母版。
 - 下一状态：检查现行审核/导出契约对video-only母版的支持，使用正式run-stage完成只适用视频的审核与导出，验证文件哈希、manifest、台账、重启恢复和资源归零。
+- 首个错误事实：现行`ProductionLedger`只为upscale保存服务端生产/审核证据；composition、review与export虽完成Graph写回，物理文件证据没有进入权威台账，旧导出manifest也没有绑定导出generation、批次与最终文件哈希。
+- 框架整改：新增通用`commit_stage_authorities`，以generation、内容指纹和审核批次执行CAS，并把多条阶段权威记录与Graph回调置于同一SQLite事务；composition、review、export统一接入。导出manifest原子写入authority generation/batch，视频和manifest均记录SHA-256；大媒体改为1MiB分块流式哈希，避免整文件载入内存。公开projection继续不能覆盖服务端证据。
+- 正式验收：项目`6b2a7774-5543-405d-b4c5-e07420677701`的composition generation 4、review generation 3及export generation 5均通过正式入口完成并精确确认。导出目录`7ab3dfb74e88`的视频为8.1秒、243帧、704×1216、H.264且仅video stream；文件哈希与已确认母版同为`sha256-884b38f254756390b291f0cad779013b62f6b9556864a00e4ddc0257f37548ca`，manifest内authority批次与台账一致。服务重启后review_export仍completed，视频和manifest均HTTP 200，Comfy队列0/0。
+- 独立软件测试：通过。事务回滚、旧代与同代变异拒绝、projection证据隔离、三阶段接线和流式哈希静态契约，连同派发、生产控制、静音合片及阶段作用域共`134 passed`；关键Python编译通过。
+- 最终只读稽查：通过。Graph与业务证据不存在半提交窗口；导出文件、manifest、generation与audit batch可相互追溯；video-only审核没有伪造音频/BGM事实，符合本轮只验证视频的用户范围。
+- 关闭时间：2026-08-12（Asia/Shanghai）。下一状态：已关闭；M9.198不超过15秒三镜视频范围已可供用户测试，继续BUG072架构v2.2全仓一致性稽查。
+
+### BUG-20260812-072：架构v2.2全仓一致性尚未完成系统稽查
+
+- 状态：主线开发中
+- 关联任务：承接用户要求，按架构文档、项目愿景和各项规范稽查全部代码；不修改用户并行前端现场。
+- 当前事实：M9.198的三镜、8.1秒、仅视频全链已闭环，但尚未对全仓逐项复核ProductionLedger原子边界、晚到响应隔离、waiting_memory状态机、RecordExporter四层脱敏、provider inflight热插拔保护及Stage四处登记门禁是否仍存在实现漂移。
+- 风险：局部真实全链通过不能替代架构横向一致性证明；其他入口或恢复路径仍可能绕过已经建立的生产契约。
+- 下一状态：建立规范到代码/测试的可追溯矩阵，先做只读差距分析；发现事实违例后逐项登记、修复、回归和稽查。
