@@ -3192,3 +3192,5 @@
 - 第八十七项自动测试与稽查：敏感模型提案零消息/零提案提交，敏感executor结果不发布且提案failed；配置、会话与管理API关联`25 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
 - 第八十八项稽查首败与整改：ConversationMemoryStore会跨会话持久化并直接注入后续系统提示词，但模型memory_updates原只校验Mapping类型，可写入嵌套client_secret等凭据。现响应校验阶段复用递归敏感键门禁，拒绝发生在memory及消息提交前。
 - 第八十八项自动测试与稽查：数组嵌套client_secret动态证明memory为空且会话仍仅系统首条；配置、会话与管理API关联`26 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
+- 第八十九项稽查首败与整改：QueuedTask.payload作为通用队列长期快照会被详情、列表和幂等比较读取，原模型只复制Mapping，可把access_token、Authorization或client_secret带入共享任务状态。现任务构造前递归拒绝六类敏感组合键，所有enqueue入口统一受约束。
+- 第八十九项自动测试与稽查：顶层、对象嵌套和数组嵌套三类敏感payload均构造失败；队列、服务、集成及E2E关联`19 passed`（另`3 subtests passed`），Python编译与diff门禁通过。

@@ -39,7 +39,17 @@ class QueuedTask:
         for field_name in ("task_id", "project_id", "operation_key", "task_type"):
             if not getattr(self, field_name).strip():
                 raise QueueConflictError(f"{field_name} must not be empty")
+        if self._contains_sensitive_key(self.payload):
+            raise QueueConflictError("task payload contains sensitive fields")
         object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
+
+    @staticmethod
+    def _contains_sensitive_key(value: Any) -> bool:
+        forbidden = ("secret", "token", "password", "api_key", "authorization", "credential")
+        if isinstance(value, Mapping):
+            return any(any(word in str(key).lower() for word in forbidden) or QueuedTask._contains_sensitive_key(item) for key, item in value.items())
+        if isinstance(value, (list, tuple, set, frozenset)): return any(QueuedTask._contains_sensitive_key(item) for item in value)
+        return False
 
 
 class InMemoryTaskQueue:

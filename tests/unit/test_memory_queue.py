@@ -44,6 +44,15 @@ class InMemoryTaskQueueTest(unittest.TestCase):
         with self.assertRaisesRegex(QueueConflictError, "conflicts"):
             queue.enqueue(conflicting)
 
+    def test_task_payload_rejects_nested_sensitive_fields(self) -> None:
+        for payload in (
+            {"access_token":"plaintext"},
+            {"transport":{"headers":{"Authorization":"Bearer plaintext"}}},
+            {"profiles":[{"client_secret":"plaintext"}]},
+        ):
+            with self.subTest(payload=payload), self.assertRaisesRegex(QueueConflictError, "sensitive fields"):
+                QueuedTask("task", "project", "operation", "type", task().context, payload)
+
     def test_same_tenant_different_identities_have_independent_operation_keys(self) -> None:
         queue = InMemoryTaskQueue()
         first, first_replayed = queue.enqueue(task())
