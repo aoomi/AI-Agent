@@ -3590,3 +3590,4 @@
 - BUG072 / M9.198 / 架构横向稽查第二百八十七项（已关闭，2026-08-12）：短剧ProductionOrchestrator把stage executor输出浅拷贝进持久证据与公共返回，执行器仍持有的嵌套对象可在发布后改写结果。现输出在状态提交前强制标准JSON并固定权威深快照，持久证据与公共返回分别重建；动态测试证明执行后篡改原region不影响两份已发布事实。关联`118 passed, 19 subtests passed`，Python编译、文档状态及diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第二百八十八项（已关闭，2026-08-12）：ProductionExtension第三方factory探测虽隔离调用方配置，却复用注册表内部嵌套引用，首次恶意探测可污染后续替换探测。现每次probe均从权威标准JSON重建独立深副本；重复探测动态证明两次均收到local。关联`18 passed, 23 subtests passed`，Python编译、文档状态及diff门禁通过。
 - BUG072 / M9.198 / 架构横向稽查第二百八十九项（已关闭，2026-08-12）：CollaborationContext.update在锁内先写task_states、再验证证据与文件引用，后字段非法时虽抛错但前字段已部分提交。现任务状态与两类引用全部在首个写入前解析验证，锁内只执行完整更新；故障注入证明非法引用后状态与证据均保持空。关联`30 passed, 40 subtests passed`，Python编译、文档状态及diff门禁通过。
+- BUG072 / M9.198 / 架构横向稽查第二百九十项（已关闭，2026-08-12）：ConversationMemoryStore启动加载允许JSON NaN、空identity/project及空白事实键进入内存，直到后续读取才可能失败或形成无主事实。现构造期严格解析标准JSON并验证完整作用域与事实键，持久坏文件统一失败关闭；三类动态反例均在发布前拒绝。关联`41 passed, 47 subtests passed`，Python编译、文档状态及diff门禁通过。

@@ -72,12 +72,14 @@ class ConversationMemoryStore:
         self._lock = RLock()
         self._items: dict[tuple[str, str], dict[str, Any]] = {}
         if storage_path and storage_path.exists():
-            raw = json.loads(storage_path.read_text(encoding="utf-8"))
+            try:raw = json.loads(storage_path.read_text(encoding="utf-8"), parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+            except (OSError,json.JSONDecodeError,ValueError) as error:raise ConversationError("conversation memory file is invalid") from error
             if not isinstance(raw, dict): raise ConversationError("conversation memory file is invalid")
             for key, values in raw.items():
                 if "\u0000" not in key or not isinstance(values, dict): raise ConversationError("conversation memory entry is invalid")
                 identity_id, project_id = key.split("\u0000", 1)
-                self._items[(identity_id, project_id)] = dict(values)
+                if not identity_id.strip() or not project_id.strip() or any(not isinstance(name,str) or not name.strip() for name in values):raise ConversationError("conversation memory entry is invalid")
+                self._items[(identity_id, project_id)] = json.loads(json.dumps(values,allow_nan=False))
 
     def read(self, identity_id: str, project_id: str = "") -> Mapping[str, Any]:
         if any(not isinstance(value,str) for value in (identity_id,project_id)) or not identity_id.strip() or not project_id.strip(): raise ConversationError("conversation memory identity and project are required")

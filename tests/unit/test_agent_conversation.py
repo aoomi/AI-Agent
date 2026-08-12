@@ -242,6 +242,14 @@ class AgentConversationServiceTest(unittest.TestCase):
         read=store.read("owner","project");read["preferences"]["styles"][0]="reader"
         self.assertEqual(store.read("owner","project")["preferences"]["styles"][0],"brief")
 
+    def test_memory_store_rejects_invalid_persisted_scope_and_json(self) -> None:
+        with TemporaryDirectory() as directory:
+            path=Path(directory)/"memory.json"
+            for payload in ('{"owner\\u0000project":{"value":NaN}}','{"\\u0000project":{"value":1}}','{"owner\\u0000project":{" ":1}}'):
+                path.write_text(payload,encoding="utf-8")
+                with self.subTest(payload=payload),self.assertRaisesRegex(ConversationError,"memory (file|entry) is invalid"):
+                    ConversationMemoryStore(path)
+
     def test_clarification_cannot_create_execution_proposal(self) -> None:
         skill, agent = self.configured()
         client = ModelClient({"reply": "需要确认目标平台", "needs_clarification": True, "proposal": {"proposal_type": "task_execution", "requested_changes": {"objective": "执行"}}})
