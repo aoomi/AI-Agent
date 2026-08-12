@@ -57,7 +57,9 @@ class OpenAICompatibleClient:
         if cancellation is not None and not callable(getattr(cancellation,"is_set",None)):raise OpenAIClientError("cancellation contract is invalid")
         if cancellation and cancellation.is_set(): raise OpenAIClientCancelled("model request cancelled")
         request={"model":model.model_id,"messages":[{"role":item.role,"content":item.content} for item in messages],"response_format":{"type":"json_schema","json_schema":{"name":"agent_response","strict":True,"schema":dict(response_schema)}}}
-        response=self._transport.post(f"{self._endpoint}/chat/completions",{"Authorization":f"Bearer {self._api_key}","Content-Type":"application/json"},json.dumps(request,separators=(",",":"),ensure_ascii=False).encode(),self._timeout,cancellation)
+        try:request_body=json.dumps(request,separators=(",",":"),ensure_ascii=False,allow_nan=False).encode()
+        except (TypeError,ValueError) as error:raise OpenAIClientError("model request must be standard JSON") from error
+        response=self._transport.post(f"{self._endpoint}/chat/completions",{"Authorization":f"Bearer {self._api_key}","Content-Type":"application/json"},request_body,self._timeout,cancellation)
         if not isinstance(response,OpenAITransportResponse) or isinstance(response.status,bool) or not isinstance(response.status,int) or not isinstance(response.body,bytes):raise OpenAIResponseError("model transport response is invalid")
         if response.status<200 or response.status>=300: raise OpenAIClientError(f"model provider HTTP {response.status}")
         try:
@@ -65,6 +67,8 @@ class OpenAICompatibleClient:
             result=json.loads(content) if isinstance(content,str) else content
         except (ValueError,KeyError,IndexError,TypeError,json.JSONDecodeError) as error: raise OpenAIResponseError("model provider response is invalid") from error
         if not isinstance(result,Mapping): raise OpenAIResponseError("structured model response must be an object")
+        try:json.dumps(dict(result),allow_nan=False)
+        except (TypeError,ValueError) as error:raise OpenAIResponseError("structured model response must be standard JSON") from error
         self._validate(result,response_schema)
         return result
 

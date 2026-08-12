@@ -37,5 +37,13 @@ class OpenAICompatibleClientTest(unittest.TestCase):
             with self.subTest(model=model,messages=messages),self.assertRaises(Exception):client.complete(model,messages,{})
         bad=OpenAICompatibleClient(endpoint="https://example.com",api_key="x",transport=Transport(object()))
         with self.assertRaises(OpenAIResponseError):bad.complete(self.model,[],{})
+    def test_request_schema_and_response_require_standard_json(self):
+        transport=Transport(OpenAITransportResponse(200,b'{}'));client=OpenAICompatibleClient(endpoint="https://example.com",api_key="x",transport=transport)
+        for schema in ({"value":float("nan")},{"value":object()}):
+            with self.subTest(schema=schema),self.assertRaisesRegex(Exception,"standard JSON"):client.complete(self.model,[],schema)
+            self.assertIsNone(transport.request)
+        response=Transport(OpenAITransportResponse(200,b'{"choices":[{"message":{"content":{"reply":NaN}}}]}'))
+        client=OpenAICompatibleClient(endpoint="https://example.com",api_key="x",transport=response)
+        with self.assertRaisesRegex(OpenAIResponseError,"standard JSON"):client.complete(self.model,[],{"type":"object"})
 
 if __name__=="__main__":unittest.main()

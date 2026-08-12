@@ -3494,3 +3494,5 @@
 - 第二百三十八项自动测试与稽查：NaN/任意对象pipeline values动态拒绝且无AgentContext副作用；调度与Agent pipeline关联回归、Python编译与diff门禁通过。
 - 第二百三十九项稽查首败与整改：IndustryWorkflow run只验证inputs/result Mapping，NaN或任意对象可进入Graph检查点或管理API返回值。现调用前后均强制标准JSON边界。
 - 第二百三十九项自动测试与稽查：非标准inputs/result动态拒绝；行业工作流与对话集成关联回归、Python编译与diff门禁通过。
+- 第二百四十项稽查首败与整改：OpenAICompatibleClient使用json.dumps/json.loads默认接受NaN，response_schema又可携带任意对象直到序列化泄漏TypeError。现网络前后都以领域错误强制标准JSON。
+- 第二百四十项自动测试与稽查：NaN/任意对象schema在transport前拒绝，NaN响应动态拒绝；LLM客户端与会话关联回归、Python编译与diff门禁通过。
