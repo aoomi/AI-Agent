@@ -1084,3 +1084,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第八十一项：智能体会话长期memory改为先持久化候选快照、成功后才发布内存状态；send仅在memory持久成功后原子提交消息和提案，磁盘失败不再留下半提交会话或伪造已记忆事实。配置、会话与管理API关联`27 passed`、`3 subtests passed`，Python编译与只读diff稽查通过。
 - BUG072第八十二项：AgentConfiguration设置已在数据模型边界递归拒绝secret/token/password/api_key/authorization/credential组合键，直接创建、版本更新和管理API均不能把嵌套凭据写入历史快照或响应。配置、会话与管理API关联`28 passed`、`6 subtests passed`，Python编译与只读diff稽查通过。
 - BUG072第八十三项：内存任务队列operation_key幂等域已补齐project_id，完整边界为tenant+identity+project+operation；同用户跨项目复用业务操作键可独立入队，不再被错误重放或冲突。队列、服务、集成及E2E关联`18 passed`，Python编译与只读diff稽查通过。
+- BUG072第八十四项：生产能力注册表metadata已递归拒绝secret/token/password/api_key/authorization/credential组合键，运行快照和能力目录不再可携带嵌套凭据；register/register_once共用门禁。动态与关联`7 passed`、`3 subtests passed`，Python编译与只读diff稽查通过。

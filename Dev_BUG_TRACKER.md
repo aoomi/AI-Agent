@@ -3182,3 +3182,5 @@
 - 第八十二项自动测试与稽查：顶层组合token、嵌套Authorization及数组client_secret三类动态拒绝；配置、会话与管理API关联`28 passed`（另`6 subtests passed`），Python编译与diff门禁通过。
 - 第八十三项稽查首败与整改：InMemoryTaskQueue幂等键此前只有tenant+identity+operation，遗漏task自身强制的project_id；同一用户在不同项目使用相同operation_key会错误返回其他项目任务或报冲突。现幂等索引加入project_id，与任务读取、列表和事件投影的项目隔离一致。
 - 第八十三项自动测试与稽查：动态证明同identity同operation跨project可分别入队且task_id独立；队列、服务、集成及E2E关联`18 passed`，Python编译与diff门禁通过。
+- 第八十四项稽查首败与整改：ProductionCapability metadata会进入公开能力定义和runtime snapshot，但原边界只校验max_concurrency，可把access_token、嵌套Authorization或数组client_secret注册进长期能力目录。现register与register_once共用递归敏感键门禁，并保留并发限制校验。
+- 第八十四项自动测试与稽查：三类嵌套敏感metadata均在注册前失败关闭；能力热插拔、并发及元数据关联`7 passed`（另`3 subtests passed`），Python编译与diff门禁通过。

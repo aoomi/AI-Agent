@@ -462,6 +462,18 @@ class ProductionControlTests(unittest.TestCase):
             with self.assertRaisesRegex(ProductionCapabilityError, "max_concurrency"):
                 registry.register("video.shot", f"provider-{invalid}", lambda **_: {}, metadata={"max_concurrency":invalid})
 
+    def test_capability_metadata_rejects_nested_sensitive_fields(self):
+        registry = ProductionCapabilityRegistry()
+        for metadata in (
+            {"access_token": "plaintext"},
+            {"transport": {"headers": {"Authorization": "Bearer plaintext"}}},
+            {"profiles": [{"client_secret": "plaintext"}]},
+        ):
+            with self.subTest(metadata=metadata), self.assertRaisesRegex(
+                ProductionCapabilityError, "sensitive fields"
+            ):
+                registry.register("video.shot", "unsafe", lambda **_: {}, metadata=metadata)
+
     def test_production_infrastructure_is_replaceable_and_disableable(self):
         self.assertIs(production_extension_registry(), production_extension_registry())
         registry = ProductionExtensionRegistry()

@@ -34,6 +34,29 @@ class ProductionCapabilityRegistry:
         self._cursor: dict[str, int] = {}
         self._inflight: dict[tuple[str, str], int] = {}
 
+    @staticmethod
+    def _contains_sensitive_key(value: Any) -> bool:
+        forbidden = ("secret", "token", "password", "api_key", "authorization", "credential")
+        if isinstance(value, Mapping):
+            return any(
+                any(word in str(key).lower() for word in forbidden)
+                or ProductionCapabilityRegistry._contains_sensitive_key(item)
+                for key, item in value.items()
+            )
+        if isinstance(value, (list, tuple, set, frozenset)):
+            return any(ProductionCapabilityRegistry._contains_sensitive_key(item) for item in value)
+        return False
+
+    @classmethod
+    def _validate_metadata(cls, metadata: Mapping[str, Any]) -> None:
+        if cls._contains_sensitive_key(metadata):
+            raise ProductionCapabilityError("provider metadata contain sensitive fields")
+        concurrency = metadata.get("max_concurrency")
+        if concurrency is not None and (
+            isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency <= 0
+        ):
+            raise ProductionCapabilityError("provider max_concurrency must be a positive integer")
+
     def register(self, capability: str, provider_id: str, handler: CapabilityHandler, *, enabled: bool = True,
                  metadata: Mapping[str, Any] | None = None, priority: int = 100, healthy: bool = True,
                  replace: bool = False, replace_provider: bool = False) -> ProductionCapability:
@@ -42,9 +65,7 @@ class ProductionCapabilityRegistry:
             raise ProductionCapabilityError("capability, provider and handler are required")
         if priority < 0:
             raise ProductionCapabilityError("provider priority must be non-negative")
-        concurrency = (metadata or {}).get("max_concurrency")
-        if concurrency is not None and (isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency <= 0):
-            raise ProductionCapabilityError("provider max_concurrency must be a positive integer")
+        self._validate_metadata(metadata or {})
         definition = ProductionCapability(capability, provider_id, enabled, MappingProxyType(dict(metadata or {})), priority, healthy)
         key = (capability, provider_id)
         with self._lock:
@@ -73,9 +94,7 @@ class ProductionCapabilityRegistry:
             raise ProductionCapabilityError("capability, provider and handler are required")
         if priority < 0:
             raise ProductionCapabilityError("provider priority must be non-negative")
-        concurrency = (metadata or {}).get("max_concurrency")
-        if concurrency is not None and (isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency <= 0):
-            raise ProductionCapabilityError("provider max_concurrency must be a positive integer")
+        self._validate_metadata(metadata or {})
         key = (capability, provider_id)
         with self._lock:
             existing = self._providers.get(key)
