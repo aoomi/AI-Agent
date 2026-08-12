@@ -78,17 +78,19 @@ class AgentScheduler:
 
     def start_graph(self, *, graph_id: str, thread_id: str, executors: Mapping[str, Any], inputs: Mapping[str, Any], mode: str = "serial", max_attempts: int = 3, require_approval: bool = False) -> Mapping[str, Any]:
         if self.graph_orchestrator is None: raise SchedulerError("LangGraph orchestrator is not configured")
-        if not isinstance(executors,Mapping) or not isinstance(inputs,Mapping):raise SchedulerError("graph executors and inputs must be mappings")
+        if (not isinstance(graph_id,str) or not graph_id.strip() or not isinstance(thread_id,str) or not thread_id.strip()
+                or not isinstance(executors,Mapping) or not isinstance(inputs,Mapping)):raise SchedulerError("graph identity, executors and inputs are invalid")
         self.graph_orchestrator.compile(graph_id, executors, mode=mode, max_attempts=max_attempts, require_approval=require_approval)
         return self.graph_orchestrator.invoke(graph_id, thread_id, inputs)
 
     def resume_graph(self, graph_id: str, thread_id: str, approved: bool) -> Mapping[str, Any]:
         if self.graph_orchestrator is None: raise SchedulerError("LangGraph orchestrator is not configured")
-        if not isinstance(approved,bool):raise SchedulerError("graph approval must be boolean")
+        if not isinstance(graph_id,str) or not graph_id.strip() or not isinstance(thread_id,str) or not thread_id.strip() or not isinstance(approved,bool):raise SchedulerError("graph identity and approval are invalid")
         return self.graph_orchestrator.resume(graph_id, thread_id, approved)
 
     def schedule_remediation(self, instruction: RemediationInstruction) -> ScheduledRemediation:
-        if (not instruction.instruction_id.strip() or not instruction.root_task_id.strip() or not instruction.developer_agent_id.strip()
+        if (not isinstance(instruction,RemediationInstruction) or any(not isinstance(value,str) for value in (instruction.instruction_id,instruction.root_task_id,instruction.developer_agent_id))
+                or not instruction.instruction_id.strip() or not instruction.root_task_id.strip() or not instruction.developer_agent_id.strip()
                 or not instruction.issue_ids or any(not str(issue_id).strip() for issue_id in instruction.issue_ids)
                 or isinstance(instruction.remediation_round,bool) or not isinstance(instruction.remediation_round,int) or instruction.remediation_round < 1):
             raise SchedulerError("remediation instruction contract is invalid")
@@ -98,6 +100,7 @@ class AgentScheduler:
             self.remediations[instruction.instruction_id] = remediation; return remediation
 
     def remediation(self, instruction_id: str) -> ScheduledRemediation:
+        if not isinstance(instruction_id,str):raise SchedulerError("remediation instruction_id is required")
         instruction_id = instruction_id.strip()
         if not instruction_id:raise SchedulerError("remediation instruction_id is required")
         with self._lock:
@@ -118,9 +121,10 @@ class AgentScheduler:
             self.executors[agent_id] = executor
 
     def start(self, tenant_id: str, project_id: str, agent_ids: tuple[str, ...], values: Mapping[str, Any], *, mode: str = "serial", max_retries: int = 2, auto_run: bool = True) -> PipelineRun:
-        if not agent_ids:
+        if not isinstance(agent_ids,tuple) or not agent_ids:
             raise SchedulerError("pipeline requires at least one agent")
         if len(set(agent_ids)) != len(agent_ids):raise SchedulerError("pipeline agent_ids must be unique")
+        if not isinstance(tenant_id,str) or not isinstance(project_id,str):raise SchedulerError("pipeline tenant_id and project_id are required")
         tenant_id, project_id = tenant_id.strip(), project_id.strip()
         if not tenant_id or not project_id:raise SchedulerError("pipeline tenant_id and project_id are required")
         if mode not in {"serial", "parallel"}: raise SchedulerError("scheduler mode must be serial or parallel")
@@ -137,6 +141,7 @@ class AgentScheduler:
         return self.run(run.run_id) if auto_run else run
 
     def run(self, run_id: str) -> PipelineRun:
+        if not isinstance(run_id,str):raise SchedulerError("pipeline run_id is required")
         run_id=run_id.strip()
         if not run_id:raise SchedulerError("pipeline run_id is required")
         with self._lock:
@@ -239,6 +244,7 @@ class AgentScheduler:
         return self.run(run_id)
 
     def _get(self, run_id: str) -> PipelineRun:
+        if not isinstance(run_id,str):raise SchedulerError("pipeline run_id is required")
         run_id = run_id.strip()
         if not run_id:raise SchedulerError("pipeline run_id is required")
         with self._lock:

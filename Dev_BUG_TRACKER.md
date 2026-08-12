@@ -3348,3 +3348,5 @@
 - 第一百六十五项自动测试与稽查：数字agent动态失败关闭；配置关联回归、Python编译与diff门禁通过。
 - 第一百六十六项稽查首败与整改：LangGraph compile/_invoke对name/thread直接strip，compile_branching又在验证Mapping/tuple前迭代分支，数字ID或列表结构会泄漏底层异常。现两类编译和线程执行入口完整验证运行时结构。
 - 第一百六十六项自动测试与稽查：数字graph/thread、列表branches/terminal等畸形控制动态失败关闭；专项关联回归、Python编译与diff门禁通过。
+- 第一百六十七项稽查首败与整改：AgentScheduler多类Graph/remediation/run身份直接strip，start还接受列表agent_ids且可能在后续产生含混状态。现控制身份、模型和tuple边界在任何上下文或共享表副作用前失败关闭。
+- 第一百六十七项自动测试与稽查：数字run/remediation/tenant、坏instruction及列表agent_ids动态拒绝；调度关联回归、Python编译与diff门禁通过。

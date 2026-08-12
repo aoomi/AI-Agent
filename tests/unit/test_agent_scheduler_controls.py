@@ -17,6 +17,8 @@ class AgentSchedulerControlsTest(unittest.TestCase):
         with self.assertRaisesRegex(SchedulerError,"registry contract"):AgentScheduler(object(),AgentContextStore())
         with self.assertRaisesRegex(SchedulerError,"context contract"):AgentScheduler(AgentRegistry(),object())
         with self.assertRaisesRegex(SchedulerError,"run_id"):self.scheduler.run(" ")
+        for operation in (lambda:self.scheduler.run(1),lambda:self.scheduler.remediation(1),lambda:self.scheduler.schedule_remediation(object()),lambda:self.scheduler.start(1,"project",(self.first.agent_id,),{},auto_run=False),lambda:self.scheduler.start("tenant","project",[self.first.agent_id],{},auto_run=False)):
+            with self.subTest(operation=operation),self.assertRaises(SchedulerError):operation()
     def setUp(self) -> None:
         registry = AgentRegistry(); self.first = registry.register(skill("first"))[0]; self.second = registry.register(skill("second"))[0]
         self.scheduler = AgentScheduler(registry, AgentContextStore())
