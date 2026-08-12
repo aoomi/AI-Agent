@@ -13,6 +13,10 @@ def skill(skill_id: str) -> SkillDefinition:
 
 
 class AgentSchedulerControlsTest(unittest.TestCase):
+    def test_runtime_dependency_and_resume_contracts_are_rejected(self) -> None:
+        with self.assertRaisesRegex(SchedulerError,"registry contract"):AgentScheduler(object(),AgentContextStore())
+        with self.assertRaisesRegex(SchedulerError,"context contract"):AgentScheduler(AgentRegistry(),object())
+        with self.assertRaisesRegex(SchedulerError,"run_id"):self.scheduler.run(" ")
     def setUp(self) -> None:
         registry = AgentRegistry(); self.first = registry.register(skill("first"))[0]; self.second = registry.register(skill("second"))[0]
         self.scheduler = AgentScheduler(registry, AgentContextStore())

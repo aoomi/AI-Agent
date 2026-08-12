@@ -58,6 +58,8 @@ class ScheduledRemediation:
 
 class AgentScheduler:
     def __init__(self, registry: AgentRegistry, contexts: AgentContextStore) -> None:
+        if not all(callable(getattr(registry,name,None)) for name in ("get","update_status")):raise SchedulerError("agent registry contract is invalid")
+        if not all(callable(getattr(contexts,name,None)) for name in ("create","get","update")):raise SchedulerError("agent context contract is invalid")
         self.registry = registry
         self.contexts = contexts
         self.lifecycle = AgentLifecycle()
@@ -76,11 +78,13 @@ class AgentScheduler:
 
     def start_graph(self, *, graph_id: str, thread_id: str, executors: Mapping[str, Any], inputs: Mapping[str, Any], mode: str = "serial", max_attempts: int = 3, require_approval: bool = False) -> Mapping[str, Any]:
         if self.graph_orchestrator is None: raise SchedulerError("LangGraph orchestrator is not configured")
+        if not isinstance(executors,Mapping) or not isinstance(inputs,Mapping):raise SchedulerError("graph executors and inputs must be mappings")
         self.graph_orchestrator.compile(graph_id, executors, mode=mode, max_attempts=max_attempts, require_approval=require_approval)
         return self.graph_orchestrator.invoke(graph_id, thread_id, inputs)
 
     def resume_graph(self, graph_id: str, thread_id: str, approved: bool) -> Mapping[str, Any]:
         if self.graph_orchestrator is None: raise SchedulerError("LangGraph orchestrator is not configured")
+        if not isinstance(approved,bool):raise SchedulerError("graph approval must be boolean")
         return self.graph_orchestrator.resume(graph_id, thread_id, approved)
 
     def schedule_remediation(self, instruction: RemediationInstruction) -> ScheduledRemediation:
@@ -133,6 +137,8 @@ class AgentScheduler:
         return self.run(run.run_id) if auto_run else run
 
     def run(self, run_id: str) -> PipelineRun:
+        run_id=run_id.strip()
+        if not run_id:raise SchedulerError("pipeline run_id is required")
         with self._lock:
             if run_id in self._active_runs: raise SchedulerError("pipeline run is already active")
             self._active_runs.add(run_id)
@@ -221,6 +227,7 @@ class AgentScheduler:
             takeover = replace(run, status="waiting_human"); self.runs[run_id] = takeover; return takeover
 
     def resume(self, run_id: str, values: Mapping[str, Any]) -> PipelineRun:
+        if not isinstance(values,Mapping):raise SchedulerError("pipeline resume values must be a mapping")
         with self._lock:
             run = self._get(run_id)
             if run_id in self._active_runs: raise SchedulerError("pipeline run is already active")
