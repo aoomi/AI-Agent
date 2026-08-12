@@ -1049,3 +1049,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第四十七项：通用LangGraph编译原子发布，同name/thread的invoke与resume共用异常安全single-flight围栏，阻断同检查点线程并发执行。关联`9 passed`，只读稽查通过。
 - BUG072第四十八项：provider滑窗限流、熔断状态和limiter注册已并发安全，真实调用与退避不持锁。关联`6 passed`，只读稽查通过。
 - BUG072第四十九项：智能体会话send和提案确认/拒绝已建立session/proposal single-flight，共享消息与提案快照并发安全。关联`13 passed`，只读稽查通过。
+- BUG072第五十项：开发→稽查协作的handoff执行与report整改已single-flight，四类共享状态迁移并发安全，外部executor/scheduler不持锁。关联`11 passed`、`3 subtests passed`，只读稽查通过。

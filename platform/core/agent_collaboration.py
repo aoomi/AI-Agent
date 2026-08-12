@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
+from threading import RLock
 from typing import Any, Mapping, Protocol
 from uuid import uuid4
 
@@ -117,6 +118,9 @@ class AgentCollaborationService:
         self._handoffs: dict[str, TaskHandoff] = {}
         self._reports: dict[str, InspectionReport] = {}
         self._instructions: dict[str, RemediationInstruction] = {}
+        self._lock = RLock()
+        self._active_handoffs: set[str] = set()
+        self._active_reports: set[str] = set()
 
     def open_session(self, *, tenant_id: str, created_by_identity_id: str, project_id: str, root_task_id: str, developer_agent_id: str, inspector_agent_id: str, max_remediation_rounds: int = 3) -> CollaborationSession:
         tenant_id, created_by_identity_id, project_id, root_task_id = self._required(tenant_id, created_by_identity_id, project_id, root_task_id)
@@ -130,44 +134,53 @@ class AgentCollaborationService:
             raise AgentCollaborationError("max_remediation_rounds must be between 1 and 100")
         now = self._now()
         session = CollaborationSession(f"collaboration-{uuid4().hex}", tenant_id, created_by_identity_id, project_id, root_task_id, developer_agent_id, inspector_agent_id, "active", 0, max_remediation_rounds, now, now)
-        self._sessions[session.session_id] = session
+        with self._lock:self._sessions[session.session_id] = session
         return session
 
     def submit_for_inspection(self, session_id: str, *, task_id: str, context_reference: str, evidence: tuple[Mapping[str, Any], ...] = ()) -> TaskHandoff:
-        session = self.get_session(session_id)
-        if session.status not in {"active", "waiting_remediation"}:
-            raise AgentCollaborationError("session cannot submit inspection in its current state")
         task_id = self._required(task_id)[0]
         parsed_evidence = tuple(self._evidence(item) for item in evidence)
-        handoff_type = "submit_for_inspection" if session.remediation_round == 0 else "resubmit_for_inspection"
-        handoff = TaskHandoff(f"handoff-{uuid4().hex}", session_id, task_id, session.developer_agent_id, session.inspector_agent_id, handoff_type, "pending", self._safe_reference(context_reference), parsed_evidence, self._now())
-        self._handoffs[handoff.handoff_id] = handoff
-        self._sessions[session_id] = replace(session, status="waiting_inspection", updated_at=self._now())
-        return handoff
+        reference = self._safe_reference(context_reference)
+        with self._lock:
+            session = self.get_session(session_id)
+            if session.status not in {"active", "waiting_remediation"}:raise AgentCollaborationError("session cannot submit inspection in its current state")
+            handoff_type = "submit_for_inspection" if session.remediation_round == 0 else "resubmit_for_inspection"
+            handoff = TaskHandoff(f"handoff-{uuid4().hex}", session_id, task_id, session.developer_agent_id, session.inspector_agent_id, handoff_type, "pending", reference, parsed_evidence, self._now())
+            self._handoffs[handoff.handoff_id] = handoff;self._sessions[session_id] = replace(session, status="waiting_inspection", updated_at=self._now());return handoff
 
     def run_inspection(self, handoff_id: str) -> InspectionReport:
-        handoff = self.get_handoff(handoff_id)
-        session = self.get_session(handoff.session_id)
-        if session.status != "waiting_inspection" or handoff.status != "pending":
-            raise AgentCollaborationError("handoff is not pending inspection")
+        with self._lock:
+            handoff = self.get_handoff(handoff_id);session = self.get_session(handoff.session_id)
+            if handoff_id in self._active_handoffs:raise AgentCollaborationError("handoff inspection is already active")
+            if session.status != "waiting_inspection" or handoff.status != "pending":raise AgentCollaborationError("handoff is not pending inspection")
+            self._active_handoffs.add(handoff_id)
         if self.inspection_executor is None:
+            with self._lock:self._active_handoffs.discard(handoff_id)
             raise AgentCollaborationError("real inspection executor is not configured")
-        raw = self.inspection_executor.inspect(handoff)
-        report = self._report(handoff, raw)
-        self._reports[report.report_id] = report
-        self._handoffs[handoff_id] = replace(handoff, status="completed")
-        target_status = "completed" if report.verdict == "passed" else "waiting_remediation" if report.verdict == "changes_required" else "waiting_human"
-        self._sessions[session.session_id] = replace(session, status=target_status, updated_at=self._now())
-        return report
+        try:
+            raw = self.inspection_executor.inspect(handoff);report = self._report(handoff, raw)
+            with self._lock:
+                self._reports[report.report_id] = report;self._handoffs[handoff_id] = replace(handoff, status="completed")
+                target_status = "completed" if report.verdict == "passed" else "waiting_remediation" if report.verdict == "changes_required" else "waiting_human"
+                self._sessions[session.session_id] = replace(session, status=target_status, updated_at=self._now())
+            return report
+        finally:
+            with self._lock:self._active_handoffs.discard(handoff_id)
 
     def create_remediation(self, report_id: str) -> RemediationInstruction:
-        report = self.get_report(report_id)
-        session = self.get_session(report.session_id)
-        if report.verdict != "changes_required" or session.status != "waiting_remediation":
-            raise AgentCollaborationError("inspection report does not require remediation")
+        with self._lock:
+            report = self.get_report(report_id);session = self.get_session(report.session_id)
+            if report_id in self._active_reports:raise AgentCollaborationError("report remediation is already active")
+            if report.verdict != "changes_required" or session.status != "waiting_remediation":raise AgentCollaborationError("inspection report does not require remediation")
+            self._active_reports.add(report_id)
+        try:return self._create_remediation_active(report, session)
+        finally:
+            with self._lock:self._active_reports.discard(report_id)
+
+    def _create_remediation_active(self, report: InspectionReport, session: CollaborationSession) -> RemediationInstruction:
         next_round = session.remediation_round + 1
         if next_round > session.max_remediation_rounds:
-            self._sessions[session.session_id] = replace(session, status="waiting_human", updated_at=self._now())
+            with self._lock:self._sessions[session.session_id] = replace(session, status="waiting_human", updated_at=self._now())
             raise AgentCollaborationError("maximum remediation rounds reached; manual takeover required")
         if self.remediation_scheduler is None:
             raise AgentCollaborationError("remediation scheduler is not configured")
@@ -177,8 +190,7 @@ class AgentCollaborationService:
             tuple(issue.issue_id for issue in report.issues), next_round, "pending", self._now(),
         )
         self.remediation_scheduler.schedule_remediation(instruction)
-        self._instructions[instruction.instruction_id] = instruction
-        self._sessions[session.session_id] = replace(session, remediation_round=next_round, status="active", updated_at=self._now())
+        with self._lock:self._instructions[instruction.instruction_id] = instruction;self._sessions[session.session_id] = replace(session, remediation_round=next_round, status="active", updated_at=self._now())
         return instruction
 
     def run_cycle(self, session_id: str, *, task_id: str, context_reference: str, evidence: tuple[Mapping[str, Any], ...] = ()) -> tuple[TaskHandoff, InspectionReport, RemediationInstruction | None]:
@@ -189,8 +201,9 @@ class AgentCollaborationService:
         return handoff, report, remediation
 
     def get_session(self, session_id: str) -> CollaborationSession:
-        try: return self._sessions[session_id]
-        except KeyError as error: raise AgentCollaborationError(f"unknown collaboration session: {session_id}") from error
+        with self._lock:
+            try: return self._sessions[session_id]
+            except KeyError as error: raise AgentCollaborationError(f"unknown collaboration session: {session_id}") from error
 
     def require_owner(self, session_id: str, tenant_id: str, identity_id: str) -> CollaborationSession:
         tenant_id, identity_id = self._required(tenant_id, identity_id)
@@ -210,28 +223,28 @@ class AgentCollaborationService:
         return report
 
     def get_handoff(self, handoff_id: str) -> TaskHandoff:
-        try: return self._handoffs[handoff_id]
-        except KeyError as error: raise AgentCollaborationError(f"unknown task handoff: {handoff_id}") from error
+        with self._lock:
+            try: return self._handoffs[handoff_id]
+            except KeyError as error: raise AgentCollaborationError(f"unknown task handoff: {handoff_id}") from error
 
     def get_report(self, report_id: str) -> InspectionReport:
-        try: return self._reports[report_id]
-        except KeyError as error: raise AgentCollaborationError(f"unknown inspection report: {report_id}") from error
+        with self._lock:
+            try: return self._reports[report_id]
+            except KeyError as error: raise AgentCollaborationError(f"unknown inspection report: {report_id}") from error
 
     def get_instruction(self, instruction_id: str) -> RemediationInstruction:
-        try: return self._instructions[instruction_id]
-        except KeyError as error: raise AgentCollaborationError(f"unknown remediation instruction: {instruction_id}") from error
+        with self._lock:
+            try: return self._instructions[instruction_id]
+            except KeyError as error: raise AgentCollaborationError(f"unknown remediation instruction: {instruction_id}") from error
 
     def instructions(self, session_id: str) -> tuple[RemediationInstruction, ...]:
-        self.get_session(session_id)
-        return tuple(item for item in self._instructions.values() if item.session_id == session_id)
+        with self._lock:self.get_session(session_id);return tuple(item for item in self._instructions.values() if item.session_id == session_id)
 
     def handoffs(self, session_id: str) -> tuple[TaskHandoff, ...]:
-        self.get_session(session_id)
-        return tuple(item for item in self._handoffs.values() if item.session_id == session_id)
+        with self._lock:self.get_session(session_id);return tuple(item for item in self._handoffs.values() if item.session_id == session_id)
 
     def reports(self, session_id: str) -> tuple[InspectionReport, ...]:
-        self.get_session(session_id)
-        return tuple(item for item in self._reports.values() if item.session_id == session_id)
+        with self._lock:self.get_session(session_id);return tuple(item for item in self._reports.values() if item.session_id == session_id)
 
     def _report(self, handoff: TaskHandoff, raw: Mapping[str, Any]) -> InspectionReport:
         if not isinstance(raw, Mapping):
