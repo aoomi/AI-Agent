@@ -3136,3 +3136,5 @@
 - 第四十七项自动测试与稽查：LangGraph串并行/分支/暂停恢复、行业工作流与Agent调度关联`9 passed`；Python编译与diff门禁通过。只读确认Graph executor不持注册锁。
 - 第四十八项稽查首败与整改：provider韧性层的滑窗调用队列、熔断失败计数和按provider limiter注册均无锁；并发请求可越过限流、丢失失败计数或错误复位熔断。现三层共享状态分别RLock原子更新，真实provider调用与退避sleep保持锁外。
 - 第四十八项自动测试与稽查：provider重试/降级/熔断/限流及生产集成关联`6 passed`；Python编译与diff门禁通过。
+- 第四十九项稽查首败与整改：AgentConversationService的会话消息、提案和绑定四表无锁，同session可并发发送并用不同历史调用模型，同proposal可被重复确认执行两次副作用。现共享表统一RLock；send按session、confirm/reject按proposal建立异常安全single-flight，模型和提案executor保持锁外执行，读取返回锁内快照。
+- 第四十九项自动测试与稽查：会话生命周期与管理API关联`13 passed`；Python编译与diff门禁通过。只读确认模型和executor不持锁且finally释放活动集合。

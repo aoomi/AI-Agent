@@ -122,10 +122,13 @@ class AgentConversationService:
         self._messages: dict[str, list[ConversationMessage]] = {}
         self._proposals: dict[str, ConversationProposal] = {}
         self._bindings: dict[str, tuple[AgentInstance, SkillDefinition]] = {}
+        self._lock = RLock()
+        self._active_sessions: set[str] = set()
+        self._active_proposals: set[str] = set()
 
     def bind(self, agent: AgentInstance, skill: SkillDefinition) -> None:
         if agent.skill_id != skill.skill_id: raise ConversationError("agent does not belong to Skill")
-        self._bindings[agent.agent_id] = (agent, skill)
+        with self._lock:self._bindings[agent.agent_id] = (agent, skill)
 
     def open_session(self, agent_id: str, created_by_identity_id: str, context: Mapping[str, Any] | None = None) -> ConversationSession:
         configuration = self.configurations.get(agent_id)
@@ -133,25 +136,33 @@ class AgentConversationService:
         if not identity_id: raise ConversationError("created_by_identity_id is required")
         safe_context = MappingProxyType({str(key): value for key, value in (context or {}).items() if str(key).strip() and value is not None})
         session = ConversationSession(f"conversation-{uuid4().hex}", agent_id, configuration.configuration_version, identity_id, self._now(), safe_context)
-        self._sessions[session.session_id] = session
         agent, skill = self._binding(agent_id)
         memory = self.memory_store.read(identity_id, str(safe_context.get("project_id", "")))
-        self._messages[session.session_id] = [self._message(session, "system", self._system_prompt(configuration, agent, skill, safe_context, memory))]
+        system = self._message(session, "system", self._system_prompt(configuration, agent, skill, safe_context, memory))
+        with self._lock:self._sessions[session.session_id] = session;self._messages[session.session_id] = [system]
         return session
 
     def send(self, session_id: str, content: str, identity_id: str) -> tuple[ConversationMessage, ConversationProposal | None]:
-        session = self._owned_session(session_id, identity_id)
+        with self._lock:
+            session = self._owned_session(session_id, identity_id)
+            if session_id in self._active_sessions:raise ConversationError("conversation session is already active")
+            self._active_sessions.add(session_id)
         text = content.strip()
+        try:return self._send_active(session, text)
+        finally:
+            with self._lock:self._active_sessions.discard(session_id)
+
+    def _send_active(self, session: ConversationSession, text: str) -> tuple[ConversationMessage, ConversationProposal | None]:
         if not text: raise ConversationError("conversation content is required")
         if self.model_client is None: raise ConversationError("real conversation model client is not configured")
-        configuration = self.configurations.get(session.agent_id)
+        configuration = self.configurations.get(session.agent_id);session_id=session.session_id
         model = self.models.select(ModelRequirements(frozenset({"chat", "structured_output"})), preferred_model_id=configuration.model_id)
-        self._messages[session_id].append(self._message(session, "user", text))
-        raw = self.model_client.complete(model, tuple(self._messages[session_id]), self.RESPONSE_SCHEMA)
+        with self._lock:self._messages[session_id].append(self._message(session, "user", text));messages=tuple(self._messages[session_id])
+        raw = self.model_client.complete(model, messages, self.RESPONSE_SCHEMA)
         reply = raw.get("reply")
         if not isinstance(reply, str) or not reply.strip(): raise ConversationError("model response reply is invalid")
         assistant = self._message(session, "assistant", reply.strip())
-        self._messages[session_id].append(assistant)
+        with self._lock:self._messages[session_id].append(assistant)
         memory_updates = raw.get("memory_updates")
         if isinstance(memory_updates, Mapping) and memory_updates:
             self.memory_store.update(session.created_by_identity_id, str(session.context.get("project_id", "")), memory_updates)
@@ -189,7 +200,15 @@ class AgentConversationService:
         )
 
     def confirm(self, proposal_id: str, confirmed_by_identity_id: str) -> ConversationProposal:
-        proposal = self._proposal(proposal_id)
+        with self._lock:
+            proposal = self._proposal(proposal_id)
+            if proposal_id in self._active_proposals:raise ConversationError("proposal is already active")
+            self._active_proposals.add(proposal_id)
+        try:return self._confirm_active(proposal, confirmed_by_identity_id)
+        finally:
+            with self._lock:self._active_proposals.discard(proposal_id)
+
+    def _confirm_active(self, proposal: ConversationProposal, confirmed_by_identity_id: str) -> ConversationProposal:
         identity_id = confirmed_by_identity_id.strip()
         if not identity_id: raise ConversationError("confirmed_by_identity_id is required")
         self._owned_session(proposal.session_id, identity_id)
@@ -211,23 +230,24 @@ class AgentConversationService:
                 result = executor.execute(configuration, proposal.requested_changes, identity_id)
                 if not result: raise ConversationError("task executor returned no result")
         except Exception:
-            self._proposals[proposal_id] = replace(proposal, status="failed")
+            with self._lock:self._proposals[proposal.proposal_id] = replace(proposal, status="failed")
             raise
         applied = replace(proposal, status="applied", applied_result=MappingProxyType(dict(result)))
-        self._proposals[proposal_id] = applied
+        with self._lock:self._proposals[proposal.proposal_id] = applied
         return applied
 
     def reject(self, proposal_id: str, rejected_by_identity_id: str) -> ConversationProposal:
-        proposal = self._proposal(proposal_id)
-        self._owned_session(proposal.session_id, rejected_by_identity_id)
-        if proposal.status != "pending_confirmation": raise ConversationError("proposal is not pending confirmation")
-        rejected = replace(proposal, status="rejected"); self._proposals[proposal_id] = rejected; return rejected
+        with self._lock:
+            proposal = self._proposal(proposal_id);self._owned_session(proposal.session_id, rejected_by_identity_id)
+            if proposal_id in self._active_proposals:raise ConversationError("proposal is already active")
+            if proposal.status != "pending_confirmation": raise ConversationError("proposal is not pending confirmation")
+            rejected = replace(proposal, status="rejected"); self._proposals[proposal_id] = rejected; return rejected
 
     def messages(self, session_id: str, identity_id: str) -> tuple[ConversationMessage, ...]:
-        self._owned_session(session_id, identity_id); return tuple(self._messages[session_id])
+        with self._lock:self._owned_session(session_id, identity_id); return tuple(self._messages[session_id])
 
     def proposals(self, session_id: str, identity_id: str) -> tuple[ConversationProposal, ...]:
-        self._owned_session(session_id, identity_id); return tuple(item for item in self._proposals.values() if item.session_id == session_id)
+        with self._lock:self._owned_session(session_id, identity_id); return tuple(item for item in self._proposals.values() if item.session_id == session_id)
 
     def _owned_session(self, session_id: str, identity_id: str) -> ConversationSession:
         owner = identity_id.strip()
@@ -247,23 +267,26 @@ class AgentConversationService:
         if configuration.role in {"tester", "inspector"} and proposal_type == "task_execution" and requested.get("read_only") is not True:
             raise ConversationError(f"{configuration.role} task proposal must be read-only")
         proposal = ConversationProposal(f"proposal-{uuid4().hex}", session.session_id, session.agent_id, str(proposal_type), "pending_confirmation", MappingProxyType(dict(requested)), True, self._now())
-        self._proposals[proposal.proposal_id] = proposal
+        with self._lock:self._proposals[proposal.proposal_id] = proposal
         return proposal
 
     def _message(self, session: ConversationSession, role: str, content: str) -> ConversationMessage:
         return ConversationMessage(f"message-{uuid4().hex}", session.session_id, session.agent_id, role, content, self._now())
 
     def _session(self, session_id: str) -> ConversationSession:
-        try: return self._sessions[session_id]
-        except KeyError as error: raise ConversationError(f"unknown conversation session: {session_id}") from error
+        with self._lock:
+            try: return self._sessions[session_id]
+            except KeyError as error: raise ConversationError(f"unknown conversation session: {session_id}") from error
 
     def _proposal(self, proposal_id: str) -> ConversationProposal:
-        try: return self._proposals[proposal_id]
-        except KeyError as error: raise ConversationError(f"unknown proposal: {proposal_id}") from error
+        with self._lock:
+            try: return self._proposals[proposal_id]
+            except KeyError as error: raise ConversationError(f"unknown proposal: {proposal_id}") from error
 
     def _binding(self, agent_id: str) -> tuple[AgentInstance, SkillDefinition]:
-        try: return self._bindings[agent_id]
-        except KeyError as error: raise ConversationError("agent Skill binding is not configured") from error
+        with self._lock:
+            try: return self._bindings[agent_id]
+            except KeyError as error: raise ConversationError("agent Skill binding is not configured") from error
 
     @staticmethod
     def _now() -> str: return datetime.now(timezone.utc).isoformat()
