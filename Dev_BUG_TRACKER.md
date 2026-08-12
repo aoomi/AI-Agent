@@ -3448,3 +3448,5 @@
 - 第二百一十五项自动测试与稽查：四类坏health结果动态失败关闭；Provider配置与生产集成关联`9 passed`（另`17 subtests passed`），Python编译与diff门禁通过。
 - 第二百一十六项稽查首败与整改：IndustryWorkflow connect未规范化source/target导致合法空白ID误拒，modify直接对任意mode做集合查找，列表会泄漏TypeError；整改时同步确认集成契约允许JSON列表robot_ids。现连接、模式和创建容器契约一致。
 - 第二百一十六项自动测试与稽查：空白连接ID规范化成功、列表mode动态拒绝且版本不变，列表robot创建与Graph运行集成通过；行业关联`7 passed`（另`10 subtests passed`），Python编译与diff门禁通过。
+- 第二百一十七项稽查首败与整改：PluginSandbox网络只校验scheme/hostname，允许userinfo、fragment和任意端口；run_process接受任意Sequence，迭代器等对象可能进入含混调用。现网络目的地和命令容器边界进一步收紧。
+- 第二百一十七项自动测试与稽查：userinfo、8443端口及迭代器command动态拒绝；插件沙箱关联`3 passed`（另`12 subtests passed`），Python编译与diff门禁通过。

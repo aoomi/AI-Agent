@@ -1217,3 +1217,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第二百一十四项：Provider适配器列表kind与SecretResolver结果已强制字符串类型，数字kind或非字符串密钥不能被含混接受并传入真实提供方。Provider关联`12 passed`、`11 subtests passed`。
 - BUG072第二百一十五项：Provider健康检查结果已强制二元tuple、非负整数延迟和非空字符串错误码，坏探活器输出不能写入健康状态表。Provider配置关联`9 passed`、`17 subtests passed`。
 - BUG072第二百一十六项：行业工作流connect已规范化机器人ID，modify同步验证字符串mode；合法列表robot输入保持兼容，空白连接身份与不可哈希mode不会破坏版本状态。行业关联`7 passed`、`10 subtests passed`。
+- BUG072第二百一十七项：插件网络沙箱已拒绝URL凭据、fragment和非443端口，进程命令仅接受list/tuple；任意Sequence或授权主机上的危险URL变体不能绕过broker。安全关联`3 passed`、`12 subtests passed`。

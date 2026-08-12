@@ -30,10 +30,11 @@ class PluginSandboxBroker:
  def validate_network(self,url:str)->str:
   if not isinstance(url,str) or not url.strip():raise PluginSandboxError("plugin network destination is not authorized")
   parsed=urlparse(url)
-  if parsed.scheme!="https" or not parsed.hostname or parsed.hostname not in self.policy.allowed_hosts:raise PluginSandboxError("plugin network destination is not authorized")
+  if (parsed.scheme!="https" or not parsed.hostname or parsed.hostname not in self.policy.allowed_hosts or parsed.username or parsed.password
+      or parsed.fragment or parsed.port not in (None,443)):raise PluginSandboxError("plugin network destination is not authorized")
   return url
  def run_process(self,command:Sequence[str],*,timeout_seconds:int=30)->subprocess.CompletedProcess[bytes]:
-  if isinstance(command,(str,bytes)) or not command or any(not isinstance(value,str) or not value for value in command) or command[0] not in self.policy.allowed_executables:raise PluginSandboxError("plugin executable is not authorized")
+  if not isinstance(command,(list,tuple)) or not command or any(not isinstance(value,str) or not value for value in command) or command[0] not in self.policy.allowed_executables:raise PluginSandboxError("plugin executable is not authorized")
   if isinstance(timeout_seconds,bool) or not isinstance(timeout_seconds,int) or timeout_seconds<1 or timeout_seconds>300:raise PluginSandboxError("plugin process timeout is invalid")
   return subprocess.run(tuple(command),cwd=self.policy.plugin_root,env={"PATH":"/usr/bin:/bin"},stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout_seconds,check=False)
  @staticmethod
