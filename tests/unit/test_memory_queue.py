@@ -175,6 +175,12 @@ class InMemoryTaskQueueTest(unittest.TestCase):
             with self.subTest(payload=payload),self.assertRaisesRegex(QueueConflictError,"standard JSON"):
                 QueuedTask("task","project","operation","type",task().context,payload)
 
+    def test_task_payload_is_deeply_immutable_from_caller_mutation(self) -> None:
+        payload = {"items": [{"status": "queued"}]}
+        queued = QueuedTask("task", "project", "operation", "type", task().context, payload)
+        payload["items"][0]["status"] = "forged"
+        self.assertEqual(queued.payload["items"][0]["status"], "queued")
+
 
 if __name__ == "__main__":
     unittest.main()

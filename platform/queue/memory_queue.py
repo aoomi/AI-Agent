@@ -51,9 +51,9 @@ class QueuedTask:
             raise QueueConflictError("task status is invalid")
         if self._contains_sensitive_key(self.payload):
             raise QueueConflictError("task payload contains sensitive fields")
-        try:json.dumps(dict(self.payload),allow_nan=False)
+        try:canonical_payload=json.dumps(dict(self.payload),allow_nan=False)
         except (TypeError,ValueError) as error:raise QueueConflictError("task payload must be standard JSON") from error
-        object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
+        object.__setattr__(self, "payload", MappingProxyType(json.loads(canonical_payload)))
 
     @staticmethod
     def _contains_sensitive_key(value: Any) -> bool:
