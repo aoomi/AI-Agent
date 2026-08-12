@@ -28,6 +28,7 @@ class CollaborationEvidence:
 class CollaborationSession:
     session_id: str
     tenant_id: str
+    created_by_identity_id: str
     project_id: str
     root_task_id: str
     developer_agent_id: str
@@ -117,8 +118,8 @@ class AgentCollaborationService:
         self._reports: dict[str, InspectionReport] = {}
         self._instructions: dict[str, RemediationInstruction] = {}
 
-    def open_session(self, *, tenant_id: str, project_id: str, root_task_id: str, developer_agent_id: str, inspector_agent_id: str, max_remediation_rounds: int = 3) -> CollaborationSession:
-        tenant_id, project_id, root_task_id = self._required(tenant_id, project_id, root_task_id)
+    def open_session(self, *, tenant_id: str, created_by_identity_id: str, project_id: str, root_task_id: str, developer_agent_id: str, inspector_agent_id: str, max_remediation_rounds: int = 3) -> CollaborationSession:
+        tenant_id, created_by_identity_id, project_id, root_task_id = self._required(tenant_id, created_by_identity_id, project_id, root_task_id)
         developer = self.configurations.get(developer_agent_id)
         inspector = self.configurations.get(inspector_agent_id)
         if developer.role != "developer" or not developer.writable:
@@ -128,7 +129,7 @@ class AgentCollaborationService:
         if not 1 <= max_remediation_rounds <= 100:
             raise AgentCollaborationError("max_remediation_rounds must be between 1 and 100")
         now = self._now()
-        session = CollaborationSession(f"collaboration-{uuid4().hex}", tenant_id, project_id, root_task_id, developer_agent_id, inspector_agent_id, "active", 0, max_remediation_rounds, now, now)
+        session = CollaborationSession(f"collaboration-{uuid4().hex}", tenant_id, created_by_identity_id, project_id, root_task_id, developer_agent_id, inspector_agent_id, "active", 0, max_remediation_rounds, now, now)
         self._sessions[session.session_id] = session
         return session
 
@@ -190,6 +191,23 @@ class AgentCollaborationService:
     def get_session(self, session_id: str) -> CollaborationSession:
         try: return self._sessions[session_id]
         except KeyError as error: raise AgentCollaborationError(f"unknown collaboration session: {session_id}") from error
+
+    def require_owner(self, session_id: str, tenant_id: str, identity_id: str) -> CollaborationSession:
+        tenant_id, identity_id = self._required(tenant_id, identity_id)
+        session = self.get_session(session_id)
+        if (session.tenant_id, session.created_by_identity_id) != (tenant_id, identity_id):
+            raise AgentCollaborationError("collaboration session is not owned by identity")
+        return session
+
+    def require_handoff_owner(self, handoff_id: str, tenant_id: str, identity_id: str) -> TaskHandoff:
+        handoff = self.get_handoff(handoff_id)
+        self.require_owner(handoff.session_id, tenant_id, identity_id)
+        return handoff
+
+    def require_report_owner(self, report_id: str, tenant_id: str, identity_id: str) -> InspectionReport:
+        report = self.get_report(report_id)
+        self.require_owner(report.session_id, tenant_id, identity_id)
+        return report
 
     def get_handoff(self, handoff_id: str) -> TaskHandoff:
         try: return self._handoffs[handoff_id]

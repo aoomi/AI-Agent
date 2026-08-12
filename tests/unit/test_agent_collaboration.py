@@ -32,7 +32,7 @@ class AgentCollaborationServiceTest(unittest.TestCase):
 
     def open(self, executor=None, scheduler=None, max_rounds=3):
         service = AgentCollaborationService(self.configurations, executor, scheduler)
-        session = service.open_session(tenant_id="tenant-1", project_id="project-1", root_task_id="task-1", developer_agent_id=self.developer.agent_id, inspector_agent_id=self.inspector.agent_id, max_remediation_rounds=max_rounds)
+        session = service.open_session(tenant_id="tenant-1", created_by_identity_id="user-1", project_id="project-1", root_task_id="task-1", developer_agent_id=self.developer.agent_id, inspector_agent_id=self.inspector.agent_id, max_remediation_rounds=max_rounds)
         return service, session
 
     def test_developer_submits_and_inspector_returns_read_only_report(self) -> None:
@@ -98,6 +98,21 @@ class AgentCollaborationServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(AgentCollaborationError, "maximum remediation rounds"):
             service.create_remediation(report.report_id)
         self.assertEqual(service.get_session(session.session_id).status, "waiting_human")
+
+    def test_collaboration_resources_are_owner_scoped(self) -> None:
+        executor = InspectionExecutor({"read_only": True, "verdict": "passed", "issues": [], "evidence": []})
+        service, session = self.open(executor)
+        handoff = service.submit_for_inspection(session.session_id, task_id="task-1", context_reference="contexts/task.json")
+        report = service.run_inspection(handoff.handoff_id)
+        for operation in (
+            lambda: service.require_owner(session.session_id, "tenant-1", "user-2"),
+            lambda: service.require_owner(session.session_id, "tenant-2", "user-1"),
+            lambda: service.require_handoff_owner(handoff.handoff_id, "tenant-1", "user-2"),
+            lambda: service.require_report_owner(report.report_id, "tenant-1", "user-2"),
+        ):
+            with self.assertRaisesRegex(AgentCollaborationError, "not owned"):
+                operation()
+        self.assertEqual(service.require_owner(session.session_id, "tenant-1", "user-1").session_id, session.session_id)
 
 
 if __name__ == "__main__": unittest.main()

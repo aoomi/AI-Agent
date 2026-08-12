@@ -3092,3 +3092,5 @@
 - 第二十五项自动测试与稽查：三入口门禁及顺序契约结合会话存储、系统AI身份/幂等和生产控制关联`91 passed`。只读确认前端三个调用均来自`assistantContext`，不引入默认身份或静默降级。
 - 第二十六项稽查首败与整改：平台智能体会话虽记录`created_by_identity_id`，但消息读取、发送、提案读取/确认/拒绝只凭全局session/proposal UUID；同租户异身份知道UUID即可读取完整对话、注入模型上下文或执行提案。现服务层所有会话生命周期操作强制调用者identity与创建者精确匹配，HTTP读写入口统一透传当前身份，越权在模型及执行器副作用前失败关闭。
 - 第二十六项自动测试与稽查：新增异身份读取、发送、提案查看、确认和拒绝全部拒绝的动态测试，平台启动、协作与任务服务关联`24 passed`（另`3 subtests passed`）。只读确认所有公开调用点均已传身份，提案越权不会改变pending状态。
+- 第二十七项稽查首败与整改：平台开发→稽查协作会话只记录tenant/project而不记录创建identity，GET资源、提交稽查、自动循环、执行稽查和创建整改均只凭全局UUID；同租户其他身份可读取证据并推进带副作用的协作状态机。现会话持久契约加入创建identity，所有HTTP读写入口先执行tenant+identity所有权门禁，handoff/report通过所属session反查所有者后才允许执行。
+- 第二十七项自动测试与稽查：新增跨tenant、同tenant异identity的session/handoff/report拒绝矩阵，平台会话、协作与任务服务关联`25 passed`（另`3 subtests passed`）；所有服务构造点同步新必填身份契约。

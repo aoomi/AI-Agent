@@ -25,7 +25,7 @@ class AgentCollaborationIntegrationTest(unittest.TestCase):
         configs.create(agent=developer,skill=skills[developer.skill_id],model_id="model",updated_by_identity_id="owner")
         configs.create(agent=inspector,skill=skills[inspector.skill_id],model_id="model",updated_by_identity_id="owner")
         scheduler=AgentScheduler(registry,AgentContextStore()); service=AgentCollaborationService(configs,SequencedInspector(),scheduler)
-        session=service.open_session(tenant_id="tenant",project_id="project",root_task_id="main",developer_agent_id=developer.agent_id,inspector_agent_id=inspector.agent_id,max_remediation_rounds=2)
+        session=service.open_session(tenant_id="tenant",created_by_identity_id="owner",project_id="project",root_task_id="main",developer_agent_id=developer.agent_id,inspector_agent_id=inspector.agent_id,max_remediation_rounds=2)
         handoff=service.submit_for_inspection(session.session_id,task_id="main",context_reference="contexts/main.json")
         report=service.run_inspection(handoff.handoff_id); instruction=service.create_remediation(report.report_id)
         self.assertEqual(scheduler.remediation(instruction.instruction_id).root_task_id,"main")

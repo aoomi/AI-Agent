@@ -88,10 +88,11 @@ class PlatformRequestHandler(BaseHTTPRequestHandler):
         collaboration_prefix = "/api/v1/agent-collaborations/"
         if path.startswith(collaboration_prefix):
             try:
-                self._identity_context(); tail = path[len(collaboration_prefix):]; service = self.server.agent_collaborations  # type: ignore[attr-defined]
-                if "/" not in tail: item = service.get_session(tail)
+                context = self._identity_context(); tail = path[len(collaboration_prefix):]; service = self.server.agent_collaborations  # type: ignore[attr-defined]
+                if "/" not in tail: item = service.require_owner(tail, context.tenant_id, context.identity_id)
                 else:
                     session_id, resource = tail.split("/", 1)
+                    service.require_owner(session_id, context.tenant_id, context.identity_id)
                     if resource == "handoffs": item = {"items": [self._collaboration_payload(value) for value in service.handoffs(session_id)]}
                     elif resource == "reports": item = {"items": [self._collaboration_payload(value) for value in service.reports(session_id)]}
                     elif resource == "remediations": item = {"items": [self._collaboration_payload(value) for value in service.instructions(session_id)]}
@@ -225,21 +226,27 @@ class PlatformRequestHandler(BaseHTTPRequestHandler):
                 session = self.server.agent_conversations.open_session(body["agent_id"], context.identity_id, body.get("context"))  # type: ignore[attr-defined]
                 self._write_json(HTTPStatus.OK, self._session_payload(session)); return True
             if path == "/api/v1/agent-collaborations":
-                item = self.server.agent_collaborations.open_session(tenant_id=context.tenant_id, project_id=body["project_id"], root_task_id=body["root_task_id"], developer_agent_id=body["developer_agent_id"], inspector_agent_id=body["inspector_agent_id"], max_remediation_rounds=body.get("max_remediation_rounds", 3))  # type: ignore[attr-defined]
+                item = self.server.agent_collaborations.open_session(tenant_id=context.tenant_id, created_by_identity_id=context.identity_id, project_id=body["project_id"], root_task_id=body["root_task_id"], developer_agent_id=body["developer_agent_id"], inspector_agent_id=body["inspector_agent_id"], max_remediation_rounds=body.get("max_remediation_rounds", 3))  # type: ignore[attr-defined]
                 self._write_json(HTTPStatus.OK, self._collaboration_payload(item)); return True
             if path.startswith("/api/v1/agent-collaborations/") and path.endswith("/handoffs"):
                 session_id = path[len("/api/v1/agent-collaborations/"):-9]
+                self.server.agent_collaborations.require_owner(session_id, context.tenant_id, context.identity_id)  # type: ignore[attr-defined]
                 item = self.server.agent_collaborations.submit_for_inspection(session_id, task_id=body["task_id"], context_reference=body["context_reference"], evidence=tuple(body.get("evidence", [])))  # type: ignore[attr-defined]
                 self._write_json(HTTPStatus.OK, self._collaboration_payload(item)); return True
             if path.startswith("/api/v1/agent-collaborations/") and path.endswith("/cycles"):
                 session_id = path[len("/api/v1/agent-collaborations/"):-7]
+                self.server.agent_collaborations.require_owner(session_id, context.tenant_id, context.identity_id)  # type: ignore[attr-defined]
                 handoff, report, remediation = self.server.agent_collaborations.run_cycle(session_id, task_id=body["task_id"], context_reference=body["context_reference"], evidence=tuple(body.get("evidence", [])))  # type: ignore[attr-defined]
                 self._write_json(HTTPStatus.OK, {"handoff":self._collaboration_payload(handoff), "report":self._collaboration_payload(report), "remediation":self._collaboration_payload(remediation) if remediation else None}); return True
             if path.startswith("/api/v1/agent-handoffs/") and path.endswith("/inspect"):
-                item = self.server.agent_collaborations.run_inspection(path[len("/api/v1/agent-handoffs/"):-8])  # type: ignore[attr-defined]
+                handoff_id = path[len("/api/v1/agent-handoffs/"):-8]
+                self.server.agent_collaborations.require_handoff_owner(handoff_id, context.tenant_id, context.identity_id)  # type: ignore[attr-defined]
+                item = self.server.agent_collaborations.run_inspection(handoff_id)  # type: ignore[attr-defined]
                 self._write_json(HTTPStatus.OK, self._collaboration_payload(item)); return True
             if path.startswith("/api/v1/inspection-reports/") and path.endswith("/remediation"):
-                item = self.server.agent_collaborations.create_remediation(path[len("/api/v1/inspection-reports/"):-12])  # type: ignore[attr-defined]
+                report_id = path[len("/api/v1/inspection-reports/"):-12]
+                self.server.agent_collaborations.require_report_owner(report_id, context.tenant_id, context.identity_id)  # type: ignore[attr-defined]
+                item = self.server.agent_collaborations.create_remediation(report_id)  # type: ignore[attr-defined]
                 self._write_json(HTTPStatus.OK, self._collaboration_payload(item)); return True
             conversation_prefix = "/api/v1/agent-conversations/"
             if path.startswith(conversation_prefix) and path.endswith("/messages"):
