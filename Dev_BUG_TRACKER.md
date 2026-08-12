@@ -3340,3 +3340,5 @@
 - 第一百六十一项自动测试与稽查：数字agent及任意state对象动态失败关闭；生命周期关联回归、Python编译与diff门禁通过。
 - 第一百六十二项稽查首败与整改：ProviderService注册会把数字身份隐式字符串化，get/test_connection又直接strip，导致写入含混注册键或泄漏AttributeError。现五类身份字段及控制入口均要求真实字符串。
 - 第一百六十二项自动测试与稽查：数字provider注册/读取/探活动态失败关闭；专项关联回归、Python编译与diff门禁通过。
+- 第一百六十三项稽查首败与整改：ConversationMemoryStore与AgentConversation内部查找直接对身份调用strip，数字session/proposal/owner/project会泄漏AttributeError。现memory与所有权控制在读取共享表前统一验证字符串。
+- 第一百六十三项自动测试与稽查：五类数字memory/session/proposal身份动态失败关闭；会话关联回归、Python编译与diff门禁通过。

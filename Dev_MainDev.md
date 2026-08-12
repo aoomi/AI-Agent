@@ -1163,3 +1163,4 @@ M1—M11 全部实现并通过单元、契约、集成、端到端、安全、�
 - BUG072第一百六十项：SQLite状态/队列与本地对象存储的tenant、namespace、key已强制字符串身份，数字等伪scope不能与真实字符串命名空间发生隐式碰撞。持久化关联回归通过。
 - BUG072第一百六十一项：AgentState及transition已验证字符串agent身份和状态模型实例，畸形生命周期对象不会泄漏属性异常。生命周期关联回归通过。
 - BUG072第一百六十二项：ProviderService注册、读取及健康检查已强制字符串身份字段，数字provider等伪值不会被隐式转换成共享注册键或泄漏strip异常。专项关联回归通过。
+- BUG072第一百六十三项：会话memory及session/proposal所有权查找已强制字符串身份，数字scope/ID不会泄漏strip异常或进入共享对话域。会话关联回归通过。

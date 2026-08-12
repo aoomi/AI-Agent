@@ -41,6 +41,11 @@ class AgentConversationServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(ConversationError,"context must be a mapping"):service.open_session(agent.agent_id,"identity",[])
         with self.assertRaisesRegex(ConversationError,"session_id is required"):service.messages(" ","identity")
         with self.assertRaisesRegex(ConversationError,"proposal_id is required"):service.confirm(" ","identity")
+        for operation in (lambda:service.messages(1,"identity"),lambda:service.messages("missing",1),lambda:service.confirm(1,"identity")):
+            with self.subTest(operation=operation),self.assertRaises(ConversationError):operation()
+        memory=ConversationMemoryStore()
+        for operation in (lambda:memory.read(1,"project"),lambda:memory.update("identity",1,{})):
+            with self.subTest(operation=operation),self.assertRaises(ConversationError):operation()
     def setUp(self) -> None:
         self.skills = {skill.skill_id: skill for skill in SkillRegistry(ROOT / "plugins/builtin").scan()}
         self.agents = AgentRegistry(); self.models = ModelRegistry()
