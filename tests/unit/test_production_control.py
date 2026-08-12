@@ -146,6 +146,21 @@ class ProductionControlTests(unittest.TestCase):
                 leases.acquire("job", "worker", ttl=30, now=99)
             self.assertTrue(leases.owns("job", "worker", int(lease["generation"]), now=105))
 
+    def test_task_lease_control_operations_reject_anonymous_or_invalid_owner(self):
+        with TemporaryDirectory() as temporary:
+            leases = TaskLeaseRepository(Path(temporary) / "leases.sqlite")
+            for operation in (
+                lambda: leases.renew("", "worker", 1),
+                lambda: leases.release("job", "", 1),
+                lambda: leases.owns("job", "worker", 0),
+                lambda: leases.cancellation_requested("job", "worker", True),
+                lambda: leases.request_cancel(""),
+            ):
+                with self.assertRaises(TaskLeaseError): operation()
+            lease = leases.acquire("job", "worker", ttl=30, now=100)
+            with self.assertRaisesRegex(TaskLeaseError, "renewal"):
+                leases.renew("job", "worker", int(lease["generation"]), ttl=0, now=101)
+
     def test_task_lease_allows_only_one_concurrent_executor(self):
         with TemporaryDirectory() as temporary:
             database = Path(temporary) / "leases.sqlite"; barrier = threading.Barrier(3); winners = []; conflicts = []

@@ -3196,3 +3196,5 @@
 - 第八十九项自动测试与稽查：顶层、对象嵌套和数组嵌套三类敏感payload均构造失败；队列、服务、集成及E2E关联`19 passed`（另`3 subtests passed`），Python编译与diff门禁通过。
 - 第九十项稽查首败与整改：DurableTaskRepository仅阻止同job_id跨task_class覆盖，却允许相同task_class用另一tenant/user/project更新同一全局主键，原所有者记录会被直接迁移且旧scope消失。现写事务读取当前owner并要求三字段不可变，检查严格早于upsert和outbox写入。
 - 第九十项自动测试与稽查：同job同task_class异user动态拒绝，旧owner读取仍命中且状态未变；持久任务、outbox和投影关联`13 passed`，Python编译与diff门禁通过。
+- 第九十一项稽查首败与整改：TaskLease acquire会校验身份和TTL，但renew/release/owns/cancellation_requested/commit_guard接受空job、空owner、零或布尔generation，request_cancel也接受空job；坏控制请求会落入共享SQLite查询并伪装false。现所有owner操作共用严格身份/代际门禁，取消和renew补齐目标及TTL校验。
+- 第九十一项自动测试与稽查：五类匿名/非法owner控制及零TTL均动态失败关闭，合法租约语义保持；租约关联`6 passed`，Python编译与diff门禁通过。
